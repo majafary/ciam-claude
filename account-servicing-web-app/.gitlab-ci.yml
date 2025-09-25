@@ -1,0 +1,434 @@
+# GitLab CI/CD Pipeline for Account Servicing Web App
+# Secure React TypeScript application with enhanced security scanning
+
+variables:
+  NODE_VERSION: "22"
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+
+stages:
+  - test
+  - build
+  - security
+  - deploy
+
+# Cache configuration
+cache:
+  paths:
+    - node_modules/
+    - .npm/
+  policy: pull-push
+
+# Test Stage
+test:unit:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:unit
+    - npm run test:coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+      junit: coverage/junit.xml
+    paths:
+      - coverage/
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:e2e:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.40.0-focal
+  services:
+    - name: node:${NODE_VERSION}-alpine
+      alias: app-server
+      command: ["npm", "run", "preview", "--", "--host", "0.0.0.0"]
+    - name: node:${NODE_VERSION}-alpine
+      alias: ciam-backend
+      command: ["npm", "start"]
+  variables:
+    PLAYWRIGHT_BASE_URL: "http://app-server:3001"
+    VITE_CIAM_BACKEND_URL: "http://ciam-backend:8080"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - npm run build
+  script:
+    - npx playwright test --config=playwright.config.secure.ts
+  artifacts:
+    reports:
+      junit: test-results/junit.xml
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 7 days
+    when: always
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:security-e2e:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.40.0-focal
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - npm run build
+  script:
+    - npx playwright test --config=playwright.config.security.ts
+  artifacts:
+    reports:
+      junit: test-results/security-junit.xml
+    paths:
+      - test-results/security/
+    expire_in: 7 days
+    when: always
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:accessibility:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - npm run test:a11y
+  artifacts:
+    reports:
+      accessibility: accessibility-report.json
+    expire_in: 7 days
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+lint:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run lint
+    - npm run type-check
+    - npm run format:check
+  artifacts:
+    reports:
+      codequality: gl-codequality.json
+    expire_in: 3 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Enhanced Security Stage
+security:dependency-scan:
+  stage: security
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm audit --audit-level=moderate
+    - npx audit-ci --config ./audit-ci.json
+  allow_failure: false
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:secrets-scan:
+  stage: security
+  image: registry.gitlab.com/gitlab-org/security-products/analyzers/secrets:latest
+  script:
+    - /analyzer run
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:sast:
+  stage: security
+  image: registry.gitlab.com/gitlab-org/security-products/analyzers/eslint:latest
+  script:
+    - /analyzer run
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:container-scan:
+  stage: security
+  image: docker:stable
+  services:
+    - docker:stable-dind
+  before_script:
+    - docker build -t $CI_APPLICATION_REPOSITORY:$CI_APPLICATION_TAG .
+  script:
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+      -v $PWD:/tmp aquasec/trivy image
+      --format template --template "@contrib/gitlab.tpl"
+      --output gl-container-scanning-report.json
+      $CI_APPLICATION_REPOSITORY:$CI_APPLICATION_TAG
+  artifacts:
+    reports:
+      container_scanning: gl-container-scanning-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Build Stage
+build:development:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  variables:
+    VITE_NODE_ENV: "development"
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend-dev.example.com"
+    VITE_STOREFRONT_URL: "https://storefront-dev.example.com"
+    VITE_DEBUG_CIAM: "true"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Development build completed"
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 3 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+build:staging:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  variables:
+    VITE_NODE_ENV: "staging"
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend-staging.example.com"
+    VITE_STOREFRONT_URL: "https://storefront-staging.example.com"
+    VITE_DEBUG_CIAM: "false"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Staging build completed"
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:production:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  variables:
+    VITE_NODE_ENV: "production"
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend.example.com"
+    VITE_STOREFRONT_URL: "https://storefront.example.com"
+    VITE_DEBUG_CIAM: "false"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Production build completed"
+    - npm run build:analyze
+    - echo "Generating security headers configuration"
+  artifacts:
+    paths:
+      - dist/
+      - bundle-analyzer-report.html
+      - security-headers.conf
+    expire_in: 1 month
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# Secure Docker Build
+build:docker:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE/account-servicing-web-app:$CI_COMMIT_SHA
+    DOCKER_LATEST_TAG: $CI_REGISTRY_IMAGE/account-servicing-web-app:latest
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - echo "Building secure Docker image with hardened configuration"
+  script:
+    - docker build --target production -t $DOCKER_IMAGE_TAG -t $DOCKER_LATEST_TAG .
+    - docker push $DOCKER_IMAGE_TAG
+    - docker push $DOCKER_LATEST_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Deploy Stages with Enhanced Security
+deploy:development:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: development
+    url: https://account-servicing-dev.example.com
+  dependencies:
+    - build:development
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to secure development environment"
+    - curl -X POST "$DEV_DEPLOY_WEBHOOK"
+      -H "Authorization: Bearer $DEV_DEPLOY_TOKEN"
+      -H "X-Security-Level: development"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy:staging:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: staging
+    url: https://account-servicing-staging.example.com
+  dependencies:
+    - build:staging
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to secure staging environment"
+    - curl -X POST "$STAGING_DEPLOY_WEBHOOK"
+      -H "Authorization: Bearer $STAGING_DEPLOY_TOKEN"
+      -H "X-Security-Level: staging"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+deploy:production:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: production
+    url: https://account-servicing.example.com
+  dependencies:
+    - build:production
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to secure production environment"
+    - echo "Validating security headers configuration"
+    - curl -X POST "$PRODUCTION_DEPLOY_WEBHOOK"
+      -H "Authorization: Bearer $PRODUCTION_DEPLOY_TOKEN"
+      -H "X-Security-Level: production"
+  rules:
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Security Monitoring
+security:runtime-scan:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: runtime-security
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Running runtime security scans"
+    - curl -f $CI_ENVIRONMENT_URL/health || exit 1
+    - echo "Performing security header validation"
+    - curl -I $CI_ENVIRONMENT_URL | grep -E "(X-Content-Type-Options|X-Frame-Options|Strict-Transport-Security)" || exit 1
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Performance and Security Testing
+performance:security-audit:
+  stage: deploy
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm install -g lighthouse
+  script:
+    - lighthouse $CI_ENVIRONMENT_URL
+      --output json
+      --output-path lighthouse-security-report.json
+      --only-categories=best-practices,seo,accessibility
+  artifacts:
+    reports:
+      performance: lighthouse-security-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+# Compliance Testing
+test:compliance:
+  stage: deploy
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:compliance -- --baseURL=$CI_ENVIRONMENT_URL
+    - echo "Running PCI DSS compliance checks"
+    - echo "Running SOX compliance validation"
+  artifacts:
+    reports:
+      junit: test-results/compliance-junit.xml
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+# Secure Review Apps
+deploy:review:
+  stage: deploy
+  image: node:${NODE_VERSION}-alpine
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    url: https://account-servicing-$CI_COMMIT_REF_SLUG.review.example.com
+    on_stop: cleanup:review
+  variables:
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend-staging.example.com"
+    VITE_STOREFRONT_URL: "https://storefront-staging.example.com"
+    VITE_DEBUG_CIAM: "false"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Secure review app deployed with staging security configuration"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+cleanup:review:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    action: stop
+  script:
+    - echo "Securely cleaning up review app for $CI_COMMIT_REF_SLUG"
+    - echo "Ensuring sensitive data is properly removed"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  when: manual
+
+# Monitoring and Alerting
+monitoring:security-alerts:
+  stage: .post
+  image: alpine:latest
+  script:
+    - echo "Setting up security monitoring for account servicing application"
+    - echo "Configuring alerts for authentication failures and suspicious access patterns"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  when: manual

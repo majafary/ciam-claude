@@ -1,0 +1,274 @@
+# GitLab CI/CD Pipeline for CIAM UI SDK
+# React TypeScript library with component testing and NPM publishing
+
+variables:
+  NODE_VERSION: "22"
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+
+stages:
+  - test
+  - build
+  - security
+  - publish
+
+# Cache configuration
+cache:
+  paths:
+    - node_modules/
+    - .npm/
+  policy: pull-push
+
+# Test Stage
+test:unit:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:unit
+    - npm run test:coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+      junit: coverage/junit.xml
+    paths:
+      - coverage/
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:component:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:component
+  artifacts:
+    reports:
+      junit: test-results/component-junit.xml
+    expire_in: 3 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:accessibility:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:a11y
+  artifacts:
+    reports:
+      accessibility: accessibility-report.json
+    expire_in: 7 days
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+lint:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run lint
+    - npm run type-check
+    - npm run format:check
+  artifacts:
+    reports:
+      codequality: gl-codequality.json
+    expire_in: 3 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Security Stage
+security:dependency-scan:
+  stage: security
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm audit --audit-level=high
+    - npx audit-ci --config ./audit-ci.json
+  allow_failure: true
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:license-scan:
+  stage: security
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npx license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC"
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Build Stage
+build:library:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - npm pack
+  artifacts:
+    paths:
+      - dist/
+      - lib/
+      - "*.tgz"
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+build:storybook:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build-storybook
+  artifacts:
+    paths:
+      - storybook-static/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:docs:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run generate-docs
+  artifacts:
+    paths:
+      - docs/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Publish Stage
+publish:npm-dev:
+  stage: publish
+  image: node:${NODE_VERSION}-alpine
+  environment:
+    name: npm-development
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+  script:
+    - npm version prerelease --preid=dev-${CI_COMMIT_SHORT_SHA} --no-git-tag-version
+    - npm publish --tag dev
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+publish:npm-staging:
+  stage: publish
+  image: node:${NODE_VERSION}-alpine
+  environment:
+    name: npm-staging
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+  script:
+    - npm version prerelease --preid=rc --no-git-tag-version
+    - npm publish --tag rc
+  rules:
+    - if: $CI_COMMIT_BRANCH == "release"
+  when: manual
+
+publish:npm-production:
+  stage: publish
+  image: node:${NODE_VERSION}-alpine
+  environment:
+    name: npm-production
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+  script:
+    - npm publish --tag latest
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+publish:nexus-dev:
+  stage: publish
+  image: node:${NODE_VERSION}-alpine
+  environment:
+    name: nexus-development
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - echo "//nexus.example.com/repository/npm-hosted/:_authToken=${NEXUS_TOKEN}" > ~/.npmrc
+    - npm config set registry https://nexus.example.com/repository/npm-hosted/
+  script:
+    - npm version prerelease --preid=dev-${CI_COMMIT_SHORT_SHA} --no-git-tag-version
+    - npm publish --tag dev
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Deploy Documentation
+deploy:storybook:
+  stage: publish
+  image: alpine:latest
+  environment:
+    name: storybook
+    url: https://ciam-ui-storybook.example.com
+  dependencies:
+    - build:storybook
+  script:
+    - echo "Deploying Storybook to CDN or static hosting"
+    - echo "Upload storybook-static/ to hosting service"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+deploy:docs:
+  stage: publish
+  image: alpine:latest
+  environment:
+    name: documentation
+    url: https://ciam-ui-docs.example.com
+  dependencies:
+    - build:docs
+  script:
+    - echo "Deploying documentation to hosting service"
+    - echo "Upload docs/ to documentation hosting"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Visual Regression Testing
+test:visual-regression:
+  stage: publish
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:visual
+  artifacts:
+    paths:
+      - visual-test-results/
+    expire_in: 7 days
+    when: on_failure
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual

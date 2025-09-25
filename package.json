@@ -1,0 +1,41 @@
+{
+  "name": "ciam-integration-suite",
+  "version": "1.0.0",
+  "description": "Complete CIAM Integration Suite with Account Servicing",
+  "private": true,
+  "workspaces": [
+    "ciam-backend",
+    "ciam-ui",
+    "storefront-web-app",
+    "account-servicing-web-app"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --workspace=ciam-backend && npm install --workspace=ciam-ui && npm install --workspace=storefront-web-app && npm install --workspace=account-servicing-web-app",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:ciam-ui\" \"npm run dev:storefront\" \"npm run dev:account\"",
+    "dev:backend": "npm run dev --workspace=ciam-backend",
+    "dev:ciam-ui": "npm run dev --workspace=ciam-ui",
+    "dev:storefront": "npm run dev --workspace=storefront-web-app",
+    "dev:account": "npm run dev --workspace=account-servicing-web-app",
+    "build:all": "npm run build --workspace=ciam-ui && npm run build --workspace=ciam-backend && npm run build --workspace=storefront-web-app && npm run build --workspace=account-servicing-web-app",
+    "build:backend": "npm run build --workspace=ciam-backend",
+    "build:ciam-ui": "npm run build --workspace=ciam-ui",
+    "build:storefront": "npm run build --workspace=storefront-web-app",
+    "build:account": "npm run build --workspace=account-servicing-web-app",
+    "test:all": "npm run test --workspace=ciam-backend && npm run test --workspace=ciam-ui && npm run test --workspace=storefront-web-app && npm run test --workspace=account-servicing-web-app",
+    "test:unit": "npm run test:unit --workspace=ciam-backend && npm run test:unit --workspace=ciam-ui && npm run test:unit --workspace=storefront-web-app && npm run test:unit --workspace=account-servicing-web-app",
+    "test:coverage": "npm run test:coverage --workspace=ciam-backend && npm run test:coverage --workspace=ciam-ui && npm run test:coverage --workspace=storefront-web-app && npm run test:coverage --workspace=account-servicing-web-app",
+    "lint:all": "npm run lint --workspace=ciam-backend && npm run lint --workspace=ciam-ui && npm run lint --workspace=storefront-web-app && npm run lint --workspace=account-servicing-web-app",
+    "format:all": "npm run format --workspace=ciam-backend && npm run format --workspace=ciam-ui && npm run format --workspace=storefront-web-app && npm run format --workspace=account-servicing-web-app",
+    "start:prod": "npm run start --workspace=ciam-backend",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down -v",
+    "docker:rebuild": "docker-compose down -v && docker-compose up --build --force-recreate"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}

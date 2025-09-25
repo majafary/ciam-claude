@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(docker-compose up:*)",
+      "Bash(npm run build:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker system prune:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:all:*)",
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(docker logs:*)",
+      "Bash(/dev/null)",
+      "Bash(docker ps:*)",
+      "Bash(pkill:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

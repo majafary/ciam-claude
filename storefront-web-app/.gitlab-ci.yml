@@ -1,0 +1,356 @@
+# GitLab CI/CD Pipeline for Storefront Web App
+# React TypeScript application with Vite build system
+
+variables:
+  NODE_VERSION: "22"
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+
+stages:
+  - test
+  - build
+  - security
+  - deploy
+
+# Cache configuration
+cache:
+  paths:
+    - node_modules/
+    - .npm/
+  policy: pull-push
+
+# Test Stage
+test:unit:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:unit
+    - npm run test:coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+      junit: coverage/junit.xml
+    paths:
+      - coverage/
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:e2e:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.40.0-focal
+  services:
+    - name: node:${NODE_VERSION}-alpine
+      alias: app-server
+      command: ["npm", "run", "preview", "--", "--host", "0.0.0.0"]
+  variables:
+    PLAYWRIGHT_BASE_URL: "http://app-server:3000"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+    - npm run build
+  script:
+    - npx playwright test
+  artifacts:
+    reports:
+      junit: test-results/junit.xml
+    paths:
+      - test-results/
+      - playwright-report/
+    expire_in: 7 days
+    when: always
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:accessibility:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - npm run test:a11y
+  artifacts:
+    reports:
+      accessibility: accessibility-report.json
+    expire_in: 7 days
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+lint:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run lint
+    - npm run type-check
+    - npm run format:check
+  artifacts:
+    reports:
+      codequality: gl-codequality.json
+    expire_in: 3 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Security Stage
+security:dependency-scan:
+  stage: security
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm audit --audit-level=high
+    - npx audit-ci --config ./audit-ci.json
+  allow_failure: true
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:secrets-scan:
+  stage: security
+  image: registry.gitlab.com/gitlab-org/security-products/analyzers/secrets:latest
+  script:
+    - /analyzer run
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Build Stage
+build:development:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  variables:
+    VITE_NODE_ENV: "development"
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend-dev.example.com"
+    VITE_ACCOUNT_SERVICING_URL: "https://account-servicing-dev.example.com"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Development build completed"
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 3 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+build:staging:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  variables:
+    VITE_NODE_ENV: "staging"
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend-staging.example.com"
+    VITE_ACCOUNT_SERVICING_URL: "https://account-servicing-staging.example.com"
+    VITE_DEBUG_CIAM: "false"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Staging build completed"
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:production:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  variables:
+    VITE_NODE_ENV: "production"
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend.example.com"
+    VITE_ACCOUNT_SERVICING_URL: "https://account-servicing.example.com"
+    VITE_DEBUG_CIAM: "false"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Production build completed"
+    - npm run build:analyze
+  artifacts:
+    paths:
+      - dist/
+      - bundle-analyzer-report.html
+    expire_in: 1 month
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# Docker Build
+build:docker:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE/storefront-web-app:$CI_COMMIT_SHA
+    DOCKER_LATEST_TAG: $CI_REGISTRY_IMAGE/storefront-web-app:latest
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $DOCKER_IMAGE_TAG -t $DOCKER_LATEST_TAG .
+    - docker push $DOCKER_IMAGE_TAG
+    - docker push $DOCKER_LATEST_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Deploy Stages
+deploy:development:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: development
+    url: https://storefront-dev.example.com
+  dependencies:
+    - build:development
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to development environment"
+    - curl -X POST "$DEV_DEPLOY_WEBHOOK" -H "Authorization: Bearer $DEV_DEPLOY_TOKEN"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy:staging:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: staging
+    url: https://storefront-staging.example.com
+  dependencies:
+    - build:staging
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to staging environment"
+    - curl -X POST "$STAGING_DEPLOY_WEBHOOK" -H "Authorization: Bearer $STAGING_DEPLOY_TOKEN"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+deploy:production:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: production
+    url: https://storefront.example.com
+  dependencies:
+    - build:production
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to production environment"
+    - curl -X POST "$PRODUCTION_DEPLOY_WEBHOOK" -H "Authorization: Bearer $PRODUCTION_DEPLOY_TOKEN"
+  rules:
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Static Site Deployment (Alternative to Docker)
+deploy:s3-staging:
+  stage: deploy
+  image: amazon/aws-cli:latest
+  environment:
+    name: staging-s3
+    url: https://storefront-staging.s3-website.example.com
+  dependencies:
+    - build:staging
+  script:
+    - aws s3 sync dist/ s3://$S3_STAGING_BUCKET --delete
+    - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_STAGING_ID --paths "/*"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+deploy:s3-production:
+  stage: deploy
+  image: amazon/aws-cli:latest
+  environment:
+    name: production-s3
+    url: https://storefront.example.com
+  dependencies:
+    - build:production
+  script:
+    - aws s3 sync dist/ s3://$S3_PRODUCTION_BUCKET --delete
+    - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_PRODUCTION_ID --paths "/*"
+  rules:
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Performance Testing
+performance:lighthouse:
+  stage: deploy
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm install -g lighthouse
+  script:
+    - lighthouse $CI_ENVIRONMENT_URL --output json --output-path lighthouse-report.json
+  artifacts:
+    reports:
+      performance: lighthouse-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+# Smoke Tests
+test:smoke:
+  stage: deploy
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:smoke -- --baseURL=$CI_ENVIRONMENT_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Review Apps
+deploy:review:
+  stage: deploy
+  image: node:${NODE_VERSION}-alpine
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    url: https://storefront-$CI_COMMIT_REF_SLUG.review.example.com
+    on_stop: cleanup:review
+  variables:
+    VITE_CIAM_BACKEND_URL: "https://ciam-backend-staging.example.com"
+    VITE_ACCOUNT_SERVICING_URL: "https://account-servicing-staging.example.com"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - echo "Review app deployed to https://storefront-$CI_COMMIT_REF_SLUG.review.example.com"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+cleanup:review:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    action: stop
+  script:
+    - echo "Cleaning up review app for $CI_COMMIT_REF_SLUG"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  when: manual

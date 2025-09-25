@@ -1,0 +1,65 @@
+services:
+  ciam-backend:
+    build:
+      context: ./ciam-backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=development
+      - PORT=8080
+      - JWT_SECRET=your-super-secret-jwt-key-for-development
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:3002
+    volumes:
+      - ./ciam-backend:/app
+      - /app/node_modules
+    command: npm run dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  storefront-web-app:
+    build:
+      context: .
+      dockerfile: storefront-web-app/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - ciam-backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  account-servicing-web-app:
+    build:
+      context: .
+      dockerfile: account-servicing-web-app/Dockerfile
+    ports:
+      - "3001:3001"
+    depends_on:
+      - ciam-backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  ciam-ui-dev:
+    build:
+      context: ./ciam-ui
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+networks:
+  default:
+    name: ciam-network

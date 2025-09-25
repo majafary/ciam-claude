@@ -1,0 +1,205 @@
+# GitLab CI/CD Pipeline for CIAM Backend
+# Node.js backend with TypeScript, Jest testing, and Docker deployment
+
+variables:
+  NODE_VERSION: "22"
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+
+stages:
+  - test
+  - build
+  - security
+  - deploy
+
+# Cache configuration
+cache:
+  paths:
+    - node_modules/
+    - .npm/
+  policy: pull-push
+
+# Test Stage
+test:unit:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:unit
+    - npm run test:coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+      junit: coverage/junit.xml
+    paths:
+      - coverage/
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:integration:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  services:
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    REDIS_URL: "redis://redis:6379"
+    NODE_ENV: "test"
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:integration
+  artifacts:
+    reports:
+      junit: test-results/integration-junit.xml
+    expire_in: 3 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+lint:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run lint
+    - npm run type-check
+  artifacts:
+    reports:
+      codequality: gl-codequality.json
+    expire_in: 3 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Security Stage
+security:dependency-scan:
+  stage: security
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm audit --audit-level=high
+    - npx audit-ci --config ./audit-ci.json
+  allow_failure: true
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:secrets-scan:
+  stage: security
+  image: registry.gitlab.com/gitlab-org/security-products/analyzers/secrets:latest
+  script:
+    - /analyzer run
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Build Stage
+build:docker:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE/ciam-backend:$CI_COMMIT_SHA
+    DOCKER_LATEST_TAG: $CI_REGISTRY_IMAGE/ciam-backend:latest
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $DOCKER_IMAGE_TAG -t $DOCKER_LATEST_TAG .
+    - docker push $DOCKER_IMAGE_TAG
+    - docker push $DOCKER_LATEST_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+build:artifacts:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run build
+    - npm prune --production
+  artifacts:
+    paths:
+      - dist/
+      - node_modules/
+      - package.json
+      - package-lock.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Deploy Stages
+deploy:staging:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: staging
+    url: https://ciam-backend-staging.example.com
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to staging environment"
+    - curl -X POST "$STAGING_DEPLOY_WEBHOOK" -H "Authorization: Bearer $STAGING_DEPLOY_TOKEN"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+deploy:production:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: production
+    url: https://ciam-backend.example.com
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "Deploying to production environment"
+    - curl -X POST "$PRODUCTION_DEPLOY_WEBHOOK" -H "Authorization: Bearer $PRODUCTION_DEPLOY_TOKEN"
+  rules:
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Performance Testing
+performance:load-test:
+  stage: deploy
+  image: loadimpact/k6:latest
+  script:
+    - k6 run --out json=load_test_results.json tests/performance/load-test.js
+  artifacts:
+    reports:
+      performance: load_test_results.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+# Cleanup
+cleanup:
+  stage: .post
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  script:
+    - docker system prune -f
+  rules:
+    - when: always
