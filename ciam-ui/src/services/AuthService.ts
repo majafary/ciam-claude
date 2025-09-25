@@ -29,7 +29,18 @@ export class AuthService {
     }
   }
 
-  private async fetchWithRetry(url: string, options: RequestInit): Promise<Response> {
+  private getDefaultErrorMessage(responseTypeCode: string): string {
+    const messages: Record<string, string> = {
+      'MFA_REQUIRED': 'Multi-factor authentication required',
+      'MFA_LOCKED': 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
+      'ACCOUNT_LOCKED': 'Account is temporarily locked',
+      'INVALID_CREDENTIALS': 'Invalid username or password',
+      'MISSING_CREDENTIALS': 'Username and password are required'
+    };
+    return messages[responseTypeCode] || 'An error occurred during authentication';
+  }
+
+  private async fetchWithRetry(url: string, options: RequestInit): Promise<any> {
     let lastError: Error;
 
     for (let attempt = 1; attempt <= this.retries; attempt++) {
@@ -47,13 +58,29 @@ export class AuthService {
 
         clearTimeout(timeoutId);
 
+        const responseData = await response.json().catch(() => null);
+
         if (!response.ok) {
-          const errorData = await response.json().catch(() => null);
-          throw new Error(errorData?.message || `HTTP ${response.status}: ${response.statusText}`);
+          // Special handling for all non-success responseTypeCodes
+          // These should be returned normally instead of throwing errors
+          const responseTypeCode = responseData?.responseTypeCode;
+          if (responseTypeCode && [
+            'MFA_REQUIRED', 'MFA_LOCKED', 'ACCOUNT_LOCKED',
+            'INVALID_CREDENTIALS', 'MISSING_CREDENTIALS'
+          ].includes(responseTypeCode)) {
+            return responseData;
+          }
+
+          const apiError: ApiError = {
+            code: responseData?.error || 'HTTP_ERROR',
+            message: responseData?.message || `HTTP ${response.status}: ${response.statusText}`,
+            timestamp: new Date().toISOString(),
+          };
+          throw new Error(JSON.stringify(apiError));
         }
 
         this.log(`Success: ${response.status}`);
-        return response;
+        return responseData;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown error');
         this.log(`Attempt ${attempt} failed:`, lastError.message);
@@ -92,8 +119,8 @@ export class AuthService {
     };
 
     try {
-      const response = await this.fetchWithRetry(url, mergedOptions);
-      return await response.json();
+      const responseData = await this.fetchWithRetry(url, mergedOptions);
+      return responseData;
     } catch (error) {
       this.log('API call failed:', error);
       throw this.handleApiError(error);
@@ -143,21 +170,73 @@ export class AuthService {
    * User login
    */
   async login(username: string, password: string, drsActionToken?: string): Promise<LoginResponse> {
-    const response = await this.apiCall<LoginResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        username,
-        password,
-        drs_action_token: drsActionToken,
-      }),
-    });
+    try {
+      const response = await this.apiCall<any>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username,
+          password,
+          drs_action_token: drsActionToken,
+        }),
+      });
 
-    // Store access token if login was successful
-    if (response.access_token) {
-      this.setStoredAccessToken(response.access_token);
+      // Handle all error response types
+      if (response.responseTypeCode && response.responseTypeCode !== 'SUCCESS') {
+        return {
+          responseTypeCode: response.responseTypeCode,
+          message: response.message || this.getDefaultErrorMessage(response.responseTypeCode),
+          sessionId: response.sessionId || '',
+        };
+      }
+
+      // Store access token if login was successful
+      if (response.access_token) {
+        this.setStoredAccessToken(response.access_token);
+      }
+
+      // For successful login, convert to expected LoginResponse format
+      return {
+        responseTypeCode: 'SUCCESS',
+        message: response.message,
+        id_token: response.id_token,
+        access_token: response.access_token,
+        refresh_token: response.refresh_token,
+        sessionId: response.sessionId || '',
+        transactionId: response.transactionId,
+        deviceId: response.deviceId,
+      };
+    } catch (error) {
+      // Handle regular error cases
+      if (error instanceof Error) {
+        try {
+          const errorData = JSON.parse(error.message) as ApiError;
+
+          // Check if this is actually an MFA required response that came through error path
+          if (errorData.code === 'MFA_REQUIRED') {
+            // Return as successful MFA response instead of throwing error
+            return {
+              responseTypeCode: 'MFA_REQUIRED',
+              message: errorData.message || 'Multi-factor authentication required',
+              sessionId: '', // Backend doesn't provide sessionId for MFA case
+            };
+          }
+
+          // Check if this is actually an MFA_LOCKED response that came through error path
+          if (errorData.code === 'MFA_LOCKED') {
+            return {
+              responseTypeCode: 'MFA_LOCKED',
+              message: errorData.message || 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
+              sessionId: '',
+            };
+          }
+        } catch {
+          // Not a JSON error, fall through to normal error handling
+        }
+      }
+
+      // Re-throw for all other errors
+      throw error;
     }
-
-    return response;
   }
 
   /**

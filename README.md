@@ -70,11 +70,13 @@ npm run dev:account     # Account Servicing (Port 3001)
 
 | Username | Password | Expected Behavior |
 |----------|----------|------------------|
-| `testuser` | `password` | ✅ Login → MFA Required → OTP: `1234` → Success |
-| `userlockeduser` | `password` | ❌ Account Locked Error |
-| `mfalockeduser` | `password` | ✅ Login → ❌ MFA Locked Error |
+| `testuser` | `password` | ✅ Success Login (no MFA required) |
+| `mfauser` | `password` | ✅ Login → MFA Required → OTP: `1234` → Success |
+| `lockeduser` | `any` | ❌ Account Locked Error |
+| `mfalockeduser` | `any` | ❌ MFA Locked Error (call support message) |
 | `wronguser` | `password` | ❌ Invalid Credentials |
 | `testuser` | `wrongpass` | ❌ Invalid Credentials |
+| (empty) | (empty) | ❌ Missing Credentials |
 
 ### MFA Test Scenarios
 - **OTP**: Enter `1234` for success, any other value for failure
@@ -104,9 +106,9 @@ npm run dev:account     # Account Servicing (Port 3001)
 ### 3. **Account Locked Scenario**
 ```bash
 # Test account security
-1. Try login with: userlockeduser / password
-2. Should see "Account locked" error message
-3. Contact support link should be visible
+1. Try login with: lockeduser / password
+2. Should see "Account is temporarily locked" error message
+3. Error alert should be visible in UI
 ```
 
 ### 4. **MFA Locked Scenario**

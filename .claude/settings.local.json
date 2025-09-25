@@ -13,7 +13,13 @@
       "Bash(docker logs:*)",
       "Bash(/dev/null)",
       "Bash(docker ps:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(npm test)",
+      "Bash(chmod:*)",
+      "Bash(./test-ciam-change.sh:*)",
+      "Bash(grep:*)",
+      "Bash(open http://localhost:3000)",
+      "Bash(open http://localhost:3001)"
     ],
     "deny": [],
     "ask": []

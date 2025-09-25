@@ -8,9 +8,10 @@ export const authController = {
 
     if (!username || !password) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_CREDENTIALS',
-        message: 'Username and password are required'
+        responseTypeCode: 'MISSING_CREDENTIALS',
+        message: 'Username and password are required',
+        timestamp: new Date().toISOString(),
+        sessionId: ''
       });
     }
 
@@ -46,26 +47,38 @@ export const authController = {
 
     if (username === 'lockeduser') {
       return res.status(423).json({
-        success: false,
-        error: 'ACCOUNT_LOCKED',
-        message: 'Account is temporarily locked'
+        responseTypeCode: 'ACCOUNT_LOCKED',
+        message: 'Account is temporarily locked',
+        timestamp: new Date().toISOString(),
+        sessionId: ''
+      });
+    }
+
+    if (username === 'mfauser' && password === 'password') {
+      return res.status(428).json({
+        responseTypeCode: 'MFA_REQUIRED',
+        message: 'Multi-factor authentication required',
+        mfa_required: true,
+        available_methods: ['otp', 'push'],
+        sessionId: 'session-mfa-' + Date.now()
       });
     }
 
     if (username === 'mfalockeduser') {
-      return res.status(428).json({
-        success: false,
-        error: 'MFA_REQUIRED',
-        message: 'Multi-factor authentication required',
-        mfa_required: true,
-        available_methods: ['otp', 'push']
+      return res.status(423).json({
+        responseTypeCode: 'MFA_LOCKED',
+        message: 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
+        timestamp: new Date().toISOString(),
+        sessionId: ''
       });
     }
 
+
     return res.status(401).json({
-      success: false,
-      error: 'INVALID_CREDENTIALS',
-      message: 'Invalid username or password'
+      responseTypeCode: 'INVALID_CREDENTIALS',
+      message: 'Invalid username or password',
+      timestamp: new Date().toISOString(),
+      sessionId: ''
     });
   },
 

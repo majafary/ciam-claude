@@ -1,6 +1,6 @@
 // API Response Types (matching backend)
 export interface LoginResponse {
-  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED';
+  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'MFA_LOCKED' | 'ACCOUNT_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
   message?: string;
   id_token?: string;
   access_token?: string;

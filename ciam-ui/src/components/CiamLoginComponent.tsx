@@ -59,6 +59,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
+      console.log("$THIS1");
     e.preventDefault();
 
     if (!formData.username || !formData.password) {
@@ -67,14 +68,8 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
     try {
       const result = await login(formData.username, formData.password);
-
-      if (result.responseTypeCode === 'MFA_REQUIRED') {
-        // Start MFA challenge
-        if (result.transactionId) {
-          await initiateChallenge('otp', formData.username);
-          setShowMfa(true);
-        }
-      } else {
+      console.log("$THIS2:", result);
+      if (result.responseTypeCode === 'SUCCESS') {
         // Login successful
         onLoginSuccess?.(user!);
 
@@ -84,6 +79,20 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
         // Clear form
         setFormData({ username: '', password: '' });
+      } else if (result.responseTypeCode === 'MFA_REQUIRED') {
+        // Start MFA challenge
+        if (result.sessionId) {
+          await initiateChallenge('otp', formData.username);
+          setShowMfa(true);
+        }
+      } else {
+        // Handle all error cases: MFA_LOCKED, ACCOUNT_LOCKED, INVALID_CREDENTIALS, MISSING_CREDENTIALS
+        const error = {
+          code: result.responseTypeCode,
+          message: result.message || 'Authentication failed',
+          timestamp: new Date().toISOString(),
+        };
+        onLoginError?.(error);
       }
     } catch (error) {
       onLoginError?.(error as any);
@@ -282,56 +291,82 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   // Not authenticated - show login form
   if (variant === 'button') {
     return (
-      <Button
-        variant="contained"
-        startIcon={<LoginIcon />}
-        onClick={() => {/* Could open login modal */}}
-        sx={customStyles}
-        className={className}
-      >
-        Sign In
-      </Button>
+      <Box className={className}>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+        <Button
+          variant="contained"
+          startIcon={<LoginIcon />}
+          onClick={() => {/* Could open login modal */}}
+          sx={customStyles}
+          disabled={Boolean(error)}
+        >
+          Sign In
+        </Button>
+      </Box>
     );
   }
 
   if (variant === 'inline') {
     return (
-      <Box
-        component="form"
-        onSubmit={handleSubmit}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 2,
-          ...customStyles
-        }}
-        className={className}
-      >
-        <TextField
-          name="username"
-          placeholder="Username"
-          size="small"
-          value={formData.username}
-          onChange={handleInputChange}
-          disabled={isLoading}
-        />
-        <TextField
-          name="password"
-          type="password"
-          placeholder="Password"
-          size="small"
-          value={formData.password}
-          onChange={handleInputChange}
-          disabled={isLoading}
-        />
-        <Button
-          type="submit"
-          variant="contained"
-          disabled={isLoading || !formData.username || !formData.password}
-          startIcon={isLoading ? <CircularProgress size={16} /> : <LoginIcon />}
+      <Box className={className} sx={{ position: 'relative' }}>
+        <Box
+          component="form"
+          onSubmit={handleSubmit}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            ...customStyles
+          }}
         >
-          {isLoading ? 'Signing In...' : 'Sign In'}
-        </Button>
+          <TextField
+            name="username"
+            placeholder="Username"
+            size="small"
+            value={formData.username}
+            onChange={handleInputChange}
+            disabled={isLoading}
+            error={Boolean(error)}
+          />
+          <TextField
+            name="password"
+            type="password"
+            placeholder="Password"
+            size="small"
+            value={formData.password}
+            onChange={handleInputChange}
+            disabled={isLoading}
+            error={Boolean(error)}
+          />
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={isLoading || !formData.username || !formData.password}
+            startIcon={isLoading ? <CircularProgress size={16} /> : <LoginIcon />}
+          >
+            {isLoading ? 'Signing In...' : 'Sign In1'}
+          </Button>
+        </Box>
+        {error && (
+          <Alert
+            severity="error"
+            sx={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              mt: 1,
+              zIndex: 1300,
+              minWidth: '300px',
+            }}
+          >
+            {error}
+          </Alert>
+        )}
       </Box>
     );
   }
@@ -403,7 +438,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
           disabled={isLoading || !formData.username || !formData.password}
           startIcon={isLoading ? <CircularProgress size={20} /> : <LoginIcon />}
         >
-          {isLoading ? 'Signing In...' : 'Sign In'}
+          {isLoading ? 'Signing In...' : 'Sign In2'}
         </Button>
 
         <Box sx={{ mt: 2, textAlign: 'center' }}>

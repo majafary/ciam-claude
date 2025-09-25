@@ -132,12 +132,21 @@ const Navigation: React.FC = () => {
         </IconButton>
 
         {/* CIAM Login Component */}
-        <Box sx={{ ml: 2 }}>
+        <Box sx={{ ml: 2, position: 'relative' }}>
           <CiamLoginComponent
             variant={isMobile ? 'button' : 'inline'}
             showUserInfo={true}
             customStyles={{
               color: 'white',
+              // Ensure error alerts are visible with proper styling
+              '& .MuiAlert-root': {
+                color: 'white',
+                backgroundColor: 'rgba(211, 47, 47, 0.9)', // Red background for error
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                '& .MuiAlert-icon': {
+                  color: 'white',
+                },
+              },
               '& .MuiTextField-root': {
                 '& .MuiOutlinedInput-root': {
                   color: 'white',
@@ -150,8 +159,14 @@ const Navigation: React.FC = () => {
                   '&.Mui-focused fieldset': {
                     borderColor: 'white',
                   },
+                  '&.Mui-error fieldset': {
+                    borderColor: 'rgba(244, 67, 54, 0.8)',
+                  },
                 },
                 '& .MuiInputLabel-root': {
+                  color: 'rgba(255, 255, 255, 0.7)',
+                },
+                '& .MuiInputBase-input::placeholder': {
                   color: 'rgba(255, 255, 255, 0.7)',
                 },
               },
@@ -162,10 +177,17 @@ const Navigation: React.FC = () => {
                   borderColor: 'white',
                   backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 },
+                '&:disabled': {
+                  color: 'rgba(255, 255, 255, 0.3)',
+                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                },
               },
             }}
             onLoginSuccess={(user) => {
               console.log('Navigation: User logged in:', user);
+            }}
+            onLoginError={(error) => {
+              console.error('Navigation: Login failed:', error);
             }}
           />
         </Box>

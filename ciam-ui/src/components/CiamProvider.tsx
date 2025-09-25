@@ -256,6 +256,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
 
   // Login function
   const login = useCallback(async (username: string, password: string): Promise<LoginResponse> => {
+    console.log("MARKER1");
     try {
       setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
 
@@ -283,14 +284,61 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         });
 
         onLoginSuccess?.(user);
-      } else {
+      } else if (response.responseTypeCode === 'MFA_REQUIRED') {
         // MFA required - don't set authenticated state yet
         setAuthState(prev => ({ ...prev, isLoading: false }));
+      } else {
+        // Handle all error cases: MFA_LOCKED, ACCOUNT_LOCKED, INVALID_CREDENTIALS, MISSING_CREDENTIALS
+        console.log("MARKER_ERROR_HANDLING:", response.responseTypeCode, response.message);
+        const errorMessage = response.message || 'Authentication failed';
+        setAuthState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: errorMessage
+        }));
+        console.log("MARKER_ERROR_SET:", errorMessage);
+
+        const apiError: ApiError = {
+          code: response.responseTypeCode,
+          message: errorMessage,
+          timestamp: new Date().toISOString(),
+        };
+        onLoginError?.(apiError);
       }
 
       return response;
     } catch (error) {
-      const apiError = error as ApiError;
+          console.log("MARKER2:", error);
+      let apiError: ApiError;
+
+      if (error instanceof Error) {
+        try {
+          // Try to parse JSON error message from AuthService
+          const parsedError = JSON.parse(error.message);
+          if (parsedError.code && parsedError.message) {
+            apiError = parsedError as ApiError;
+          } else {
+            apiError = {
+              code: 'NETWORK_ERROR',
+              message: error.message,
+              timestamp: new Date().toISOString(),
+            };
+          }
+        } catch {
+          // Not a JSON error, create generic error
+          apiError = {
+            code: 'NETWORK_ERROR',
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          };
+        }
+      } else {
+        apiError = {
+          code: 'UNKNOWN_ERROR',
+          message: 'An unknown error occurred',
+          timestamp: new Date().toISOString(),
+        };
+      }
 
       setAuthState(prev => ({
         ...prev,
@@ -299,7 +347,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
       }));
 
       onLoginError?.(apiError);
-      throw error;
+      throw apiError;
     }
   }, [authService, onLoginSuccess, onLoginError]);
 
@@ -361,7 +409,36 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         error: null,
       }));
     } catch (error) {
-      const apiError = error as ApiError;
+      let apiError: ApiError;
+
+      if (error instanceof Error) {
+        try {
+          // Try to parse JSON error message from AuthService
+          const parsedError = JSON.parse(error.message);
+          if (parsedError.code && parsedError.message) {
+            apiError = parsedError as ApiError;
+          } else {
+            apiError = {
+              code: 'NETWORK_ERROR',
+              message: error.message,
+              timestamp: new Date().toISOString(),
+            };
+          }
+        } catch {
+          // Not a JSON error, create generic error
+          apiError = {
+            code: 'NETWORK_ERROR',
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          };
+        }
+      } else {
+        apiError = {
+          code: 'UNKNOWN_ERROR',
+          message: 'An unknown error occurred',
+          timestamp: new Date().toISOString(),
+        };
+      }
 
       setAuthState({
         isAuthenticated: false,
@@ -372,7 +449,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
 
       authService.clearTokens();
       onSessionExpired?.();
-      throw error;
+      throw apiError;
     }
   }, [authService, onSessionExpired]);
 
