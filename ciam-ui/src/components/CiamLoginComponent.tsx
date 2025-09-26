@@ -531,6 +531,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         onPushVerify={handlePushVerify}
         onMfaSuccess={handleMfaSuccess}
         onResendOtp={handleResendOtp}
+        username={formData.username}
       />
     </>
   );

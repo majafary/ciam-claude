@@ -72,6 +72,8 @@ npm run dev:account     # Account Servicing (Port 3001)
 |----------|----------|------------------|
 | `testuser` | `password` | ✅ Success Login (no MFA required) |
 | `mfauser` | `password` | ✅ Login → MFA Method Selection → OTP/Push → Success |
+| `pushexpired` | `password` | ✅ Login → MFA Method Selection → Push timeout after 10s |
+| `pushfail` | `password` | ✅ Login → MFA Method Selection → Push rejected after 7s |
 | `lockeduser` | `any` | ❌ Account Locked Error |
 | `mfalockeduser` | `any` | ❌ MFA Locked Error (call support message) |
 | `wronguser` | `password` | ❌ Invalid Credentials |
@@ -90,7 +92,9 @@ npm run dev:account     # Account Servicing (Port 3001)
 - Login with `mfauser` → Select "Text Message (OTP)" → Enter wrong code → ❌ Failed
 
 #### **Push Method Testing**
-- Login with `mfauser` → Select "Push Notification" → Auto-success after 3 seconds
+- Login with `mfauser` → Select "Push Notification" → Auto-success after 5 seconds
+- Login with `pushfail` → Select "Push Notification" → Auto-reject after 7 seconds
+- Login with `pushexpired` → Select "Push Notification" → Timeout after 10 seconds
 
 ## 📋 Testing All Use Cases
 

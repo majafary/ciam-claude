@@ -38,6 +38,7 @@ export interface MfaMethodSelectionProps {
   onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED') => Promise<void>;
   onMfaSuccess?: (response: any) => Promise<void>;
   onResendOtp?: () => Promise<void>;
+  username?: string;
 }
 
 export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
@@ -52,6 +53,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   onPushVerify,
   onMfaSuccess,
   onResendOtp,
+  username,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'otp' | 'push' | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -94,21 +96,39 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     }
   }, [transaction]);
 
-  // Auto-approve Push notification after 3 seconds for demo
+  // Handle Push notification responses based on user type
   useEffect(() => {
-    if (isPushWaiting && onPushVerify) {
-      const autoApproveTimer = setTimeout(async () => {
-        console.log('🟢 Push notification auto-approved after 3 seconds');
-        try {
-          await onPushVerify('APPROVED');
-        } catch (error) {
-          console.error('Push auto-approval failed:', error);
-        }
-      }, 3000);
+    if (isPushWaiting && onPushVerify && username) {
+      let timer: NodeJS.Timeout;
 
-      return () => clearTimeout(autoApproveTimer);
+      if (username === 'mfauser') {
+        // Auto-approve after 5 seconds for mfauser
+        timer = setTimeout(async () => {
+          console.log('🟢 Push notification auto-approved for mfauser after 5 seconds');
+          try {
+            await onPushVerify('APPROVED');
+          } catch (error) {
+            console.error('Push auto-approval failed:', error);
+          }
+        }, 5000);
+      } else if (username === 'pushfail') {
+        // Auto-reject after 7 seconds for pushfail user
+        timer = setTimeout(async () => {
+          console.log('🔴 Push notification auto-rejected for pushfail after 7 seconds');
+          try {
+            await onPushVerify('REJECTED');
+          } catch (error) {
+            console.error('Push auto-rejection failed:', error);
+          }
+        }, 7000);
+      }
+      // For pushexpired user, let it timeout naturally (no timer)
+
+      return () => {
+        if (timer) clearTimeout(timer);
+      };
     }
-  }, [isPushWaiting, onPushVerify]);
+  }, [isPushWaiting, onPushVerify, username]);
 
   // Debug logging
   console.log('MfaMethodSelectionDialog render:', {
@@ -210,7 +230,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
           icon: <PhoneIcon />,
           title: 'Push Notification',
           description: 'Approve the login request on your mobile device',
-          testHint: 'Auto-approves after 3 seconds for demo'
+          testHint: 'Test users: mfauser(success), pushfail(reject), pushexpired(timeout)'
         };
     }
   };
@@ -358,46 +378,81 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
         {isExpired && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            This verification code has expired.
-            <Button
-              size="small"
-              variant="outlined"
-              sx={{ ml: 2 }}
-              onClick={handleResendOtp}
-              disabled={resending || !onResendOtp}
-              startIcon={resending ? <CircularProgress size={16} /> : null}
-            >
-              {resending ? 'Resending...' : 'Resend OTP'}
-            </Button>
+            Verification code has expired.
+            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={handleResendOtp}
+                disabled={resending || !onResendOtp}
+                startIcon={resending ? <CircularProgress size={16} /> : null}
+              >
+                {resending ? 'Resending...' : 'Resend OTP'}
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={async () => {
+                  // Switch to Push method
+                  if (onMethodSelected) {
+                    try {
+                      await onMethodSelected('push');
+                    } catch (error) {
+                      console.error('Failed to switch to Push:', error);
+                    }
+                  }
+                }}
+              >
+                Use Push Instead
+              </Button>
+            </Box>
           </Alert>
         )}
 
         <Box sx={{ textAlign: 'center', mb: 3 }}>
-          <TextField
-            value={otp}
-            onChange={handleOtpChange}
-            onKeyPress={handleOtpKeyPress}
-            placeholder="1234"
-            inputProps={{
-              style: {
-                textAlign: 'center',
-                fontSize: '2rem',
-                letterSpacing: '0.5em',
-                fontWeight: 'bold',
-              },
-              maxLength: 4,
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                fontSize: '2rem',
-                '& input': {
-                  padding: '16px',
+          {isExpired ? (
+            <Box>
+              <CancelIcon
+                sx={{
+                  fontSize: 60,
+                  color: 'warning.main',
+                  mb: 2
+                }}
+              />
+              <Typography variant="body1" gutterBottom>
+                Verification code expired
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                Use the buttons above to continue
+              </Typography>
+            </Box>
+          ) : (
+            <TextField
+              value={otp}
+              onChange={handleOtpChange}
+              onKeyPress={handleOtpKeyPress}
+              placeholder="1234"
+              inputProps={{
+                style: {
+                  textAlign: 'center',
+                  fontSize: '2rem',
+                  letterSpacing: '0.5em',
+                  fontWeight: 'bold',
                 },
-              },
-            }}
-            disabled={verifying || isExpired}
-            error={Boolean(otpError)}
-          />
+                maxLength: 4,
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  fontSize: '2rem',
+                  '& input': {
+                    padding: '16px',
+                  },
+                },
+              }}
+              disabled={verifying}
+              error={Boolean(otpError)}
+            />
+          )}
         </Box>
       </DialogContent>
 
@@ -442,14 +497,136 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       </DialogTitle>
 
       <DialogContent>
+        {/* Timer */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="body2" color="textSecondary" gutterBottom>
+            Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+          </Typography>
+          <LinearProgress
+            variant="determinate"
+            value={((10 - timeLeft) / 10) * 100}
+            sx={{ height: 6, borderRadius: 3 }}
+          />
+        </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+            {(error.includes('rejected') || error.includes('PUSH_REJECTED')) && (
+              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={async () => {
+                    // Restart Push flow by reinitiating challenge
+                    if (onMethodSelected) {
+                      try {
+                        await onMethodSelected('push');
+                      } catch (error) {
+                        console.error('Failed to restart Push:', error);
+                      }
+                    }
+                  }}
+                >
+                  Try Push Again
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={async () => {
+                    // Switch to OTP method
+                    if (onMethodSelected) {
+                      try {
+                        await onMethodSelected('otp');
+                      } catch (error) {
+                        console.error('Failed to switch to OTP:', error);
+                      }
+                    }
+                  }}
+                >
+                  Use OTP Instead
+                </Button>
+              </Box>
+            )}
+          </Alert>
+        )}
+
+        {isExpired && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Push notification has expired.
+            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={async () => {
+                  // Restart Push flow by reinitiating challenge
+                  if (onMethodSelected) {
+                    try {
+                      // Reset expired state first
+                      setIsExpired(false);
+                      setTimeLeft(10);
+                      // Then reinitiate Push challenge
+                      await onMethodSelected('push');
+                    } catch (error) {
+                      console.error('Failed to restart Push:', error);
+                    }
+                  }
+                }}
+              >
+                Try Push Again
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={async () => {
+                  // Switch to OTP method
+                  setIsExpired(false);
+                  if (onMethodSelected) {
+                    try {
+                      await onMethodSelected('otp');
+                    } catch (error) {
+                      console.error('Failed to switch to OTP:', error);
+                    }
+                  }
+                }}
+              >
+                Use OTP Instead
+              </Button>
+            </Box>
+          </Alert>
+        )}
+
         <Box sx={{ textAlign: 'center', py: 4 }}>
-          <CircularProgress size={60} sx={{ mb: 2 }} />
-          <Typography variant="body1" gutterBottom>
-            Waiting for approval...
-          </Typography>
-          <Typography variant="body2" color="textSecondary">
-            Auto-approves after 3 seconds for demo
-          </Typography>
+          {isExpired ? (
+            <Box>
+              <CancelIcon
+                sx={{
+                  fontSize: 60,
+                  color: 'warning.main',
+                  mb: 2
+                }}
+              />
+              <Typography variant="body1" gutterBottom>
+                Push notification expired
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                Use the buttons above to continue
+              </Typography>
+            </Box>
+          ) : (
+            <Box>
+              <CircularProgress size={60} sx={{ mb: 2 }} />
+              <Typography variant="body1" gutterBottom>
+                Waiting for approval...
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                {username === 'mfauser' && 'Auto-approves after 5 seconds'}
+                {username === 'pushfail' && 'Auto-rejects after 7 seconds'}
+                {username === 'pushexpired' && 'Will timeout after 10 seconds'}
+                {!username && 'Check your mobile device'}
+              </Typography>
+            </Box>
+          )}
         </Box>
       </DialogContent>
 

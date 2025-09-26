@@ -54,7 +54,7 @@ export const authController = {
       });
     }
 
-    if (username === 'mfauser' && password === 'password') {
+    if ((username === 'mfauser' || username === 'pushexpired' || username === 'pushfail') && password === 'password') {
       return res.status(428).json({
         responseTypeCode: 'MFA_REQUIRED',
         message: 'Multi-factor authentication required',
@@ -275,10 +275,16 @@ export const authController = {
 
     if (method === 'push' || pushResult) {
       if (pushResult === 'APPROVED') {
+        // Determine user from transaction ID or default to mfauser
+        let username = 'mfauser';
+        if (transactionId.includes('pushexpired')) {
+          username = 'pushexpired';
+        }
+
         const user = {
-          id: 'mfauser',
-          username: 'mfauser',
-          email: 'mfauser@example.com',
+          id: username,
+          username: username,
+          email: `${username}@example.com`,
           roles: ['user']
         };
 

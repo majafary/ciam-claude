@@ -31,7 +31,12 @@
       "Bash(npm run lint)",
       "Bash(npx tsc:*)",
       "Bash(/Users/mjafary/Documents/dev-ai/claude-poc-9-24-2025/claude_poc_v2/claudedocs/test-mfa-fix.sh)",
-      "Bash(./claudedocs/test-mfa-fix.sh:*)"
+      "Bash(./claudedocs/test-mfa-fix.sh:*)",
+      "Bash(npm run build:ciam-ui:*)",
+      "Bash(npm run dev:storefront:*)",
+      "Bash(npm run dev:account:*)",
+      "Bash(npm run dev:backend:*)",
+      "Bash(lsof:*)"
     ],
     "deny": [],
     "ask": []
