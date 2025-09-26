@@ -96,39 +96,34 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     }
   }, [transaction]);
 
-  // Handle Push notification responses based on user type
+  // Poll backend for push notification status
   useEffect(() => {
-    if (isPushWaiting && onPushVerify && username) {
-      let timer: NodeJS.Timeout;
+    if (isPushWaiting && transaction?.transactionId && onPushVerify) {
+      const pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch(`http://localhost:8080/mfa/transaction/${transaction.transactionId}`, {
+            credentials: 'include'
+          });
+          const data = await response.json();
 
-      if (username === 'mfauser') {
-        // Auto-approve after 5 seconds for mfauser
-        timer = setTimeout(async () => {
-          console.log('🟢 Push notification auto-approved for mfauser after 5 seconds');
-          try {
+          if (data.challengeStatus === 'APPROVED') {
+            console.log('🟢 Push notification approved by backend');
+            clearInterval(pollInterval);
             await onPushVerify('APPROVED');
-          } catch (error) {
-            console.error('Push auto-approval failed:', error);
-          }
-        }, 5000);
-      } else if (username === 'pushfail') {
-        // Auto-reject after 7 seconds for pushfail user
-        timer = setTimeout(async () => {
-          console.log('🔴 Push notification auto-rejected for pushfail after 7 seconds');
-          try {
+          } else if (data.challengeStatus === 'REJECTED') {
+            console.log('🔴 Push notification rejected by backend');
+            clearInterval(pollInterval);
             await onPushVerify('REJECTED');
-          } catch (error) {
-            console.error('Push auto-rejection failed:', error);
           }
-        }, 7000);
-      }
-      // For pushexpired user, let it timeout naturally (no timer)
+          // If still PENDING, continue polling
+        } catch (error) {
+          console.error('Failed to poll push status:', error);
+        }
+      }, 1000); // Poll every second
 
-      return () => {
-        if (timer) clearTimeout(timer);
-      };
+      return () => clearInterval(pollInterval);
     }
-  }, [isPushWaiting, onPushVerify, username]);
+  }, [isPushWaiting, transaction?.transactionId, onPushVerify]);
 
   // Debug logging
   console.log('MfaMethodSelectionDialog render:', {
@@ -620,9 +615,9 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                 Waiting for approval...
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                {username === 'mfauser' && 'Auto-approves after 5 seconds'}
-                {username === 'pushfail' && 'Auto-rejects after 7 seconds'}
-                {username === 'pushexpired' && 'Will timeout after 10 seconds'}
+                {username === 'mfauser' && 'Simulates approval after 5 seconds'}
+                {username === 'pushfail' && 'Simulates rejection after 7 seconds'}
+                {username === 'pushexpired' && 'Simulates timeout after 10 seconds'}
                 {!username && 'Check your mobile device'}
               </Typography>
             </Box>

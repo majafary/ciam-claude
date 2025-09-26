@@ -177,7 +177,7 @@ export const authController = {
       });
     }
 
-    const transactionId = `mfa-${method}-${Date.now()}`;
+    const transactionId = `mfa-${method}-${username}-${Date.now()}`;
     const expiresAt = new Date(Date.now() + 10 * 1000).toISOString(); // 10 seconds
 
     if (method === 'otp') {
@@ -212,14 +212,37 @@ export const authController = {
       });
     }
 
-    // Push notifications are handled by frontend auto-approval
+    // Extract transaction creation time and determine user behavior
+    const transactionCreated = parseInt(transactionId.split('-').pop() || '0');
+    const timeElapsed = Date.now() - transactionCreated;
+
+    // Determine user from transaction ID
+    let challengeStatus = 'PENDING';
+    let message = 'Challenge pending';
+
+    if (transactionId.includes('pushfail')) {
+      // pushfail user: reject after 7 seconds
+      if (timeElapsed > 7000) {
+        challengeStatus = 'REJECTED';
+        message = 'Push notification was rejected by user';
+      }
+    } else if (transactionId.includes('pushexpired')) {
+      // pushexpired user: let it timeout (frontend handles expiry)
+      challengeStatus = 'PENDING';
+    } else {
+      // mfauser: approve after 5 seconds
+      if (timeElapsed > 5000) {
+        challengeStatus = 'APPROVED';
+        message = 'Push notification was approved by user';
+      }
+    }
 
     return res.json({
       transactionId,
-      challengeStatus: 'PENDING',
+      challengeStatus,
       updatedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 1000).toISOString(),
-      message: 'Challenge pending'
+      message
     });
   },
 

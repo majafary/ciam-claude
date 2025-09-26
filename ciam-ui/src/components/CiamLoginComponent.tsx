@@ -70,6 +70,8 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       return;
     }
 
+    const currentUsername = formData.username; // Preserve username for MFA
+
     try {
       const result = await login(formData.username, formData.password);
 
@@ -85,6 +87,8 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         setFormData({ username: '', password: '' });
       } else if (result.responseTypeCode === 'MFA_REQUIRED') {
         // MFA state is now handled centrally in the Provider
+        // Clear password for security but keep username for MFA challenge
+        setFormData({ username: currentUsername, password: '' });
         console.log('MFA REQUIRED - Provider will handle MFA state');
       } else {
         // Handle all error cases: MFA_LOCKED, ACCOUNT_LOCKED, INVALID_CREDENTIALS, MISSING_CREDENTIALS

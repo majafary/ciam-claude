@@ -36,7 +36,8 @@
       "Bash(npm run dev:storefront:*)",
       "Bash(npm run dev:account:*)",
       "Bash(npm run dev:backend:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)"
     ],
     "deny": [],
     "ask": []
