@@ -39,7 +39,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     isAuthenticated, isLoading, user, error, login, logout, clearError,
     mfaRequired, mfaAvailableMethods, mfaError, clearMfa, refreshSession, authService
   } = useAuth();
-  const { transaction, initiateChallenge, verifyOtp, cancelTransaction } = useMfa();
+  const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction } = useMfa();
 
   const [formData, setFormData] = useState({
     username: '',
@@ -149,6 +149,17 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
     try {
       const response = await verifyOtp(transaction.transactionId, otp);
+      await handleMfaSuccess(response);
+    } catch (error) {
+      throw error; // Let the dialog handle the error display
+    }
+  };
+
+  const handlePushVerify = async (pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED') => {
+    if (!transaction) return;
+
+    try {
+      const response = await verifyPush(transaction.transactionId, pushResult);
       await handleMfaSuccess(response);
     } catch (error) {
       throw error; // Let the dialog handle the error display
@@ -506,6 +517,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         error={mfaError}
         transaction={transaction}
         onOtpVerify={handleOtpVerify}
+        onPushVerify={handlePushVerify}
         onMfaSuccess={handleMfaSuccess}
       />
     </>

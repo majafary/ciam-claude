@@ -88,6 +88,39 @@ export const useMfa = (): UseMfaReturn => {
     }
   }, [authService]);
 
+  const verifyPush = useCallback(async (
+    transactionId: string,
+    pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED'
+  ): Promise<MFAVerifyResponse> => {
+    try {
+      setState(prev => ({ ...prev, isLoading: true, error: null }));
+
+      const response = await authService.verifyMFAChallenge(transactionId, undefined, pushResult);
+
+      // Update transaction status
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        transaction: prev.transaction ? {
+          ...prev.transaction,
+          status: pushResult,
+        } : null,
+      }));
+
+      return response;
+    } catch (error) {
+      const apiError = error as ApiError;
+
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: apiError.message || 'Push verification failed',
+      }));
+
+      throw error;
+    }
+  }, [authService]);
+
   const checkStatus = useCallback(async (
     transactionId: string
   ): Promise<MFATransactionStatusResponse> => {
@@ -132,6 +165,7 @@ export const useMfa = (): UseMfaReturn => {
     error: state.error,
     initiateChallenge,
     verifyOtp,
+    verifyPush,
     checkStatus,
     cancelTransaction,
   };

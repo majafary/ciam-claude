@@ -35,6 +35,7 @@ export interface MfaMethodSelectionProps {
   // New props for unified dialog
   transaction?: MFATransaction | null;
   onOtpVerify?: (otp: string) => Promise<void>;
+  onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED') => Promise<void>;
   onMfaSuccess?: (response: any) => Promise<void>;
 }
 
@@ -47,6 +48,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   error = null,
   transaction = null,
   onOtpVerify,
+  onPushVerify,
   onMfaSuccess,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'otp' | 'push' | null>(null);
@@ -88,6 +90,22 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       setPushStatus(null);
     }
   }, [transaction]);
+
+  // Auto-approve Push notification after 3 seconds for demo
+  useEffect(() => {
+    if (isPushWaiting && onPushVerify) {
+      const autoApproveTimer = setTimeout(async () => {
+        console.log('🟢 Push notification auto-approved after 3 seconds');
+        try {
+          await onPushVerify('APPROVED');
+        } catch (error) {
+          console.error('Push auto-approval failed:', error);
+        }
+      }, 3000);
+
+      return () => clearTimeout(autoApproveTimer);
+    }
+  }, [isPushWaiting, onPushVerify]);
 
   // Debug logging
   console.log('MfaMethodSelectionDialog render:', {

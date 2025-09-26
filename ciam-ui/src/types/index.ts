@@ -248,6 +248,7 @@ export interface UseMfaReturn {
   // Actions
   initiateChallenge: (method: 'otp' | 'push', username?: string) => Promise<MFAChallengeResponse>;
   verifyOtp: (transactionId: string, otp: string) => Promise<MFAVerifyResponse>;
+  verifyPush: (transactionId: string, pushResult?: 'APPROVED' | 'REJECTED') => Promise<MFAVerifyResponse>;
   checkStatus: (transactionId: string) => Promise<MFATransactionStatusResponse>;
   cancelTransaction: () => void;
 }
