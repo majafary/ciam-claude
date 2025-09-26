@@ -166,6 +166,17 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     }
   };
 
+  const handleResendOtp = async () => {
+    try {
+      // Re-initiate OTP challenge to get a new code
+      await initiateChallenge('otp', formData.username);
+      console.log('🔄 New OTP challenge initiated');
+    } catch (error: any) {
+      console.error('Failed to resend OTP:', error);
+      throw error;
+    }
+  };
+
   const handleMethodSelectionCancel = () => {
     console.log('🔴 handleMethodSelectionCancel called - clearing MFA state');
     clearMfa();
@@ -519,6 +530,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         onOtpVerify={handleOtpVerify}
         onPushVerify={handlePushVerify}
         onMfaSuccess={handleMfaSuccess}
+        onResendOtp={handleResendOtp}
       />
     </>
   );

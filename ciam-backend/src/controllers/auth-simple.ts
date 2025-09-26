@@ -178,7 +178,7 @@ export const authController = {
     }
 
     const transactionId = `mfa-${method}-${Date.now()}`;
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes
+    const expiresAt = new Date(Date.now() + 10 * 1000).toISOString(); // 10 seconds
 
     if (method === 'otp') {
       return res.json({
@@ -218,7 +218,7 @@ export const authController = {
       transactionId,
       challengeStatus: 'PENDING',
       updatedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 10 * 1000).toISOString(),
       message: 'Challenge pending'
     });
   },

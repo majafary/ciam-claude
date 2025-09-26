@@ -37,6 +37,7 @@ export interface MfaMethodSelectionProps {
   onOtpVerify?: (otp: string) => Promise<void>;
   onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED') => Promise<void>;
   onMfaSuccess?: (response: any) => Promise<void>;
+  onResendOtp?: () => Promise<void>;
 }
 
 export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
@@ -50,6 +51,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   onOtpVerify,
   onPushVerify,
   onMfaSuccess,
+  onResendOtp,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'otp' | 'push' | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,7 +60,8 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   const [otp, setOtp] = useState('');
   const [otpError, setOtpError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
+  const [resending, setResending] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(10); // 10 seconds
   const [isExpired, setIsExpired] = useState(false);
 
   // Push status state
@@ -85,7 +88,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       setOtp('');
       setOtpError(null);
       setVerifying(false);
-      setTimeLeft(300);
+      setTimeLeft(10);
       setIsExpired(false);
       setPushStatus(null);
     }
@@ -170,6 +173,26 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   const handleOtpKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && otp.length === 4 && !verifying) {
       handleOtpVerify();
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!onResendOtp || resending) return;
+
+    try {
+      setResending(true);
+      setOtpError(null);
+      setIsExpired(false);
+      setOtp('');
+
+      await onResendOtp();
+
+      // Reset timer after successful resend
+      setTimeLeft(10);
+    } catch (error: any) {
+      setOtpError(error.message || 'Failed to resend OTP. Please try again.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -322,7 +345,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
           </Typography>
           <LinearProgress
             variant="determinate"
-            value={((300 - timeLeft) / 300) * 100}
+            value={((10 - timeLeft) / 10) * 100}
             sx={{ height: 6, borderRadius: 3 }}
           />
         </Box>
@@ -335,7 +358,17 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
         {isExpired && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            This verification code has expired. Please request a new one.
+            This verification code has expired.
+            <Button
+              size="small"
+              variant="outlined"
+              sx={{ ml: 2 }}
+              onClick={handleResendOtp}
+              disabled={resending || !onResendOtp}
+              startIcon={resending ? <CircularProgress size={16} /> : null}
+            >
+              {resending ? 'Resending...' : 'Resend OTP'}
+            </Button>
           </Alert>
         )}
 

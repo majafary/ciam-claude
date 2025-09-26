@@ -36,7 +36,7 @@ export const MfaComponent: React.FC<MfaComponentProps> = ({
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
+  const [timeLeft, setTimeLeft] = useState(10); // 10 seconds
   const [isExpired, setIsExpired] = useState(false);
   const [pushStatus, setPushStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
 
@@ -132,13 +132,13 @@ export const MfaComponent: React.FC<MfaComponentProps> = ({
   };
 
   const getProgressValue = (): number => {
-    return ((300 - timeLeft) / 300) * 100;
+    return ((10 - timeLeft) / 10) * 100;
   };
 
   const handleRetry = () => {
     setError(null);
     setIsExpired(false);
-    setTimeLeft(300);
+    setTimeLeft(10);
     setPushStatus(null);
     setOtp('');
   };
