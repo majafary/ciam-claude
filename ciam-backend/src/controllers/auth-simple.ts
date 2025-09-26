@@ -54,7 +54,7 @@ export const authController = {
       });
     }
 
-    if ((username === 'mfauser' || username === 'pushuser' || username === 'pushjuser' || username === 'pushfailuser') && password === 'password') {
+    if (username === 'mfauser' && password === 'password') {
       return res.status(428).json({
         responseTypeCode: 'MFA_REQUIRED',
         message: 'Multi-factor authentication required',
@@ -212,33 +212,7 @@ export const authController = {
       });
     }
 
-    // Simulate push notification responses based on user type
-    if (transactionId.includes('push')) {
-      const createdTime = parseInt(transactionId.split('-').pop() || '0');
-      const timeElapsed = Date.now() - createdTime;
-
-      // pushfailuser - always rejected after 3 seconds
-      if (transactionId.includes('pushfailuser') && timeElapsed > 3000) {
-        return res.json({
-          transactionId,
-          challengeStatus: 'REJECTED',
-          updatedAt: new Date().toISOString(),
-          expiresAt: new Date(createdTime + 5 * 60 * 1000).toISOString(),
-          message: 'Push notification rejected'
-        });
-      }
-
-      // pushuser and pushjuser - auto-approve after 3 seconds
-      if ((transactionId.includes('pushuser') || transactionId.includes('pushjuser')) && timeElapsed > 3000) {
-        return res.json({
-          transactionId,
-          challengeStatus: 'APPROVED',
-          updatedAt: new Date().toISOString(),
-          expiresAt: new Date(createdTime + 5 * 60 * 1000).toISOString(),
-          message: 'Push notification approved'
-        });
-      }
-    }
+    // Push notifications are handled by frontend auto-approval
 
     return res.json({
       transactionId,
@@ -300,18 +274,11 @@ export const authController = {
     }
 
     if (method === 'push' || pushResult) {
-      // Check for different push scenarios based on transaction ID or explicit result
-      if (pushResult === 'APPROVED' || transactionId.includes('pushuser') || transactionId.includes('pushjuser')) {
-        // Determine user based on transaction ID
-        let username = 'pushuser';
-        if (transactionId.includes('pushjuser')) {
-          username = 'pushjuser';
-        }
-
+      if (pushResult === 'APPROVED') {
         const user = {
-          id: username,
-          username: username,
-          email: `${username}@example.com`,
+          id: 'mfauser',
+          username: 'mfauser',
+          email: 'mfauser@example.com',
           roles: ['user']
         };
 
@@ -335,12 +302,6 @@ export const authController = {
           sessionId: 'session-' + Date.now(),
           transactionId,
           message: 'Push notification verified successfully'
-        });
-      } else if (transactionId.includes('pushfailuser')) {
-        return res.status(400).json({
-          success: false,
-          error: 'PUSH_REJECTED',
-          message: 'Push notification was rejected by device'
         });
       } else {
         return res.status(400).json({

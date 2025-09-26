@@ -72,9 +72,6 @@ npm run dev:account     # Account Servicing (Port 3001)
 |----------|----------|------------------|
 | `testuser` | `password` | ✅ Success Login (no MFA required) |
 | `mfauser` | `password` | ✅ Login → MFA Method Selection → OTP/Push → Success |
-| `pushuser` | `password` | ✅ Login → MFA Method Selection → Push Auto-Success (3s) |
-| `pushjuser` | `password` | ✅ Login → MFA Method Selection → Push Auto-Success (3s) |
-| `pushfailuser` | `password` | ✅ Login → MFA Method Selection → Push Auto-Fail (3s) |
 | `lockeduser` | `any` | ❌ Account Locked Error |
 | `mfalockeduser` | `any` | ❌ MFA Locked Error (call support message) |
 | `wronguser` | `password` | ❌ Invalid Credentials |
@@ -93,14 +90,7 @@ npm run dev:account     # Account Servicing (Port 3001)
 - Login with `mfauser` → Select "Text Message (OTP)" → Enter wrong code → ❌ Failed
 
 #### **Push Method Testing**
-- Login with `pushuser` → Select "Push Notification" → Auto-success after 3 seconds
-- Login with `pushjuser` → Select "Push Notification" → Auto-success after 3 seconds
-- Login with `pushfailuser` → Select "Push Notification" → Auto-fail after 3 seconds
-
-#### **User-Specific Push Behaviors**
-- **pushuser**: Simulates approved push notification
-- **pushjuser**: Simulates approved push notification (alternative test user)
-- **pushfailuser**: Simulates rejected push notification
+- Login with `mfauser` → Select "Push Notification" → Auto-success after 3 seconds
 
 ## 📋 Testing All Use Cases
 
@@ -119,7 +109,7 @@ npm run dev:account     # Account Servicing (Port 3001)
 ```bash
 # Visit: http://localhost:3000
 1. Click login in navigation
-2. Enter: pushuser / password
+2. Enter: mfauser / password
 3. See MFA method selection dialog
 4. Select "Push Notification"
 5. Wait 3 seconds → Auto-approved → Success login
@@ -152,17 +142,8 @@ npm run dev:account     # Account Servicing (Port 3001)
 3. Message includes call center instructions
 ```
 
-### 6. **Push Notification Failure Testing**
-```bash
-# Test push notification rejection
-1. Login with: pushfailuser / password
-2. See MFA method selection dialog
-3. Select "Push Notification"
-4. Wait 3 seconds → Auto-rejected → Error message
-5. Should see "Push notification was rejected" error
-```
 
-### 7. **Session Management**
+### 6. **Session Management**
 ```bash
 # Test multi-session features
 1. Login successfully in one browser/tab
@@ -171,7 +152,7 @@ npm run dev:account     # Account Servicing (Port 3001)
 4. Use "Sign out other devices" functionality
 ```
 
-### 8. **Token Refresh Testing**
+### 7. **Token Refresh Testing**
 ```bash
 # Test automatic token refresh
 1. Login successfully
