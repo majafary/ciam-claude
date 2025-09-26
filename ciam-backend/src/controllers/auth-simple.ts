@@ -54,7 +54,7 @@ export const authController = {
       });
     }
 
-    if (username === 'mfauser' && password === 'password') {
+    if ((username === 'mfauser' || username === 'pushuser' || username === 'pushjuser' || username === 'pushfailuser') && password === 'password') {
       return res.status(428).json({
         responseTypeCode: 'MFA_REQUIRED',
         message: 'Multi-factor authentication required',
@@ -166,21 +166,128 @@ export const authController = {
     }
   },
 
-  verifyMfa: async (req: Request, res: Response) => {
-    const { method, code } = req.body;
+  initiateMfaChallenge: async (req: Request, res: Response) => {
+    const { method, username, sessionId } = req.body;
 
-    if (!method) {
+    if (!method || !['otp', 'push'].includes(method)) {
       return res.status(400).json({
         success: false,
-        error: 'MISSING_MFA_METHOD',
-        message: 'MFA method is required'
+        error: 'INVALID_MFA_METHOD',
+        message: 'Valid MFA method (otp or push) is required'
+      });
+    }
+
+    const transactionId = `mfa-${method}-${Date.now()}`;
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes
+
+    if (method === 'otp') {
+      return res.json({
+        success: true,
+        transactionId,
+        challengeStatus: 'PENDING',
+        expiresAt,
+        message: 'OTP sent to your device'
+      });
+    }
+
+    if (method === 'push') {
+      return res.json({
+        success: true,
+        transactionId,
+        challengeStatus: 'PENDING',
+        expiresAt,
+        message: 'Push notification sent to your device'
+      });
+    }
+  },
+
+  checkMfaStatus: async (req: Request, res: Response) => {
+    const { transactionId } = req.params;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_TRANSACTION_ID',
+        message: 'Transaction ID is required'
+      });
+    }
+
+    // Simulate push notification responses based on user type
+    if (transactionId.includes('push')) {
+      const createdTime = parseInt(transactionId.split('-').pop() || '0');
+      const timeElapsed = Date.now() - createdTime;
+
+      // pushfailuser - always rejected after 3 seconds
+      if (transactionId.includes('pushfailuser') && timeElapsed > 3000) {
+        return res.json({
+          transactionId,
+          challengeStatus: 'REJECTED',
+          updatedAt: new Date().toISOString(),
+          expiresAt: new Date(createdTime + 5 * 60 * 1000).toISOString(),
+          message: 'Push notification rejected'
+        });
+      }
+
+      // pushuser and pushjuser - auto-approve after 3 seconds
+      if ((transactionId.includes('pushuser') || transactionId.includes('pushjuser')) && timeElapsed > 3000) {
+        return res.json({
+          transactionId,
+          challengeStatus: 'APPROVED',
+          updatedAt: new Date().toISOString(),
+          expiresAt: new Date(createdTime + 5 * 60 * 1000).toISOString(),
+          message: 'Push notification approved'
+        });
+      }
+    }
+
+    return res.json({
+      transactionId,
+      challengeStatus: 'PENDING',
+      updatedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      message: 'Challenge pending'
+    });
+  },
+
+  verifyMfa: async (req: Request, res: Response) => {
+    const { transactionId, method, code, pushResult } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_TRANSACTION_ID',
+        message: 'Transaction ID is required'
       });
     }
 
     if (method === 'otp') {
       if (code === '1234') {
+        const user = {
+          id: 'mfauser',
+          username: 'mfauser',
+          email: 'mfauser@example.com',
+          roles: ['user']
+        };
+
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        // Set refresh token as HTTP-only cookie
+        res.cookie('refresh_token', refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          sameSite: 'strict'
+        });
+
         return res.json({
           success: true,
+          id_token: accessToken,
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: 900,
+          sessionId: 'session-' + Date.now(),
+          transactionId,
           message: 'MFA verification successful'
         });
       } else {
@@ -192,12 +299,56 @@ export const authController = {
       }
     }
 
-    if (method === 'push') {
-      return res.json({
-        success: true,
-        message: 'Push notification sent. Please check your device.',
-        pending_verification: true
-      });
+    if (method === 'push' || pushResult) {
+      // Check for different push scenarios based on transaction ID or explicit result
+      if (pushResult === 'APPROVED' || transactionId.includes('pushuser') || transactionId.includes('pushjuser')) {
+        // Determine user based on transaction ID
+        let username = 'pushuser';
+        if (transactionId.includes('pushjuser')) {
+          username = 'pushjuser';
+        }
+
+        const user = {
+          id: username,
+          username: username,
+          email: `${username}@example.com`,
+          roles: ['user']
+        };
+
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        // Set refresh token as HTTP-only cookie
+        res.cookie('refresh_token', refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          sameSite: 'strict'
+        });
+
+        return res.json({
+          success: true,
+          id_token: accessToken,
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: 900,
+          sessionId: 'session-' + Date.now(),
+          transactionId,
+          message: 'Push notification verified successfully'
+        });
+      } else if (transactionId.includes('pushfailuser')) {
+        return res.status(400).json({
+          success: false,
+          error: 'PUSH_REJECTED',
+          message: 'Push notification was rejected by device'
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'PUSH_REJECTED',
+          message: 'Push notification was rejected'
+        });
+      }
     }
 
     return res.status(400).json({

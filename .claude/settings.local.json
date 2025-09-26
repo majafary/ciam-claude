@@ -19,7 +19,19 @@
       "Bash(./test-ciam-change.sh:*)",
       "Bash(grep:*)",
       "Bash(open http://localhost:3000)",
-      "Bash(open http://localhost:3001)"
+      "Bash(open http://localhost:3001)",
+      "Bash(npm run dev:simple:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run preview:*)",
+      "Bash(osascript:*)",
+      "Bash(npm start)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run lint)",
+      "Bash(npx tsc:*)",
+      "Bash(/Users/mjafary/Documents/dev-ai/claude-poc-9-24-2025/claude_poc_v2/claudedocs/test-mfa-fix.sh)",
+      "Bash(./claudedocs/test-mfa-fix.sh:*)"
     ],
     "deny": [],
     "ask": []

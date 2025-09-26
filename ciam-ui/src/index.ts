@@ -5,6 +5,7 @@ export * from './types';
 export { CiamProvider } from './components/CiamProvider';
 export { CiamLoginComponent } from './components/CiamLoginComponent';
 export { MfaComponent } from './components/MfaComponent';
+export { MfaMethodSelectionDialog } from './components/MfaMethodSelectionDialog';
 export { ProtectedRoute } from './components/ProtectedRoute';
 export { SessionManager } from './components/SessionManager';
 

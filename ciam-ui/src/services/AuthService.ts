@@ -186,6 +186,8 @@ export class AuthService {
           responseTypeCode: response.responseTypeCode,
           message: response.message || this.getDefaultErrorMessage(response.responseTypeCode),
           sessionId: response.sessionId || '',
+          available_methods: response.available_methods,
+          mfa_required: response.mfa_required,
         };
       }
 
@@ -218,6 +220,8 @@ export class AuthService {
               responseTypeCode: 'MFA_REQUIRED',
               message: errorData.message || 'Multi-factor authentication required',
               sessionId: '', // Backend doesn't provide sessionId for MFA case
+              available_methods: ['otp', 'push'], // Provide default methods
+              mfa_required: true,
             };
           }
 
@@ -308,7 +312,7 @@ export class AuthService {
     sessionId?: string,
     transactionId?: string
   ): Promise<MFAChallengeResponse> {
-    return this.apiCall<MFAChallengeResponse>('/auth/mfa/verify', {
+    return this.apiCall<MFAChallengeResponse>('/auth/mfa/initiate', {
       method: 'POST',
       body: JSON.stringify({
         username,
@@ -327,11 +331,15 @@ export class AuthService {
     otp?: string,
     pushResult?: 'APPROVED' | 'REJECTED'
   ): Promise<MFAVerifyResponse> {
+    // Determine method from transaction ID
+    const method = transactionId.includes('otp') ? 'otp' : 'push';
+
     const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/verify', {
       method: 'POST',
       body: JSON.stringify({
         transactionId,
-        otp,
+        method,
+        code: otp,
         pushResult,
       }),
     });

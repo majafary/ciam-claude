@@ -71,7 +71,10 @@ npm run dev:account     # Account Servicing (Port 3001)
 | Username | Password | Expected Behavior |
 |----------|----------|------------------|
 | `testuser` | `password` | ✅ Success Login (no MFA required) |
-| `mfauser` | `password` | ✅ Login → MFA Required → OTP: `1234` → Success |
+| `mfauser` | `password` | ✅ Login → MFA Method Selection → OTP/Push → Success |
+| `pushuser` | `password` | ✅ Login → MFA Method Selection → Push Auto-Success (3s) |
+| `pushjuser` | `password` | ✅ Login → MFA Method Selection → Push Auto-Success (3s) |
+| `pushfailuser` | `password` | ✅ Login → MFA Method Selection → Push Auto-Fail (3s) |
 | `lockeduser` | `any` | ❌ Account Locked Error |
 | `mfalockeduser` | `any` | ❌ MFA Locked Error (call support message) |
 | `wronguser` | `password` | ❌ Invalid Credentials |
@@ -79,31 +82,61 @@ npm run dev:account     # Account Servicing (Port 3001)
 | (empty) | (empty) | ❌ Missing Credentials |
 
 ### MFA Test Scenarios
-- **OTP**: Enter `1234` for success, any other value for failure
-- **Push**: Auto-approves after 3-5 seconds of polling for demo
+
+#### **Complete MFA Flow Testing**
+1. **Method Selection Dialog**: When MFA is required, users see a dialog to choose:
+   - **Text Message (OTP)**: Enter code `1234` for success
+   - **Push Notification**: Auto-approves after 3 seconds for demo
+
+#### **OTP Method Testing**
+- Login with `mfauser` → Select "Text Message (OTP)" → Enter `1234` → ✅ Success
+- Login with `mfauser` → Select "Text Message (OTP)" → Enter wrong code → ❌ Failed
+
+#### **Push Method Testing**
+- Login with `pushuser` → Select "Push Notification" → Auto-success after 3 seconds
+- Login with `pushjuser` → Select "Push Notification" → Auto-success after 3 seconds
+- Login with `pushfailuser` → Select "Push Notification" → Auto-fail after 3 seconds
+
+#### **User-Specific Push Behaviors**
+- **pushuser**: Simulates approved push notification
+- **pushjuser**: Simulates approved push notification (alternative test user)
+- **pushfailuser**: Simulates rejected push notification
 
 ## 📋 Testing All Use Cases
 
-### 1. **Storefront Login Flow**
+### 1. **Storefront MFA Flow Testing**
 ```bash
 # Visit: http://localhost:3000
 1. Click login in navigation
-2. Enter: testuser / password
-3. Complete MFA with OTP: 1234
-4. See user info in nav + "View My Account" link
-5. Click "View My Account" → Navigate to Account Servicing
+2. Enter: mfauser / password
+3. See MFA method selection dialog with OTP and Push options
+4. Select "Text Message (OTP)" → Enter code 1234 → Success
+5. See user info in nav + "View My Account" link
+6. Click "View My Account" → Navigate to Account Servicing
 ```
 
-### 2. **Direct Account Servicing Access**
+### 2. **Push Notification Testing**
+```bash
+# Visit: http://localhost:3000
+1. Click login in navigation
+2. Enter: pushuser / password
+3. See MFA method selection dialog
+4. Select "Push Notification"
+5. Wait 3 seconds → Auto-approved → Success login
+6. See user authenticated state
+```
+
+### 3. **Direct Account Servicing Access**
 ```bash
 # Visit: http://localhost:3001 (not logged in)
 1. Should redirect to CIAM login page
-2. Login with testuser / password
-3. Complete MFA → Redirect back to Account Servicing
-4. See account balances and user info
+2. Login with mfauser / password
+3. Complete MFA method selection → Success
+4. Redirect back to Account Servicing
+5. See account balances and user info
 ```
 
-### 3. **Account Locked Scenario**
+### 4. **Account Locked Scenario**
 ```bash
 # Test account security
 1. Try login with: lockeduser / password
@@ -111,15 +144,25 @@ npm run dev:account     # Account Servicing (Port 3001)
 3. Error alert should be visible in UI
 ```
 
-### 4. **MFA Locked Scenario**
+### 5. **MFA Locked Scenario**
 ```bash
 # Test MFA security
 1. Login with: mfalockeduser / password
-2. Should reach MFA step
-3. Enter any OTP → Should see "MFA locked" error
+2. Should see "MFA locked" error immediately
+3. Message includes call center instructions
 ```
 
-### 5. **Session Management**
+### 6. **Push Notification Failure Testing**
+```bash
+# Test push notification rejection
+1. Login with: pushfailuser / password
+2. See MFA method selection dialog
+3. Select "Push Notification"
+4. Wait 3 seconds → Auto-rejected → Error message
+5. Should see "Push notification was rejected" error
+```
+
+### 7. **Session Management**
 ```bash
 # Test multi-session features
 1. Login successfully in one browser/tab
@@ -128,7 +171,7 @@ npm run dev:account     # Account Servicing (Port 3001)
 4. Use "Sign out other devices" functionality
 ```
 
-### 6. **Token Refresh Testing**
+### 8. **Token Refresh Testing**
 ```bash
 # Test automatic token refresh
 1. Login successfully

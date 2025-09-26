@@ -15,9 +15,17 @@ export const useAuth = (): UseAuthReturn => {
     isLoading: context.isLoading,
     user: context.user,
     error: context.error,
+    // MFA state
+    mfaRequired: context.mfaRequired,
+    mfaAvailableMethods: context.mfaAvailableMethods,
+    mfaError: context.mfaError,
+    // Services
+    authService: context.authService,
+    // Actions
     login: context.login,
     logout: context.logout,
     refreshSession: context.refreshSession,
     clearError: context.clearError,
+    clearMfa: context.clearMfa,
   };
 };

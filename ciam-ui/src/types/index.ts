@@ -8,6 +8,8 @@ export interface LoginResponse {
   sessionId: string;
   transactionId?: string;
   deviceId?: string;
+  mfa_required?: boolean;
+  available_methods?: string[];
 }
 
 export interface MFAChallengeResponse {
@@ -143,6 +145,15 @@ export interface MfaComponentProps {
   showTimer?: boolean;
 }
 
+export interface MfaMethodSelectionProps {
+  open: boolean;
+  availableMethods: ('otp' | 'push')[];
+  onMethodSelected: (method: 'otp' | 'push') => Promise<void>;
+  onCancel: () => void;
+  isLoading?: boolean;
+  error?: string | null;
+}
+
 export interface ProtectedRouteProps {
   children: React.ReactNode;
   redirectTo?: string;
@@ -212,12 +223,20 @@ export interface UseAuthReturn {
   isLoading: boolean;
   user: User | null;
   error: string | null;
+  // MFA state - centralized to avoid timing conflicts
+  mfaRequired: boolean;
+  mfaAvailableMethods: ('otp' | 'push')[];
+  mfaError: string | null;
+
+  // Services
+  authService: any; // AuthService instance for direct access
 
   // Actions
   login: (username: string, password: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   clearError: () => void;
+  clearMfa: () => void;
 }
 
 export interface UseMfaReturn {

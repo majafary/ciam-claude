@@ -31,6 +31,8 @@ app.post('/auth/logout', authController.logout);
 app.post('/auth/refresh', authController.refresh);
 app.post('/auth/introspect', authController.introspect);
 app.post('/auth/mfa/verify', authController.verifyMfa);
+app.post('/auth/mfa/initiate', authController.initiateMfaChallenge);
+app.get('/mfa/transaction/:transactionId', authController.checkMfaStatus);
 app.get('/userinfo', authController.userinfo);
 app.get('/.well-known/jwks.json', authController.jwks);
 
