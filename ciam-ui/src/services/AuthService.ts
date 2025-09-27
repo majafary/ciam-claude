@@ -329,7 +329,8 @@ export class AuthService {
   async verifyMFAChallenge(
     transactionId: string,
     otp?: string,
-    pushResult?: 'APPROVED' | 'REJECTED'
+    pushResult?: 'APPROVED' | 'REJECTED',
+    selectedNumber?: number
   ): Promise<MFAVerifyResponse> {
     // Determine method from transaction ID
     const method = transactionId.includes('otp') ? 'otp' : 'push';
@@ -341,6 +342,7 @@ export class AuthService {
         method,
         code: otp,
         pushResult,
+        selectedNumber,
       }),
     });
 
@@ -393,4 +395,5 @@ export class AuthService {
   setAccessToken(token: string | null): void {
     this.setStoredAccessToken(token);
   }
+
 }

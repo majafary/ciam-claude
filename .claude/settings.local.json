@@ -37,7 +37,8 @@
       "Bash(npm run dev:account:*)",
       "Bash(npm run dev:backend:*)",
       "Bash(lsof:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "Bash(open http://localhost:3002)"
     ],
     "deny": [],
     "ask": []

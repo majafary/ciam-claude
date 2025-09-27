@@ -3,13 +3,17 @@
 echo "🔄 Testing CIAM UI Changes - Development Workflow"
 echo "=================================================="
 
-# 1. Build CIAM UI library
-echo "📦 Step 1: Building CIAM UI library..."
+# 1. Stop containers
+echo "📦 Step 1: Stopping all containers..."
+docker-compose down
+
+# 2. Build CIAM UI library
+echo "📦 Step 2: Building CIAM UI library..."
 cd /Users/mjafary/Documents/dev-ai/claude-poc-9-24-2025/claude_poc_v2/ciam-ui
 npm run build
 
-# 2. Build consuming applications
-echo "🏪 Step 2: Building Storefront..."
+# 3. Build consuming applications
+echo "🏪 Step 3: Building Storefront..."
 cd ../storefront-web-app
 npm run build
 
@@ -17,7 +21,7 @@ echo "🏦 Step 3: Building Account Servicing..."
 cd ../account-servicing-web-app
 npm run build
 
-# 3. Deploy with Docker
+# 4. Deploy with Docker
 echo "🐳 Step 4: Deploying with Docker..."
 cd ..
 docker-compose down

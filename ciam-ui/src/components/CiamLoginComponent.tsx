@@ -39,7 +39,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     isAuthenticated, isLoading, user, error, login, logout, clearError,
     mfaRequired, mfaAvailableMethods, mfaError, clearMfa, refreshSession, authService
   } = useAuth();
-  const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction } = useMfa();
+  const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
 
   const [formData, setFormData] = useState({
     username: '',
@@ -90,6 +90,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         // Clear password for security but keep username for MFA challenge
         setFormData({ username: currentUsername, password: '' });
         console.log('MFA REQUIRED - Provider will handle MFA state');
+        console.log('🔍 Username preserved for MFA:', currentUsername);
       } else {
         // Handle all error cases: MFA_LOCKED, ACCOUNT_LOCKED, INVALID_CREDENTIALS, MISSING_CREDENTIALS
         const error = {
@@ -141,6 +142,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   const handleMethodSelected = async (method: 'otp' | 'push') => {
     try {
+      console.log('🔍 handleMethodSelected called with:', { method, username: formData.username });
       await initiateChallenge(method, formData.username);
       // MFA state transition is handled by the MFA hook
     } catch (error: any) {
@@ -159,11 +161,11 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     }
   };
 
-  const handlePushVerify = async (pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED') => {
+  const handlePushVerify = async (pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED', selectedNumber?: number) => {
     if (!transaction) return;
 
     try {
-      const response = await verifyPush(transaction.transactionId, pushResult);
+      const response = await verifyPush(transaction.transactionId, pushResult, selectedNumber);
       await handleMfaSuccess(response);
     } catch (error) {
       throw error; // Let the dialog handle the error display
@@ -535,6 +537,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         onPushVerify={handlePushVerify}
         onMfaSuccess={handleMfaSuccess}
         onResendOtp={handleResendOtp}
+        onCheckStatus={checkStatus}
         username={formData.username}
       />
     </>

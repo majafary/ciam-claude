@@ -1,6 +1,29 @@
 import { Request, Response } from 'express';
 import { generateAccessToken, generateRefreshToken, verifyToken, generateJWKS } from '../utils/jwt-simple';
 
+// In-memory storage for push challenges (in production, use Redis or database)
+interface PushChallenge {
+  transactionId: string;
+  numbers: number[];
+  correctNumber: number;
+  username: string;
+  createdAt: number;
+  attempts: number;
+}
+
+const pushChallenges = new Map<string, PushChallenge>();
+
+// Helper function to generate 3 random numbers
+const generatePushNumbers = (): { numbers: number[], correctNumber: number } => {
+  const numbers = [
+    Math.floor(Math.random() * 9) + 1,
+    Math.floor(Math.random() * 9) + 1,
+    Math.floor(Math.random() * 9) + 1
+  ];
+  const correctNumber = numbers[Math.floor(Math.random() * 3)];
+  return { numbers, correctNumber };
+};
+
 // Simple auth controller for quick Docker build
 export const authController = {
   login: async (req: Request, res: Response) => {
@@ -169,6 +192,8 @@ export const authController = {
   initiateMfaChallenge: async (req: Request, res: Response) => {
     const { method, username, sessionId } = req.body;
 
+    console.log('🔍 MFA Challenge Request:', { method, username, sessionId });
+
     if (!method || !['otp', 'push'].includes(method)) {
       return res.status(400).json({
         success: false,
@@ -178,6 +203,7 @@ export const authController = {
     }
 
     const transactionId = `mfa-${method}-${username}-${Date.now()}`;
+    console.log('🎫 Generated transaction ID:', transactionId);
     const expiresAt = new Date(Date.now() + 10 * 1000).toISOString(); // 10 seconds
 
     if (method === 'otp') {
@@ -191,18 +217,37 @@ export const authController = {
     }
 
     if (method === 'push') {
+      // Generate 3 random numbers for push challenge
+      const { numbers, correctNumber } = generatePushNumbers();
+
+      // Store push challenge in memory
+      const pushChallenge: PushChallenge = {
+        transactionId,
+        numbers,
+        correctNumber,
+        username,
+        createdAt: Date.now(),
+        attempts: 0
+      };
+
+      pushChallenges.set(transactionId, pushChallenge);
+      console.log('🎲 Push challenge created:', { transactionId, numbers, correctNumber, username });
+
       return res.json({
         success: true,
         transactionId,
         challengeStatus: 'PENDING',
         expiresAt,
-        message: 'Push notification sent to your device'
+        displayNumber: correctNumber, // Send only the correct number to display on UI
+        message: 'Push notification sent. Select the number shown below on your mobile device'
       });
     }
   },
 
   checkMfaStatus: async (req: Request, res: Response) => {
     const { transactionId } = req.params;
+
+    console.log('🔍 MFA Status Check for transaction:', transactionId);
 
     if (!transactionId) {
       return res.status(400).json({
@@ -212,30 +257,75 @@ export const authController = {
       });
     }
 
-    // Extract transaction creation time and determine user behavior
+    // For push transactions, check stored challenge
+    if (transactionId.includes('push')) {
+      const challenge = pushChallenges.get(transactionId);
+
+      if (!challenge) {
+        return res.status(404).json({
+          success: false,
+          error: 'CHALLENGE_NOT_FOUND',
+          message: 'Push challenge not found or expired'
+        });
+      }
+
+      // Extract transaction creation time and determine user behavior
+      const timeElapsed = Date.now() - challenge.createdAt;
+      console.log('⏱️ Time elapsed:', timeElapsed, 'ms');
+
+      let challengeStatus = 'PENDING';
+      let message = 'Push challenge pending user selection';
+      let selectedNumber: number | undefined;
+
+      if (transactionId.includes('pushfail')) {
+        console.log('🚫 pushfail user detected');
+        // pushfail user: auto-select wrong number after 7 seconds
+        if (timeElapsed > 7000) {
+          // Select a wrong number (different from correct)
+          const wrongNumbers = challenge.numbers.filter(n => n !== challenge.correctNumber);
+          selectedNumber = wrongNumbers[0];
+          challengeStatus = 'REJECTED';
+          message = `User selected wrong number: ${selectedNumber}`;
+          console.log('❌ pushfail: auto-selected wrong number', selectedNumber);
+        }
+      } else if (transactionId.includes('pushexpired')) {
+        console.log('⏰ pushexpired user detected - should remain PENDING');
+        // pushexpired user: let it timeout (frontend handles expiry)
+        challengeStatus = 'PENDING';
+      } else {
+        console.log('✅ mfauser (default) detected');
+        // mfauser: auto-select correct number after 5 seconds
+        if (timeElapsed > 5000) {
+          selectedNumber = challenge.correctNumber;
+          challengeStatus = 'APPROVED';
+          message = `User selected correct number: ${selectedNumber}`;
+          console.log('✅ mfauser: auto-selected correct number', selectedNumber);
+        }
+      }
+
+      console.log('📊 Final status:', challengeStatus, 'message:', message);
+
+      return res.json({
+        transactionId,
+        challengeStatus,
+        updatedAt: new Date().toISOString(),
+        expiresAt: new Date(challenge.createdAt + 10 * 1000).toISOString(),
+        displayNumber: challenge.correctNumber, // Return only the number to display on UI
+        selectedNumber, // Return selected number if auto-selected
+        message
+      });
+    }
+
+    // For non-push transactions (like OTP), use original logic
     const transactionCreated = parseInt(transactionId.split('-').pop() || '0');
     const timeElapsed = Date.now() - transactionCreated;
 
-    // Determine user from transaction ID
+    console.log('⏱️ Time elapsed:', timeElapsed, 'ms');
+
     let challengeStatus = 'PENDING';
     let message = 'Challenge pending';
 
-    if (transactionId.includes('pushfail')) {
-      // pushfail user: reject after 7 seconds
-      if (timeElapsed > 7000) {
-        challengeStatus = 'REJECTED';
-        message = 'Push notification was rejected by user';
-      }
-    } else if (transactionId.includes('pushexpired')) {
-      // pushexpired user: let it timeout (frontend handles expiry)
-      challengeStatus = 'PENDING';
-    } else {
-      // mfauser: approve after 5 seconds
-      if (timeElapsed > 5000) {
-        challengeStatus = 'APPROVED';
-        message = 'Push notification was approved by user';
-      }
-    }
+    console.log('📊 Final status:', challengeStatus, 'message:', message);
 
     return res.json({
       transactionId,
@@ -247,7 +337,7 @@ export const authController = {
   },
 
   verifyMfa: async (req: Request, res: Response) => {
-    const { transactionId, method, code, pushResult } = req.body;
+    const { transactionId, method, code, pushResult, selectedNumber } = req.body;
 
     if (!transactionId) {
       return res.status(400).json({
@@ -296,13 +386,36 @@ export const authController = {
       }
     }
 
-    if (method === 'push' || pushResult) {
-      if (pushResult === 'APPROVED') {
+    if (method === 'push' || selectedNumber !== undefined) {
+      // Get the stored push challenge
+      const challenge = pushChallenges.get(transactionId);
+
+      if (!challenge) {
+        return res.status(400).json({
+          success: false,
+          error: 'CHALLENGE_NOT_FOUND',
+          message: 'Push challenge not found or expired'
+        });
+      }
+
+      // Track attempt
+      challenge.attempts += 1;
+      pushChallenges.set(transactionId, challenge);
+
+      console.log('🎯 Push verification attempt:', {
+        transactionId,
+        selectedNumber,
+        correctNumber: challenge.correctNumber,
+        attempts: challenge.attempts
+      });
+
+      // Check if selected number is correct
+      if (selectedNumber === challenge.correctNumber) {
+        // Remove challenge from memory after successful verification
+        pushChallenges.delete(transactionId);
+
         // Determine user from transaction ID or default to mfauser
-        let username = 'mfauser';
-        if (transactionId.includes('pushexpired')) {
-          username = 'pushexpired';
-        }
+        let username = challenge.username || 'mfauser';
 
         const user = {
           id: username,
@@ -322,6 +435,8 @@ export const authController = {
           sameSite: 'strict'
         });
 
+        console.log('✅ Push verification successful:', { username, selectedNumber });
+
         return res.json({
           success: true,
           id_token: accessToken,
@@ -330,15 +445,63 @@ export const authController = {
           expires_in: 900,
           sessionId: 'session-' + Date.now(),
           transactionId,
-          message: 'Push notification verified successfully'
+          message: `Push verification successful - correct number selected: ${selectedNumber}`
         });
       } else {
+        console.log('❌ Push verification failed:', { selectedNumber, correctNumber: challenge.correctNumber });
+
         return res.status(400).json({
           success: false,
-          error: 'PUSH_REJECTED',
-          message: 'Push notification was rejected'
+          error: 'INCORRECT_NUMBER',
+          message: `Incorrect number selected. You selected ${selectedNumber}, but that was not the correct number.`,
+          attempts: challenge.attempts,
+          canRetry: challenge.attempts < 3 // Allow up to 3 attempts
         });
       }
+    }
+
+    // Legacy support for old pushResult format
+    if (pushResult === 'APPROVED') {
+      // Determine user from transaction ID or default to mfauser
+      let username = 'mfauser';
+      if (transactionId.includes('pushexpired')) {
+        username = 'pushexpired';
+      }
+
+      const user = {
+        id: username,
+        username: username,
+        email: `${username}@example.com`,
+        roles: ['user']
+      };
+
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      // Set refresh token as HTTP-only cookie
+      res.cookie('refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        sameSite: 'strict'
+      });
+
+      return res.json({
+        success: true,
+        id_token: accessToken,
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: 900,
+        sessionId: 'session-' + Date.now(),
+        transactionId,
+        message: 'Push notification verified successfully'
+      });
+    } else if (pushResult === 'REJECTED') {
+      return res.status(400).json({
+        success: false,
+        error: 'PUSH_REJECTED',
+        message: 'Push notification was rejected'
+      });
     }
 
     return res.status(400).json({

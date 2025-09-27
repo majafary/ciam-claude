@@ -9,7 +9,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <CiamProvider
       backendUrl={import.meta.env.VITE_CIAM_BACKEND_URL || 'http://localhost:8080'}
       debug={import.meta.env.VITE_DEBUG_CIAM === 'true'}
-      autoRefreshTokens={true}
+      autoRefreshTokens={false}
       refreshInterval={300000}
     >
       <App />

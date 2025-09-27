@@ -28,7 +28,7 @@ root.render(
       onSessionExpired={() => {
         console.log('Storefront: Session expired');
       }}
-      autoRefreshTokens={true}
+      autoRefreshTokens={false}
       refreshInterval={5 * 60 * 1000} // 5 minutes
     >
       <App />

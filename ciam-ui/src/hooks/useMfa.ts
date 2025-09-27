@@ -33,6 +33,7 @@ export const useMfa = (): UseMfaReturn => {
         status: response.challengeStatus,
         expiresAt: response.expiresAt,
         createdAt: new Date().toISOString(),
+        displayNumber: response.displayNumber, // Single number to display on UI for push challenges
       };
 
       setState(prev => ({
@@ -90,12 +91,13 @@ export const useMfa = (): UseMfaReturn => {
 
   const verifyPush = useCallback(async (
     transactionId: string,
-    pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED'
+    pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED',
+    selectedNumber?: number
   ): Promise<MFAVerifyResponse> => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await authService.verifyMFAChallenge(transactionId, undefined, pushResult);
+      const response = await authService.verifyMFAChallenge(transactionId, undefined, pushResult, selectedNumber);
 
       // Update transaction status
       setState(prev => ({
@@ -127,13 +129,15 @@ export const useMfa = (): UseMfaReturn => {
     try {
       const response = await authService.getMFATransactionStatus(transactionId);
 
-      // Update local transaction status
+      // Update local transaction status and display numbers from polling
       setState(prev => ({
         ...prev,
         transaction: prev.transaction && prev.transaction.transactionId === transactionId
           ? {
               ...prev.transaction,
               status: response.challengeStatus,
+              displayNumber: response.displayNumber ?? prev.transaction.displayNumber,
+              selectedNumber: response.selectedNumber ?? prev.transaction.selectedNumber,
             }
           : prev.transaction,
       }));
@@ -150,6 +154,7 @@ export const useMfa = (): UseMfaReturn => {
       throw error;
     }
   }, [authService]);
+
 
   const cancelTransaction = useCallback(() => {
     setState(prev => ({

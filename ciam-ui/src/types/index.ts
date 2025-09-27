@@ -18,15 +18,20 @@ export interface MFAChallengeResponse {
   challengeStatus: MFAChallengeStatus;
   expiresAt: string;
   message?: string;
+  displayNumber?: number; // For push challenges - single number to display on UI
 }
 
 export interface MFAVerifyResponse {
-  id_token: string;
-  access_token: string;
+  success: boolean;
+  id_token?: string;
+  access_token?: string;
   refresh_token?: string;
-  sessionId: string;
+  sessionId?: string;
   transactionId: string;
   message?: string;
+  error?: string;
+  attempts?: number;
+  canRetry?: boolean;
 }
 
 export interface MFATransactionStatusResponse {
@@ -35,6 +40,8 @@ export interface MFATransactionStatusResponse {
   updatedAt: string;
   expiresAt: string;
   message?: string;
+  displayNumber?: number; // For push challenges - single number to display on UI
+  selectedNumber?: number; // For push challenges - auto-selected number by test users
 }
 
 export interface TokenRefreshResponse {
@@ -107,6 +114,8 @@ export interface MFATransaction {
   status: MFAChallengeStatus;
   expiresAt: string;
   createdAt: string;
+  displayNumber?: number; // For push challenges - single number to display on UI
+  selectedNumber?: number; // For push challenges - auto-selected number by test users
 }
 
 export interface MFAState {
@@ -135,15 +144,6 @@ export interface CiamLoginComponentProps {
   className?: string;
 }
 
-export interface MfaComponentProps {
-  transactionId: string;
-  method: 'otp' | 'push';
-  onSuccess: (result: MFAVerifyResponse) => void;
-  onError: (error: ApiError) => void;
-  onCancel: () => void;
-  autoSubmit?: boolean;
-  showTimer?: boolean;
-}
 
 export interface MfaMethodSelectionProps {
   open: boolean;
@@ -248,7 +248,7 @@ export interface UseMfaReturn {
   // Actions
   initiateChallenge: (method: 'otp' | 'push', username?: string) => Promise<MFAChallengeResponse>;
   verifyOtp: (transactionId: string, otp: string) => Promise<MFAVerifyResponse>;
-  verifyPush: (transactionId: string, pushResult?: 'APPROVED' | 'REJECTED') => Promise<MFAVerifyResponse>;
+  verifyPush: (transactionId: string, pushResult?: 'APPROVED' | 'REJECTED', selectedNumber?: number) => Promise<MFAVerifyResponse>;
   checkStatus: (transactionId: string) => Promise<MFATransactionStatusResponse>;
   cancelTransaction: () => void;
 }

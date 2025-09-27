@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -35,9 +35,10 @@ export interface MfaMethodSelectionProps {
   // New props for unified dialog
   transaction?: MFATransaction | null;
   onOtpVerify?: (otp: string) => Promise<void>;
-  onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED') => Promise<void>;
+  onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED', selectedNumber?: number) => Promise<void>;
   onMfaSuccess?: (response: any) => Promise<void>;
   onResendOtp?: () => Promise<void>;
+  onCheckStatus?: (transactionId: string) => Promise<any>;
   username?: string;
 }
 
@@ -53,6 +54,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   onPushVerify,
   onMfaSuccess,
   onResendOtp,
+  onCheckStatus,
   username,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'otp' | 'push' | null>(null);
@@ -65,6 +67,9 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   const [resending, setResending] = useState(false);
   const [timeLeft, setTimeLeft] = useState(10); // 10 seconds
   const [isExpired, setIsExpired] = useState(false);
+  const [backendTimeLeft, setBackendTimeLeft] = useState(10); // Separate state for backend polling
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTransactionIdRef = useRef<string | null>(null);
 
   // Push status state
   const [pushStatus, setPushStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
@@ -74,56 +79,123 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   const isOtpEntry = transaction?.method === 'otp';
   const isPushWaiting = transaction?.method === 'push';
 
-  // Timer effect for OTP/Push timeout
+  // Timer effect for OTP (not used for Push since backend polling handles Push timing)
   useEffect(() => {
-    if (transaction && timeLeft > 0) {
+    if (transaction?.method === 'otp' && timeLeft > 0 && !isExpired) {
       const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (timeLeft === 0) {
+    } else if (timeLeft === 0 && !isExpired) {
       setIsExpired(true);
     }
-  }, [timeLeft, transaction]);
+  }, [timeLeft, transaction, isExpired]);
 
   // Reset states when transaction changes
   useEffect(() => {
-    if (transaction) {
+    if (transaction && transaction.transactionId !== lastTransactionIdRef.current) {
+      console.log('🔄 Transaction changed, resetting states:', transaction.transactionId);
+      lastTransactionIdRef.current = transaction.transactionId;
       setOtp('');
       setOtpError(null);
       setVerifying(false);
       setTimeLeft(10);
+      setBackendTimeLeft(10);
       setIsExpired(false);
       setPushStatus(null);
+
+      // Clear any existing interval
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     }
   }, [transaction]);
 
-  // Poll backend for push notification status
-  useEffect(() => {
-    if (isPushWaiting && transaction?.transactionId && onPushVerify) {
-      const pollInterval = setInterval(async () => {
-        try {
-          const response = await fetch(`http://localhost:8080/mfa/transaction/${transaction.transactionId}`, {
-            credentials: 'include'
-          });
-          const data = await response.json();
-
-          if (data.challengeStatus === 'APPROVED') {
-            console.log('🟢 Push notification approved by backend');
-            clearInterval(pollInterval);
-            await onPushVerify('APPROVED');
-          } else if (data.challengeStatus === 'REJECTED') {
-            console.log('🔴 Push notification rejected by backend');
-            clearInterval(pollInterval);
-            await onPushVerify('REJECTED');
-          }
-          // If still PENDING, continue polling
-        } catch (error) {
-          console.error('Failed to poll push status:', error);
-        }
-      }, 1000); // Poll every second
-
-      return () => clearInterval(pollInterval);
+  // Stable polling function using useCallback to prevent re-creation
+  const startPolling = useCallback(async (transactionId: string) => {
+    if (!onCheckStatus || !onPushVerify) {
+      console.log('❌ Missing polling callbacks');
+      return;
     }
-  }, [isPushWaiting, transaction?.transactionId, onPushVerify]);
+
+    console.log('🚀 Starting polling for transaction:', transactionId);
+
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+
+    intervalRef.current = setInterval(async () => {
+      try {
+        const data = await onCheckStatus(transactionId);
+
+        // Check status first - rejection/approval takes precedence over expiration
+        if (data.challengeStatus === 'APPROVED') {
+          console.log('🟢 Push notification approved by backend (mobile device selection)');
+          console.log('📊 Selected number from polling:', data.selectedNumber);
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          await onPushVerify('APPROVED', data.selectedNumber);
+          return;
+        } else if (data.challengeStatus === 'REJECTED') {
+          console.log('🔴 Push notification rejected by backend (mobile device selection)');
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          // Handle rejection locally - show error state instead of calling backend verify
+          setPushStatus('rejected');
+          setTimeLeft(0);
+          // Don't set isExpired when rejected - rejection takes precedence
+          return;
+        }
+
+        // Update timer based on backend expiry time (only if still PENDING)
+        if (data.expiresAt) {
+          const expiryTime = new Date(data.expiresAt).getTime();
+          const currentTime = new Date().getTime();
+          const timeRemainingMs = expiryTime - currentTime;
+          const timeRemainingSec = Math.max(0, Math.ceil(timeRemainingMs / 1000));
+
+          console.log('⏱️ Timer update from backend:', timeRemainingSec, 'seconds remaining');
+          setBackendTimeLeft(timeRemainingSec);
+          setTimeLeft(timeRemainingSec);
+
+          if (currentTime >= expiryTime) {
+            console.log('⏰ Push notification expired');
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
+            }
+            setIsExpired(true);
+            setTimeLeft(0);
+            return;
+          }
+        }
+        // If still PENDING, continue polling
+      } catch (error) {
+        console.error('Failed to poll push status:', error);
+      }
+    }, 1000); // Poll every second
+  }, [onCheckStatus, onPushVerify]);
+
+  // Start polling when push transaction begins
+  useEffect(() => {
+    if (isPushWaiting && transaction?.transactionId && !intervalRef.current) {
+      console.log('🔄 Push transaction detected, starting polling:', transaction.transactionId);
+      startPolling(transaction.transactionId);
+    }
+
+    // Cleanup on unmount or when transaction ends
+    return () => {
+      if (intervalRef.current) {
+        console.log('🧹 Cleaning up polling interval');
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isPushWaiting, transaction?.transactionId]); // Removed startPolling dependency
 
   // Debug logging
   console.log('MfaMethodSelectionDialog render:', {
@@ -134,7 +206,9 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     transaction,
     isMethodSelection,
     isOtpEntry,
-    isPushWaiting
+    isPushWaiting,
+    timeLeft,
+    isExpired
   });
 
   const handleMethodSelect = (method: 'otp' | 'push') => {
@@ -211,6 +285,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     }
   };
 
+
   const getMethodInfo = (method: 'otp' | 'push') => {
     switch (method) {
       case 'otp':
@@ -224,8 +299,8 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
         return {
           icon: <PhoneIcon />,
           title: 'Push Notification',
-          description: 'Approve the login request on your mobile device',
-          testHint: 'Test users: mfauser(success), pushfail(reject), pushexpired(timeout)'
+          description: 'Select the displayed number on your mobile device when prompted',
+          testHint: 'Test users: mfauser(auto-approve), pushfail(auto-reject), pushexpired(timeout)'
         };
     }
   };
@@ -472,42 +547,90 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     </>
   );
 
-  // Render push notification waiting content
-  const renderPushWaiting = () => (
-    <>
-      <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar sx={{ bgcolor: 'primary.main' }}>
-            <PhoneIcon />
-          </Avatar>
-          <Box>
-            <Typography variant="h6" component="div">
-              Push Notification Sent
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Approve the login request on your mobile device
-            </Typography>
+  // Render push notification display content - shows single number, user selects on mobile
+  const renderPushWaiting = () => {
+    const displayNumber = transaction?.displayNumber;
+    const hasDisplayNumber = displayNumber !== undefined;
+    const isAutoMode = username && ['mfauser', 'pushfail', 'pushexpired'].includes(username);
+
+    return (
+      <>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'primary.main' }}>
+              <PhoneIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" component="div">
+                Push Notification - Mobile Selection
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                {hasDisplayNumber ? 'Find this number on your mobile device and tap it' : 'Generating number...'}
+              </Typography>
+            </Box>
           </Box>
-        </Box>
-      </DialogTitle>
+        </DialogTitle>
 
-      <DialogContent>
-        {/* Timer */}
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="textSecondary" gutterBottom>
-            Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-          </Typography>
-          <LinearProgress
-            variant="determinate"
-            value={((10 - timeLeft) / 10) * 100}
-            sx={{ height: 6, borderRadius: 3 }}
-          />
-        </Box>
+        <DialogContent>
+          {/* Timer - only show when not expired and not rejected */}
+          {!isExpired && pushStatus !== 'rejected' && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={Math.max(0, Math.min(100, ((10 - timeLeft) / 10) * 100))}
+                sx={{ height: 6, borderRadius: 3 }}
+              />
+            </Box>
+          )}
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-            {(error.includes('rejected') || error.includes('PUSH_REJECTED')) && (
+          {error && !isExpired && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+              {(error.includes('rejected') || error.includes('PUSH_REJECTED')) && (
+                <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={async () => {
+                      // Restart Push flow by reinitiating challenge
+                      if (onMethodSelected) {
+                        try {
+                          await onMethodSelected('push');
+                        } catch (error) {
+                          console.error('Failed to restart Push:', error);
+                        }
+                      }
+                    }}
+                  >
+                    Try Push Again
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={async () => {
+                      // Switch to OTP method
+                      if (onMethodSelected) {
+                        try {
+                          await onMethodSelected('otp');
+                        } catch (error) {
+                          console.error('Failed to switch to OTP:', error);
+                        }
+                      }
+                    }}
+                  >
+                    Use OTP Instead
+                  </Button>
+                </Box>
+              )}
+            </Alert>
+          )}
+
+          {pushStatus === 'rejected' && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              Push notification was rejected. You selected an incorrect number on your mobile device.
               <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
                 <Button
                   size="small"
@@ -516,6 +639,10 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                     // Restart Push flow by reinitiating challenge
                     if (onMethodSelected) {
                       try {
+                        // Reset rejection state first
+                        setPushStatus(null);
+                        setTimeLeft(10);
+                        // Then reinitiate Push challenge
                         await onMethodSelected('push');
                       } catch (error) {
                         console.error('Failed to restart Push:', error);
@@ -530,6 +657,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   variant="outlined"
                   onClick={async () => {
                     // Switch to OTP method
+                    setPushStatus(null);
                     if (onMethodSelected) {
                       try {
                         await onMethodSelected('otp');
@@ -542,99 +670,162 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   Use OTP Instead
                 </Button>
               </Box>
-            )}
-          </Alert>
-        )}
-
-        {isExpired && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Push notification has expired.
-            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={async () => {
-                  // Restart Push flow by reinitiating challenge
-                  if (onMethodSelected) {
-                    try {
-                      // Reset expired state first
-                      setIsExpired(false);
-                      setTimeLeft(10);
-                      // Then reinitiate Push challenge
-                      await onMethodSelected('push');
-                    } catch (error) {
-                      console.error('Failed to restart Push:', error);
-                    }
-                  }
-                }}
-              >
-                Try Push Again
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={async () => {
-                  // Switch to OTP method
-                  setIsExpired(false);
-                  if (onMethodSelected) {
-                    try {
-                      await onMethodSelected('otp');
-                    } catch (error) {
-                      console.error('Failed to switch to OTP:', error);
-                    }
-                  }
-                }}
-              >
-                Use OTP Instead
-              </Button>
-            </Box>
-          </Alert>
-        )}
-
-        <Box sx={{ textAlign: 'center', py: 4 }}>
-          {isExpired ? (
-            <Box>
-              <CancelIcon
-                sx={{
-                  fontSize: 60,
-                  color: 'warning.main',
-                  mb: 2
-                }}
-              />
-              <Typography variant="body1" gutterBottom>
-                Push notification expired
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                Use the buttons above to continue
-              </Typography>
-            </Box>
-          ) : (
-            <Box>
-              <CircularProgress size={60} sx={{ mb: 2 }} />
-              <Typography variant="body1" gutterBottom>
-                Waiting for approval...
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                {username === 'mfauser' && 'Simulates approval after 5 seconds'}
-                {username === 'pushfail' && 'Simulates rejection after 7 seconds'}
-                {username === 'pushexpired' && 'Simulates timeout after 10 seconds'}
-                {!username && 'Check your mobile device'}
-              </Typography>
-            </Box>
+            </Alert>
           )}
-        </Box>
-      </DialogContent>
 
-      <DialogActions sx={{ p: 3 }}>
-        <Button
-          onClick={handleCancel}
-          color="inherit"
-        >
-          Cancel
-        </Button>
-      </DialogActions>
-    </>
-  );
+          {isExpired && pushStatus !== 'rejected' && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Push notification has expired.
+              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={async () => {
+                    // Restart Push flow by reinitiating challenge
+                    if (onMethodSelected) {
+                      try {
+                        // Reset expired state first
+                        setIsExpired(false);
+                        setTimeLeft(10);
+                        // Then reinitiate Push challenge
+                        await onMethodSelected('push');
+                      } catch (error) {
+                        console.error('Failed to restart Push:', error);
+                      }
+                    }
+                  }}
+                >
+                  Try Push Again
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={async () => {
+                    // Switch to OTP method
+                    setIsExpired(false);
+                    if (onMethodSelected) {
+                      try {
+                        await onMethodSelected('otp');
+                      } catch (error) {
+                        console.error('Failed to switch to OTP:', error);
+                      }
+                    }
+                  }}
+                >
+                  Use OTP Instead
+                </Button>
+              </Box>
+            </Alert>
+          )}
+
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            {pushStatus === 'rejected' ? (
+              <Box>
+                <CancelIcon
+                  sx={{
+                    fontSize: 60,
+                    color: 'error.main',
+                    mb: 2
+                  }}
+                />
+                <Typography variant="body1" gutterBottom>
+                  Push notification rejected
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  You selected an incorrect number on your mobile device
+                </Typography>
+              </Box>
+            ) : isExpired ? (
+              <Box>
+                <CancelIcon
+                  sx={{
+                    fontSize: 60,
+                    color: 'warning.main',
+                    mb: 2
+                  }}
+                />
+                <Typography variant="body1" gutterBottom>
+                  Push notification expired
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Use the buttons above to continue
+                </Typography>
+              </Box>
+            ) : !hasDisplayNumber ? (
+              <Box>
+                <CircularProgress size={60} sx={{ mb: 2 }} />
+                <Typography variant="body1" gutterBottom>
+                  Generating number...
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Please wait while we prepare your push notification
+                </Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Typography variant="body1" gutterBottom sx={{ mb: 3 }}>
+                  Your mobile device will show 3 numbers. Find and tap this number:
+                </Typography>
+
+                {/* Single display number (non-clickable) */}
+                <Box sx={{ mb: 4 }}>
+                  <Typography
+                    variant="h1"
+                    sx={{
+                      fontSize: '6rem',
+                      fontWeight: 'bold',
+                      color: 'primary.main',
+                      textAlign: 'center',
+                      border: '3px solid',
+                      borderColor: 'primary.main',
+                      borderRadius: 3,
+                      py: 2,
+                      px: 4,
+                      minWidth: 120,
+                      display: 'inline-block',
+                      backgroundColor: 'background.paper'
+                    }}
+                  >
+                    {displayNumber}
+                  </Typography>
+                </Box>
+
+                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                  Look for this number on your mobile push notification and tap it to proceed.
+                </Typography>
+
+                {/* Auto-mode information */}
+                {isAutoMode && (
+                  <Typography variant="body2" color="textSecondary" sx={{ mt: 2, fontStyle: 'italic' }}>
+                    {username === 'mfauser' && 'Test mode: Will auto-approve after 5 seconds'}
+                    {username === 'pushfail' && 'Test mode: Will auto-reject after 7 seconds'}
+                    {username === 'pushexpired' && 'Test mode: Will timeout after 10 seconds'}
+                  </Typography>
+                )}
+
+                {/* Waiting animation */}
+                <Box sx={{ mt: 3 }}>
+                  <CircularProgress size={40} sx={{ mb: 1 }} />
+                  <Typography variant="body2" color="textSecondary">
+                    Waiting for mobile device selection...
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+
+        <DialogActions sx={{ p: 3 }}>
+          <Button
+            onClick={handleCancel}
+            color="inherit"
+          >
+            Cancel
+          </Button>
+        </DialogActions>
+      </>
+    );
+  };
 
   return (
     <Dialog
