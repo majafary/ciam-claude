@@ -15,7 +15,6 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import {
-  ShoppingCart as CartIcon,
   Star as StarIcon,
   LocalShipping as ShippingIcon,
   Security as SecurityIcon,
@@ -111,13 +110,13 @@ const StorefrontPage: React.FC = () => {
                 gutterBottom
                 sx={{ fontWeight: 'bold' }}
               >
-                Welcome to Our Store
+                Welcome to Storefront
               </Typography>
               <Typography
                 variant="h6"
                 sx={{ mb: 3, opacity: 0.9 }}
               >
-                Discover amazing products at unbeatable prices. Quality guaranteed.
+                Every great journey needs a great partner. We're proud to be yours!
               </Typography>
 
               {isAuthenticated && user && (
@@ -133,7 +132,7 @@ const StorefrontPage: React.FC = () => {
                       Welcome back, {user.given_name || user.preferred_username}! 👋
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                      Enjoy exclusive member benefits and personalized recommendations.
+                      Enjoy the benefits of membership.
                     </Typography>
                   </Paper>
                 </Box>
@@ -315,7 +314,6 @@ const StorefrontPage: React.FC = () => {
                     <Button
                       fullWidth
                       variant="contained"
-                      startIcon={<CartIcon />}
                       onClick={() => handleAddToCart(product.id)}
                     >
                       Add to Cart

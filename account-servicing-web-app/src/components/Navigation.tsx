@@ -71,7 +71,7 @@ const Navigation: React.FC = () => {
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" sx={{ mr: 1 }}>
-              Welcome, {user?.username || 'User'}
+              Welcome, {user?.given_name || user?.preferred_username || 'User'}
             </Typography>
             <IconButton
               size="large"
@@ -107,7 +107,7 @@ const Navigation: React.FC = () => {
               </MenuItem>
               <MenuItem disabled>
                 <Typography variant="body1" fontWeight="bold">
-                  {user?.username}
+                  {user?.given_name || user?.preferred_username}
                 </Typography>
               </MenuItem>
               <Divider />

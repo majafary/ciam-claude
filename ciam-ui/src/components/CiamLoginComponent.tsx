@@ -37,7 +37,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 }) => {
   const {
     isAuthenticated, isLoading, user, error, login, logout, clearError,
-    mfaRequired, mfaAvailableMethods, mfaError, clearMfa, refreshSession, authService
+    mfaRequired, mfaAvailableMethods, mfaError, mfaUsername, clearMfa, refreshSession, authService
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
 
@@ -142,8 +142,16 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   const handleMethodSelected = async (method: 'otp' | 'push') => {
     try {
-      console.log('🔍 handleMethodSelected called with:', { method, username: formData.username });
-      await initiateChallenge(method, formData.username);
+      // Use stored username from context (preferred) or fallback to local form state
+      const usernameToUse = mfaUsername || formData.username;
+      console.log('🔍 handleMethodSelected called with:', {
+        method,
+        mfaUsername,
+        formDataUsername: formData.username,
+        usernameToUse
+      });
+
+      await initiateChallenge(method, usernameToUse);
       // MFA state transition is handled by the MFA hook
     } catch (error: any) {
       console.error('Failed to initiate MFA challenge:', error);

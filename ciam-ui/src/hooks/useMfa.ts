@@ -23,6 +23,7 @@ export const useMfa = (): UseMfaReturn => {
     username?: string
   ): Promise<MFAChallengeResponse> => {
     try {
+      console.log('🔍 useMfa.initiateChallenge called with:', { method, username });
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
       const response = await authService.initiateMFAChallenge(method, username);

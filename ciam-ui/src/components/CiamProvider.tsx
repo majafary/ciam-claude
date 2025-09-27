@@ -16,6 +16,7 @@ interface CiamContextValue {
   mfaRequired: boolean;
   mfaAvailableMethods: ('otp' | 'push')[];
   mfaError: string | null;
+  mfaUsername: string | null; // Store username when MFA is required
   // Authentication actions
   login: (username: string, password: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
@@ -110,6 +111,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     mfaRequired: false,
     mfaAvailableMethods: [] as ('otp' | 'push')[],
     mfaError: null as string | null,
+    mfaUsername: null as string | null, // Store username when MFA is required
   });
 
   const config: CiamProviderProps = {
@@ -164,6 +166,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
             mfaRequired: false,
             mfaAvailableMethods: [],
             mfaError: null,
+            mfaUsername: null,
           });
 
           onLoginSuccess?.(user);
@@ -200,6 +203,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
               mfaRequired: false,
               mfaAvailableMethods: [],
               mfaError: null,
+              mfaUsername: null,
             });
 
             onLoginSuccess?.(user);
@@ -216,6 +220,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
               mfaRequired: false,
               mfaAvailableMethods: [],
               mfaError: null,
+              mfaUsername: null,
             });
           }
         }
@@ -233,6 +238,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
           mfaRequired: false,
           mfaAvailableMethods: [],
           mfaError: null,
+          mfaUsername: null,
         });
       }
     };
@@ -305,18 +311,21 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
           mfaRequired: false,
           mfaAvailableMethods: [],
           mfaError: null,
+          mfaUsername: null,
         });
 
         onLoginSuccess?.(user);
       } else if (response.responseTypeCode === 'MFA_REQUIRED') {
         // MFA required - set MFA state to trigger dialog
         console.log('🟢 Provider: Setting MFA state', response.available_methods);
+        console.log('🔍 Provider: Storing username for MFA:', username);
         setAuthState(prev => ({
           ...prev,
           isLoading: false,
           mfaRequired: true,
           mfaAvailableMethods: (response.available_methods || ['otp', 'push']) as ('otp' | 'push')[],
-          mfaError: null
+          mfaError: null,
+          mfaUsername: username, // Store username for later MFA use
         }));
       } else {
         // Handle all error cases: MFA_LOCKED, ACCOUNT_LOCKED, INVALID_CREDENTIALS, MISSING_CREDENTIALS
@@ -397,6 +406,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         mfaRequired: false,
         mfaAvailableMethods: [],
         mfaError: null,
+        mfaUsername: null,
       });
 
       onLogout?.();
@@ -410,6 +420,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         mfaRequired: false,
         mfaAvailableMethods: [],
         mfaError: null,
+        mfaUsername: null,
       });
 
       authService.clearTokens();
@@ -496,6 +507,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         mfaRequired: false,
         mfaAvailableMethods: [],
         mfaError: null,
+        mfaUsername: null,
       });
 
       authService.clearTokens();
@@ -514,7 +526,8 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
       ...prev,
       mfaRequired: false,
       mfaAvailableMethods: [],
-      mfaError: null
+      mfaError: null,
+      mfaUsername: null, // Clear stored username
     }));
   }, []);
 
@@ -530,6 +543,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     mfaRequired: authState.mfaRequired,
     mfaAvailableMethods: authState.mfaAvailableMethods,
     mfaError: authState.mfaError,
+    mfaUsername: authState.mfaUsername,
     // Authentication actions
     login,
     logout,

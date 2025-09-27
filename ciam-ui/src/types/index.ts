@@ -227,6 +227,7 @@ export interface UseAuthReturn {
   mfaRequired: boolean;
   mfaAvailableMethods: ('otp' | 'push')[];
   mfaError: string | null;
+  mfaUsername: string | null; // Store username when MFA is required
 
   // Services
   authService: any; // AuthService instance for direct access

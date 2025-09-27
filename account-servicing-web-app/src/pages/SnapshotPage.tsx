@@ -188,7 +188,7 @@ const SnapshotPage: React.FC = () => {
           Account Snapshot
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Welcome back, {user?.username}. Here's your current account overview.
+          Welcome back, {user?.given_name || user?.preferred_username}. Here's your current account overview.
         </Typography>
       </Box>
 

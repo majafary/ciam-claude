@@ -312,14 +312,19 @@ export class AuthService {
     sessionId?: string,
     transactionId?: string
   ): Promise<MFAChallengeResponse> {
+    console.log('🔍 AuthService.initiateMFAChallenge called with:', { method, username, sessionId, transactionId });
+
+    const requestBody = {
+      username,
+      method,
+      sessionId,
+      transactionId,
+    };
+    console.log('🔍 AuthService MFA initiate request body:', JSON.stringify(requestBody, null, 2));
+
     return this.apiCall<MFAChallengeResponse>('/auth/mfa/initiate', {
       method: 'POST',
-      body: JSON.stringify({
-        username,
-        method,
-        sessionId,
-        transactionId,
-      }),
+      body: JSON.stringify(requestBody),
     });
   }
 
