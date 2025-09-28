@@ -24,7 +24,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       onSessionExpired={() => {
         console.log('Account-Servicing: Session expired');
       }}
-      autoRefreshTokens={false}
+      autoRefreshTokens={true}
       refreshInterval={300000} // 5 minutes
     >
       <App />

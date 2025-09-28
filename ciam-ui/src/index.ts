@@ -4,6 +4,7 @@ export * from './types';
 // Components
 export { CiamProvider } from './components/CiamProvider';
 export { CiamLoginComponent } from './components/CiamLoginComponent';
+export { CiamProtectedApp } from './components/CiamProtectedApp';
 export { MfaMethodSelectionDialog } from './components/MfaMethodSelectionDialog';
 export { ProtectedRoute } from './components/ProtectedRoute';
 export { SessionManager } from './components/SessionManager';

@@ -32,7 +32,7 @@ const Navigation: React.FC = () => {
 
   const { isAuthenticated, user, logout } = useAuth();
 
-  const accountServicingUrl = import.meta.env.VITE_ACCOUNT_SERVICING_URL || 'http://localhost:3001';
+  const accountServicingUrl = import.meta.env.VITE_ACCOUNT_SERVICING_URL || 'http://localhost:3003';
 
   const handleMobileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setMobileMenuAnchor(event.currentTarget);
@@ -51,6 +51,7 @@ const Navigation: React.FC = () => {
   };
 
   const handleViewAccount = () => {
+    // Direct to snapshot page to avoid CIAM UI flicker
     window.open(accountServicingUrl, '_self');
     handleUserMenuClose();
   };
@@ -199,57 +200,61 @@ const Navigation: React.FC = () => {
               />
             )}
 
-            {/* User Account or Login Button */}
-            {isAuthenticated ? (
-              <Button
-                onClick={handleUserMenuOpen}
-                variant="outlined"
-                startIcon={
-                  <Avatar
-                    sx={{
-                      width: 24,
-                      height: 24,
-                      bgcolor: theme.palette.primary.main,
-                      fontSize: '12px'
-                    }}
-                  >
-                    {(user?.given_name?.[0] || user?.preferred_username?.[0] || 'U').toUpperCase()}
-                  </Avatar>
-                }
-                sx={{
-                  textTransform: 'none',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  borderColor: theme.palette.primary.main,
-                  color: theme.palette.primary.main,
-                  '&:hover': {
-                    borderColor: theme.palette.primary.dark,
-                    backgroundColor: theme.palette.primary.light,
-                  },
-                }}
-              >
-                {user?.given_name || user?.preferred_username || 'Account'}
-              </Button>
-            ) : (
-              <Button
-                variant="contained"
-                onClick={handleLoginClick}
-                sx={{
-                  textTransform: 'none',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  px: 3,
-                  py: 1,
-                  backgroundColor: theme.palette.primary.main,
-                  color: 'white',
-                  '&:hover': {
-                    backgroundColor: theme.palette.primary.dark,
-                  },
-                }}
-              >
-                Log In
-              </Button>
-            )}
+            {/* User Account or Login Button - Fixed width container to prevent layout shift */}
+            <Box sx={{ minWidth: 120, display: 'flex', justifyContent: 'flex-end' }}>
+              {isAuthenticated ? (
+                <Button
+                  onClick={handleUserMenuOpen}
+                  variant="outlined"
+                  startIcon={
+                    <Avatar
+                      sx={{
+                        width: 24,
+                        height: 24,
+                        bgcolor: theme.palette.primary.main,
+                        fontSize: '12px'
+                      }}
+                    >
+                      {(user?.given_name?.[0] || user?.preferred_username?.[0] || 'U').toUpperCase()}
+                    </Avatar>
+                  }
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    borderColor: theme.palette.primary.main,
+                    color: theme.palette.primary.main,
+                    minWidth: 120,
+                    '&:hover': {
+                      borderColor: theme.palette.primary.dark,
+                      backgroundColor: theme.palette.primary.light,
+                    },
+                  }}
+                >
+                  {user?.given_name || user?.preferred_username || 'Account'}
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  onClick={handleLoginClick}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    px: 3,
+                    py: 1,
+                    backgroundColor: theme.palette.primary.main,
+                    color: 'white',
+                    minWidth: 120,
+                    '&:hover': {
+                      backgroundColor: theme.palette.primary.dark,
+                    },
+                  }}
+                >
+                  Log In
+                </Button>
+              )}
+            </Box>
 
             {/* Mobile Menu Button */}
             {isMobile && (

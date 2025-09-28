@@ -48,8 +48,9 @@ const StorefrontPage: React.FC = () => {
                 Every great journey needs a great partner. We're proud to be yours!
               </Typography>
 
-              {isAuthenticated && user && (
-                <Box sx={{ mb: 3 }}>
+              {/* Reserve space to prevent layout shift */}
+              <Box sx={{ mb: 3, minHeight: isAuthenticated && user ? 'auto' : '92px' }}>
+                {isAuthenticated && user && (
                   <Paper
                     sx={{
                       p: 2,
@@ -64,8 +65,8 @@ const StorefrontPage: React.FC = () => {
                       Enjoy the benefits of membership.
                     </Typography>
                   </Paper>
-                </Box>
-              )}
+                )}
+              </Box>
 
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                 <Button

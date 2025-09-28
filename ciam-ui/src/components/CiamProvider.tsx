@@ -97,14 +97,14 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
   const authService = new AuthService({
     baseURL: backendUrl,
     timeout: 10000,
-    retries: 3,
+    retries: 1, // Reduced from 3 to 1 for faster failures in optimistic UI
     debug,
   });
 
   // Global authentication state
   const [authState, setAuthState] = useState({
     isAuthenticated: false,
-    isLoading: false,
+    isLoading: true, // CRITICAL: Start in loading state during initialization
     user: null as User | null,
     error: null as string | null,
     // MFA state
@@ -138,7 +138,6 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
 
     const initializeAuth = async () => {
       try {
-        setAuthState(prev => ({ ...prev, isLoading: true }));
         setHasInitialized(true);
 
         // First check if we have an access token in memory
@@ -158,16 +157,17 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
             roles: userInfo.roles,
           };
 
-          setAuthState({
+          setAuthState(prev => ({
+            ...prev,
             isAuthenticated: true,
-            isLoading: false,
+            isLoading: false, // Stop loading - we have valid auth
             user,
             error: null,
             mfaRequired: false,
             mfaAvailableMethods: [],
             mfaError: null,
             mfaUsername: null,
-          });
+          }));
 
           onLoginSuccess?.(user);
         } else {
@@ -195,16 +195,17 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
               roles: userInfo.roles,
             };
 
-            setAuthState({
+            setAuthState(prev => ({
+              ...prev,
               isAuthenticated: true,
-              isLoading: false,
+              isLoading: false, // Stop loading - refresh successful
               user,
               error: null,
               mfaRequired: false,
               mfaAvailableMethods: [],
               mfaError: null,
               mfaUsername: null,
-            });
+            }));
 
             onLoginSuccess?.(user);
           } catch (refreshError) {
@@ -212,16 +213,17 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
             if (debug) {
               console.log('[CiamProvider] Token refresh failed, user not authenticated');
             }
-            setAuthState({
+            setAuthState(prev => ({
+              ...prev,
               isAuthenticated: false,
-              isLoading: false,
+              isLoading: false, // CRITICAL: Stop loading - refresh failed, show login
               user: null,
               error: null,
               mfaRequired: false,
               mfaAvailableMethods: [],
               mfaError: null,
               mfaUsername: null,
-            });
+            }));
           }
         }
       } catch (error) {
@@ -230,16 +232,17 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
           console.error('[CiamProvider] Initialization error:', error);
         }
         authService.clearTokens();
-        setAuthState({
+        setAuthState(prev => ({
+          ...prev,
           isAuthenticated: false,
-          isLoading: false,
+          isLoading: false, // CRITICAL: Stop loading - initialization failed
           user: null,
           error: null,
           mfaRequired: false,
           mfaAvailableMethods: [],
           mfaError: null,
           mfaUsername: null,
-        });
+        }));
       }
     };
 
