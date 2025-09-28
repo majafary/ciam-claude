@@ -1,11 +1,20 @@
 import React from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useCiamContext } from './CiamProvider';
 import { CiamLoginComponent } from './CiamLoginComponent';
+import { User, LoginResponse } from '../types';
+
+interface LoginActions {
+  login: (username: string, password: string) => Promise<LoginResponse>;
+  isLoading: boolean;
+  error: string | null;
+  clearError: () => void;
+}
 
 interface CiamProtectedAppProps {
   children: React.ReactNode;
-  fallback?: React.ReactNode;
-  onAuthenticated?: (user: any) => void;
+  fallback?: React.ReactNode | ((actions: LoginActions) => React.ReactNode);
+  onAuthenticated?: (user: User) => void;
 }
 
 /**
@@ -28,6 +37,7 @@ export const CiamProtectedApp: React.FC<CiamProtectedAppProps> = ({
   onAuthenticated,
 }) => {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const { login, error, clearError } = useCiamContext();
 
   // Call onAuthenticated callback when user becomes authenticated
   React.useEffect(() => {
@@ -40,6 +50,17 @@ export const CiamProtectedApp: React.FC<CiamProtectedAppProps> = ({
   // Only show login if we've definitively determined user is not authenticated
   // AND we're not in the initial loading/checking phase
   if (!isAuthenticated && !isLoading) {
+    // Support both static fallback and render prop pattern
+    if (typeof fallback === 'function') {
+      const loginActions: LoginActions = {
+        login,
+        isLoading,
+        error,
+        clearError,
+      };
+      return <>{fallback(loginActions)}</>;
+    }
+
     return (
       <>
         {fallback || <CiamLoginComponent />}

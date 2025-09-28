@@ -902,54 +902,6 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
             </Typography>
           </Box>
 
-          {/* More to do Section */}
-          <Box sx={{ mb: 2 }}>
-            <Typography
-              variant="body2"
-              sx={{
-                fontWeight: 600,
-                mb: 1,
-                color: 'text.primary'
-              }}
-              tabIndex={-1}
-              component="h3"
-            >
-              More to do
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Button
-                variant="text"
-                onClick={(e) => e.preventDefault()}
-                aria-label="Manage your Home Loan"
-                sx={{
-                  justifyContent: 'flex-start',
-                  textAlign: 'left',
-                  textTransform: 'none',
-                  p: 0,
-                  color: 'primary.main',
-                  '&:hover': {
-                    backgroundColor: 'transparent',
-                    textDecoration: 'underline'
-                  }
-                }}
-              >
-                Manage your Home Loan
-              </Button>
-              <Link
-                href="#"
-                onClick={(e) => e.preventDefault()}
-                underline="hover"
-                aria-label="Complete a saved auto refinance application"
-                sx={{
-                  color: 'primary.main',
-                  fontSize: '0.875rem',
-                  display: 'block'
-                }}
-              >
-                Complete a saved auto refinance or lease buyout application
-              </Link>
-            </Box>
-          </Box>
 
           {/* Test credentials info */}
           <Box sx={{ mt: 2, textAlign: 'center' }}>
@@ -958,15 +910,6 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
             </Typography>
           </Box>
 
-          {/* Debug: show current state */}
-          {process.env.NODE_ENV === 'development' && (
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', fontSize: '0.75rem' }}>
-              <div>Debug State:</div>
-              <div>mfaRequired: {mfaRequired.toString()}</div>
-              <div>mfaAvailableMethods: {JSON.stringify(mfaAvailableMethods)}</div>
-              <div>mfaError: {mfaError || 'null'}</div>
-            </Box>
-          )}
         </Paper>
       );
     }
