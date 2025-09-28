@@ -10,21 +10,27 @@ import {
   MenuItem,
   useMediaQuery,
   useTheme,
+  Avatar,
+  Divider,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
-  Store as StoreIcon,
-  ShoppingCart as CartIcon,
   AccountBox as AccountIcon,
+  Logout as LogoutIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
-import { CiamLoginComponent, useAuth } from 'ciam-ui';
+import { useAuth } from 'ciam-ui';
+import SearchComponent from './SearchComponent';
+import LoginSlideOut from './LoginSlideOut';
 
 const Navigation: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileMenuAnchor, setMobileMenuAnchor] = useState<null | HTMLElement>(null);
+  const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
+  const [loginSlideOutOpen, setLoginSlideOutOpen] = useState(false);
 
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
 
   const accountServicingUrl = import.meta.env.VITE_ACCOUNT_SERVICING_URL || 'http://localhost:3001';
 
@@ -36,8 +42,39 @@ const Navigation: React.FC = () => {
     setMobileMenuAnchor(null);
   };
 
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setUserMenuAnchor(event.currentTarget);
+  };
+
+  const handleUserMenuClose = () => {
+    setUserMenuAnchor(null);
+  };
+
   const handleViewAccount = () => {
     window.open(accountServicingUrl, '_self');
+    handleUserMenuClose();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      handleUserMenuClose();
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
+  const handleLoginClick = () => {
+    setLoginSlideOutOpen(true);
+  };
+
+  const handleLoginSlideOutClose = () => {
+    setLoginSlideOutOpen(false);
+  };
+
+  const handleSearch = (query: string) => {
+    console.log('Search query:', query);
+    // TODO: Implement search functionality
   };
 
   const mobileMenuItems = (
@@ -55,13 +92,13 @@ const Navigation: React.FC = () => {
       }}
     >
       <MenuItem onClick={handleMobileMenuClose}>
-        <Typography>Products</Typography>
+        <Typography>About Us</Typography>
       </MenuItem>
       <MenuItem onClick={handleMobileMenuClose}>
-        <Typography>About</Typography>
+        <Typography>Contact Us</Typography>
       </MenuItem>
       <MenuItem onClick={handleMobileMenuClose}>
-        <Typography>Contact</Typography>
+        <Typography>Help</Typography>
       </MenuItem>
       {isAuthenticated && (
         <MenuItem onClick={() => {
@@ -76,166 +113,214 @@ const Navigation: React.FC = () => {
   );
 
   return (
-    <AppBar position="static" elevation={2}>
-      <Toolbar>
-        {/* Logo */}
-        <Box sx={{ display: 'flex', alignItems: 'center', mr: 4 }}>
-          <StoreIcon sx={{ mr: 1 }} />
-          <Typography
-            variant="h6"
-            component="div"
-            sx={{
-              fontWeight: 'bold',
-              color: 'inherit',
-              textDecoration: 'none',
-            }}
-          >
-            Storefront
-          </Typography>
-        </Box>
+    <>
+      <AppBar position="static" elevation={0}>
+        <Toolbar
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            minHeight: '64px',
+            px: { xs: 2, md: 4 },
+          }}
+        >
+          {/* Left Section: Logo Only */}
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Typography
+              variant="h5"
+              component="div"
+              sx={{
+                fontWeight: 700,
+                color: '#1A1A1A', // Dark text for navigation logo (R26 G26 B26)
+                cursor: 'pointer',
+                letterSpacing: '-0.5px',
+              }}
+            >
+              Storefront
+            </Typography>
+          </Box>
 
-        {/* Desktop Navigation */}
-        {!isMobile && (
-          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, gap: 3 }}>
-            <Button color="inherit">Products</Button>
-            <Button color="inherit">About</Button>
-            <Button color="inherit">Contact</Button>
+          {/* Spacer to push content to the right */}
+          <Box sx={{ flexGrow: 1 }} />
 
-            {/* Account Access Button - Only show when authenticated */}
-            {isAuthenticated && (
+          {/* Right Section: Navigation Links + Search + Login/User */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {/* Desktop Navigation Links - Right aligned */}
+            {!isMobile && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, mr: 2 }}>
+                <Button
+                  sx={{
+                    color: '#1A1A1A', // Dark text for navigation (R26 G26 B26)
+                    textTransform: 'none',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    '&:hover': {
+                      backgroundColor: 'transparent',
+                      color: theme.palette.primary.main,
+                    },
+                  }}
+                >
+                  About Us
+                </Button>
+                <Button
+                  sx={{
+                    color: '#1A1A1A', // Dark text for navigation (R26 G26 B26)
+                    textTransform: 'none',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    '&:hover': {
+                      backgroundColor: 'transparent',
+                      color: theme.palette.primary.main,
+                    },
+                  }}
+                >
+                  Contact Us
+                </Button>
+                <Button
+                  sx={{
+                    color: '#1A1A1A', // Dark text for navigation (R26 G26 B26)
+                    textTransform: 'none',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    '&:hover': {
+                      backgroundColor: 'transparent',
+                      color: theme.palette.primary.main,
+                    },
+                  }}
+                >
+                  Help
+                </Button>
+              </Box>
+            )}
+            {/* Search Component */}
+            {!isMobile && (
+              <SearchComponent
+                onSearch={handleSearch}
+                placeholder="Search..."
+              />
+            )}
+
+            {/* User Account or Login Button */}
+            {isAuthenticated ? (
               <Button
-                color="inherit"
+                onClick={handleUserMenuOpen}
                 variant="outlined"
-                startIcon={<AccountIcon />}
-                onClick={handleViewAccount}
+                startIcon={
+                  <Avatar
+                    sx={{
+                      width: 24,
+                      height: 24,
+                      bgcolor: theme.palette.primary.main,
+                      fontSize: '12px'
+                    }}
+                  >
+                    {(user?.given_name?.[0] || user?.preferred_username?.[0] || 'U').toUpperCase()}
+                  </Avatar>
+                }
                 sx={{
-                  ml: 2,
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  textTransform: 'none',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  borderColor: theme.palette.primary.main,
+                  color: theme.palette.primary.main,
                   '&:hover': {
-                    borderColor: 'white',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    borderColor: theme.palette.primary.dark,
+                    backgroundColor: theme.palette.primary.light,
                   },
                 }}
               >
-                View My Account
+                {user?.given_name || user?.preferred_username || 'Account'}
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                onClick={handleLoginClick}
+                sx={{
+                  textTransform: 'none',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  px: 3,
+                  py: 1,
+                  backgroundColor: theme.palette.primary.main,
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: theme.palette.primary.dark,
+                  },
+                }}
+              >
+                Log In
               </Button>
             )}
+
+            {/* Mobile Menu Button */}
+            {isMobile && (
+              <IconButton
+                onClick={handleMobileMenuOpen}
+                sx={{
+                  color: '#1A1A1A', // Dark icon for navigation (R26 G26 B26)
+                  '&:hover': {
+                    backgroundColor: theme.palette.grey[100],
+                  },
+                }}
+              >
+                <MenuIcon />
+              </IconButton>
+            )}
           </Box>
-        )}
-
-        {/* Spacer for mobile */}
-        {isMobile && <Box sx={{ flexGrow: 1 }} />}
-
-        {/* Shopping Cart Icon */}
-        <IconButton color="inherit" sx={{ mr: 1 }}>
-          <CartIcon />
-        </IconButton>
-
-        {/* CIAM Login Component */}
-        <Box sx={{ ml: 2, position: 'relative' }}>
-          <CiamLoginComponent
-            variant={isMobile ? 'button' : 'inline'}
-            showUserInfo={true}
-            customStyles={{
-              color: 'white',
-              // Ensure error alerts are visible with proper styling
-              '& .MuiAlert-root': {
-                color: 'white',
-                backgroundColor: 'rgba(211, 47, 47, 0.9)', // Red background for error
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                '& .MuiAlert-icon': {
-                  color: 'white',
-                },
-              },
-              '& .MuiTextField-root': {
-                '& .MuiOutlinedInput-root': {
-                  color: 'white',
-                  '& fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.7)',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: 'white',
-                  },
-                  '&.Mui-error fieldset': {
-                    borderColor: 'rgba(244, 67, 54, 0.8)',
-                  },
-                },
-                '& .MuiInputLabel-root': {
-                  color: 'rgba(255, 255, 255, 0.7)',
-                },
-                '& .MuiInputBase-input::placeholder': {
-                  color: 'rgba(255, 255, 255, 0.7)',
-                },
-              },
-              '& .MuiButton-root': {
-                color: 'white',
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                '&:hover': {
-                  borderColor: 'white',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                },
-                '&:disabled': {
-                  color: 'rgba(255, 255, 255, 0.3)',
-                  borderColor: 'rgba(255, 255, 255, 0.2)',
-                },
-              },
-            }}
-            onLoginSuccess={(user) => {
-              console.log('Navigation: User logged in:', user);
-            }}
-            onLoginError={(error) => {
-              console.error('Navigation: Login failed:', error);
-            }}
-          />
-        </Box>
-
-        {/* Mobile Menu Button */}
-        {isMobile && (
-          <IconButton
-            color="inherit"
-            onClick={handleMobileMenuOpen}
-            sx={{ ml: 1 }}
-          >
-            <MenuIcon />
-          </IconButton>
-        )}
-      </Toolbar>
+        </Toolbar>
+      </AppBar>
 
       {/* Mobile Menu */}
       {mobileMenuItems}
 
-      {/* Account Access Banner - Mobile Only */}
-      {isMobile && isAuthenticated && (
-        <Box
-          sx={{
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            px: 2,
-            py: 1,
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-          }}
-        >
-          <Button
-            fullWidth
-            variant="outlined"
-            startIcon={<AccountIcon />}
-            onClick={handleViewAccount}
-            sx={{
-              color: 'white',
-              borderColor: 'rgba(255, 255, 255, 0.5)',
-              '&:hover': {
-                borderColor: 'white',
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              },
-            }}
-          >
-            View My Account
-          </Button>
+      {/* User Menu */}
+      <Menu
+        anchorEl={userMenuAnchor}
+        open={Boolean(userMenuAnchor)}
+        onClose={handleUserMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        sx={{
+          '& .MuiPaper-root': {
+            minWidth: 200,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+            border: `1px solid ${theme.palette.grey[200]}`,
+          }
+        }}
+      >
+        {/* User Info Header */}
+        <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${theme.palette.grey[200]}` }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            {user?.given_name} {user?.family_name}
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            {user?.email}
+          </Typography>
         </Box>
-      )}
-    </AppBar>
+
+        {/* Menu Items */}
+        <MenuItem onClick={handleViewAccount} sx={{ py: 1.5 }}>
+          <AccountIcon sx={{ mr: 2, color: theme.palette.text.secondary }} />
+          <Typography>My Account</Typography>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
+          <LogoutIcon sx={{ mr: 2, color: theme.palette.text.secondary }} />
+          <Typography>Sign Out</Typography>
+        </MenuItem>
+      </Menu>
+
+      {/* Login Slide-Out */}
+      <LoginSlideOut
+        open={loginSlideOutOpen}
+        onClose={handleLoginSlideOutClose}
+      />
+    </>
   );
 };
 

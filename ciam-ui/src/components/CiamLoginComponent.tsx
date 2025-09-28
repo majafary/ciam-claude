@@ -12,17 +12,26 @@ import {
   Menu,
   MenuItem,
   Chip,
+  FormControlLabel,
+  Checkbox,
+  InputAdornment,
+  IconButton,
+  Link,
 } from '@mui/material';
 import {
   Login as LoginIcon,
   Person as PersonIcon,
   Logout as LogoutIcon,
   AccountCircle as AccountCircleIcon,
+  Visibility,
+  VisibilityOff,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/useAuth';
 import { useMfa } from '../hooks/useMfa';
 import { MfaMethodSelectionDialog } from './MfaMethodSelectionDialog';
 import { CiamLoginComponentProps } from '../types';
+import { usernameStorage } from '../utils/usernameStorage';
 
 export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   variant = 'form',
@@ -45,10 +54,25 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     username: '',
     password: '',
   });
+  const [saveUsername, setSaveUsername] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
   // Debug: Log state from Provider
   console.log('CiamLoginComponent render - mfaRequired:', mfaRequired, 'mfaAvailableMethods:', mfaAvailableMethods);
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+
+  // Load saved username on component mount
+  useEffect(() => {
+    const savedUsername = usernameStorage.get();
+    if (savedUsername) {
+      setFormData(prev => ({
+        ...prev,
+        username: savedUsername,
+      }));
+      setSaveUsername(true);
+    }
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -61,6 +85,20 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     if (error) {
       clearError();
     }
+  };
+
+  const handleSaveUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked;
+    setSaveUsername(checked);
+
+    // If unchecking, remove saved username immediately
+    if (!checked) {
+      usernameStorage.remove();
+    }
+  };
+
+  const handleTogglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,6 +114,13 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       const result = await login(formData.username, formData.password);
 
       if (result.responseTypeCode === 'SUCCESS') {
+        // Save username if checkbox is checked
+        if (saveUsername) {
+          usernameStorage.save(formData.username);
+        } else {
+          usernameStorage.remove();
+        }
+
         // Login successful
         onLoginSuccess?.(user!);
 
@@ -83,8 +128,11 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
           window.location.href = redirectUrl;
         }
 
-        // Clear form
-        setFormData({ username: '', password: '' });
+        // Clear form (but keep username if saving)
+        setFormData({
+          username: saveUsername ? formData.username : '',
+          password: '',
+        });
       } else if (result.responseTypeCode === 'MFA_REQUIRED') {
         // MFA state is now handled centrally in the Provider
         // Clear password for security but keep username for MFA challenge
@@ -119,6 +167,13 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     try {
       console.log('🟢 MFA Success - processing response:', mfaResponse);
 
+      // Save username if checkbox is checked
+      if (saveUsername) {
+        usernameStorage.save(formData.username);
+      } else {
+        usernameStorage.remove();
+      }
+
       // Trigger session refresh to update Provider state with authenticated user
       await refreshSession();
 
@@ -127,9 +182,17 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       // Clear MFA state after successful authentication - this will close the dialog
       clearMfa();
       cancelTransaction(); // Clear transaction state to close dialog immediately
-      setFormData({ username: '', password: '' });
 
-      // Note: onLoginSuccess will be called by Provider after refreshSession updates user state
+      // Clear form (but keep username if saving)
+      setFormData({
+        username: saveUsername ? formData.username : '',
+        password: '',
+      });
+
+      // Call onLoginSuccess immediately to trigger slide-out closure
+      onLoginSuccess?.(user!);
+
+      // Note: Provider will also update user state after refreshSession
     } catch (error) {
       console.error('Failed to complete MFA authentication:', error);
       onLoginError?.(error as any);
@@ -380,62 +443,200 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         </Box>
       );
     } else if (variant === 'inline') {
+      // Single column layout for slide-out usage
       componentContent = (
-        <Box className={className} sx={{ position: 'relative' }}>
-          <Box
-            component="form"
-            onSubmit={handleSubmit}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-              ...customStyles
-            }}
-          >
-            <TextField
-              name="username"
-              placeholder="Username"
-              size="small"
-              value={formData.username}
-              onChange={handleInputChange}
-              disabled={isLoading}
-              error={Boolean(error)}
-            />
-            <TextField
-              name="password"
-              type="password"
-              placeholder="Password"
-              size="small"
-              value={formData.password}
-              onChange={handleInputChange}
-              disabled={isLoading}
-              error={Boolean(error)}
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={isLoading || !formData.username || !formData.password}
-              startIcon={isLoading ? <CircularProgress size={16} /> : <LoginIcon />}
-            >
-              {isLoading ? 'Signing In...' : 'Sign In1'}
-            </Button>
-          </Box>
+        <Box className={className} sx={{ ...customStyles }}>
           {error && (
-            <Alert
-              severity="error"
-              sx={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                mt: 1,
-                zIndex: 1300,
-                minWidth: '300px',
-              }}
-            >
+            <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
+
+          <Box
+            component="form"
+            onSubmit={handleSubmit}
+            autoComplete="off"
+            role="form"
+            aria-label="Login form"
+          >
+            {/* Username Field with Person Icon */}
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                component="label"
+                htmlFor="inline-username"
+                sx={{
+                  display: 'block',
+                  mb: 1,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: 'text.primary'
+                }}
+              >
+                Username
+              </Typography>
+              <TextField
+                id="inline-username"
+                name="username"
+                fullWidth
+                value={formData.username}
+                onChange={handleInputChange}
+                disabled={isLoading}
+                error={Boolean(error)}
+                autoComplete="username"
+                autoFocus
+                required
+                aria-label="Enter Username"
+                aria-required="true"
+                inputProps={{
+                  'data-private': 'true',
+                  'aria-label': 'Enter Username',
+                  maxLength: 50
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
+                    </InputAdornment>
+                  ),
+                  sx: {
+                    '& .MuiOutlinedInput-input': {
+                      padding: '12px 14px 12px 0'
+                    }
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    // Use theme default purple background
+                  }
+                }}
+              />
+            </Box>
+
+            {/* Password Field with Eye Icon */}
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                component="label"
+                htmlFor="inline-password"
+                sx={{
+                  display: 'block',
+                  mb: 1,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: 'text.primary'
+                }}
+              >
+                Password
+              </Typography>
+              <TextField
+                id="inline-password"
+                name="password"
+                fullWidth
+                type={showPassword ? 'text' : 'password'}
+                value={formData.password}
+                onChange={handleInputChange}
+                disabled={isLoading}
+                error={Boolean(error)}
+                autoComplete="current-password"
+                required
+                aria-label="Enter Password"
+                aria-required="true"
+                inputProps={{
+                  'data-private': 'true',
+                  'aria-label': 'Enter Password',
+                  maxLength: 50
+                }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleTogglePasswordVisibility}
+                        edge="end"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        disabled={isLoading}
+                        size="small"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                  sx: {
+                    '& .MuiOutlinedInput-input': {
+                      padding: '12px 14px'
+                    }
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    // Use theme default purple background
+                  }
+                }}
+              />
+              {/* Screen reader feedback for password visibility */}
+              <Box
+                component="span"
+                aria-live="polite"
+                aria-atomic="false"
+                aria-relevant="all"
+                sx={{
+                  position: 'absolute',
+                  border: 0,
+                  width: '1px',
+                  height: '1px',
+                  padding: 0,
+                  margin: '-1px',
+                  overflow: 'hidden',
+                  clip: 'rect(0px, 0px, 0px, 0px)',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {showPassword ? 'showing password' : 'hiding password'}
+              </Box>
+            </Box>
+
+            {/* Login Button and Save Username */}
+            <Box sx={{ mb: 2 }}>
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={isLoading || !formData.username || !formData.password}
+                startIcon={isLoading ? <CircularProgress size={20} /> : undefined}
+                sx={{
+                  mb: 2,
+                  py: 1.5,
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  textTransform: 'none'
+                }}
+                aria-label="Log In"
+              >
+                {isLoading ? 'Signing In...' : 'Log In'}
+              </Button>
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    id="inline-rememberMeFlag"
+                    checked={saveUsername}
+                    onChange={handleSaveUsernameChange}
+                    size="small"
+                    role="checkbox"
+                    aria-checked={saveUsername}
+                  />
+                }
+                label={
+                  <Typography
+                    component="label"
+                    htmlFor="inline-rememberMeFlag"
+                    sx={{ fontSize: '0.875rem' }}
+                  >
+                    Save username
+                  </Typography>
+                }
+                sx={{ margin: 0 }}
+              />
+            </Box>
+          </Box>
         </Box>
       );
     } else {
@@ -443,22 +644,30 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       componentContent = (
         <Paper
           sx={{
-            p: 4,
+            p: 3,
             maxWidth: 400,
             mx: 'auto',
             ...customStyles
           }}
           className={className}
         >
-          <Box sx={{ textAlign: 'center', mb: 3 }}>
-            <Avatar sx={{ mx: 'auto', mb: 2, bgcolor: 'primary.main' }}>
-              <LoginIcon />
-            </Avatar>
-            <Typography variant="h5" gutterBottom>
-              Sign In
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Enter your credentials to continue
+          {/* Header with Lock Icon */}
+          <Box sx={{ mb: 3 }}>
+            <Typography
+              variant="h6"
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                fontWeight: 600,
+                mb: 0
+              }}
+              tabIndex={-1}
+              role="heading"
+              aria-level={2}
+            >
+              <LockIcon sx={{ fontSize: 20 }} />
+              Log in
             </Typography>
           </Box>
 
@@ -468,52 +677,285 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
             </Alert>
           )}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              id="username"
-              label="Username"
-              name="username"
-              autoComplete="username"
-              autoFocus
-              value={formData.username}
-              onChange={handleInputChange}
-              disabled={isLoading}
-              error={Boolean(error)}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Password"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={formData.password}
-              onChange={handleInputChange}
-              disabled={isLoading}
-              error={Boolean(error)}
-            />
-
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-              disabled={isLoading || !formData.username || !formData.password}
-              startIcon={isLoading ? <CircularProgress size={20} /> : <LoginIcon />}
-            >
-              {isLoading ? 'Signing In...' : 'Sign In2'}
-            </Button>
-
-            <Box sx={{ mt: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                Test credentials: testuser / password
+          {/* Form Section */}
+          <Box
+            component="form"
+            onSubmit={handleSubmit}
+            autoComplete="off"
+            role="form"
+            aria-label="Login form"
+          >
+            {/* Username Field with Person Icon */}
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                component="label"
+                htmlFor="username"
+                sx={{
+                  display: 'block',
+                  mb: 1,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: 'text.primary'
+                }}
+              >
+                Username
               </Typography>
+              <TextField
+                id="username"
+                name="username"
+                fullWidth
+                value={formData.username}
+                onChange={handleInputChange}
+                disabled={isLoading}
+                error={Boolean(error)}
+                autoComplete="username"
+                autoFocus
+                required
+                aria-label="Enter Username"
+                aria-required="true"
+                inputProps={{
+                  'data-private': 'true',
+                  'aria-label': 'Enter Username',
+                  maxLength: 50
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
+                    </InputAdornment>
+                  ),
+                  sx: {
+                    '& .MuiOutlinedInput-input': {
+                      padding: '12px 14px 12px 0'
+                    }
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    // Use theme default purple background
+                  }
+                }}
+              />
             </Box>
+
+            {/* Password Field with Eye Icon */}
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                component="label"
+                htmlFor="password"
+                sx={{
+                  display: 'block',
+                  mb: 1,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: 'text.primary'
+                }}
+              >
+                Password
+              </Typography>
+              <TextField
+                id="password"
+                name="password"
+                fullWidth
+                type={showPassword ? 'text' : 'password'}
+                value={formData.password}
+                onChange={handleInputChange}
+                disabled={isLoading}
+                error={Boolean(error)}
+                autoComplete="current-password"
+                required
+                aria-label="Enter Password"
+                aria-required="true"
+                inputProps={{
+                  'data-private': 'true',
+                  'aria-label': 'Enter Password',
+                  maxLength: 50
+                }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleTogglePasswordVisibility}
+                        edge="end"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        disabled={isLoading}
+                        size="small"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                  sx: {
+                    '& .MuiOutlinedInput-input': {
+                      padding: '12px 14px'
+                    }
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    // Use theme default purple background
+                  }
+                }}
+              />
+              {/* Screen reader feedback for password visibility */}
+              <Box
+                component="span"
+                aria-live="polite"
+                aria-atomic="false"
+                aria-relevant="all"
+                sx={{
+                  position: 'absolute',
+                  border: 0,
+                  width: '1px',
+                  height: '1px',
+                  padding: 0,
+                  margin: '-1px',
+                  overflow: 'hidden',
+                  clip: 'rect(0px, 0px, 0px, 0px)',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {showPassword ? 'showing password' : 'hiding password'}
+              </Box>
+            </Box>
+
+            {/* Login Button and Save Username */}
+            <Box sx={{ mb: 2 }}>
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={isLoading || !formData.username || !formData.password}
+                startIcon={isLoading ? <CircularProgress size={20} /> : undefined}
+                sx={{
+                  mb: 2,
+                  py: 1.5,
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  textTransform: 'none'
+                }}
+                aria-label="Log In"
+              >
+                {isLoading ? 'Signing In...' : 'Log In'}
+              </Button>
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    id="rememberMeFlag"
+                    checked={saveUsername}
+                    onChange={handleSaveUsernameChange}
+                    size="small"
+                    role="checkbox"
+                    aria-checked={saveUsername}
+                  />
+                }
+                label={
+                  <Typography
+                    component="label"
+                    htmlFor="rememberMeFlag"
+                    sx={{ fontSize: '0.875rem' }}
+                  >
+                    Save username
+                  </Typography>
+                }
+                sx={{ margin: 0 }}
+              />
+            </Box>
+          </Box>
+
+          {/* Footer Links Section */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Forgot{' '}
+              <Link
+                href="#"
+                underline="always"
+                onClick={(e) => e.preventDefault()}
+                aria-label="Forgot username"
+                sx={{ color: 'primary.main' }}
+              >
+                username
+              </Link>
+              {' '}or{' '}
+              <Link
+                href="#"
+                underline="always"
+                onClick={(e) => e.preventDefault()}
+                aria-label="Forgot password"
+                sx={{ color: 'primary.main' }}
+              >
+                password
+              </Link>
+              ?
+            </Typography>
+            <Typography variant="body2">
+              <Link
+                href="#"
+                underline="always"
+                onClick={(e) => e.preventDefault()}
+                aria-label="Set up username and password"
+                sx={{ color: 'primary.main' }}
+              >
+                Set up username and password
+              </Link>
+            </Typography>
+          </Box>
+
+          {/* More to do Section */}
+          <Box sx={{ mb: 2 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 600,
+                mb: 1,
+                color: 'text.primary'
+              }}
+              tabIndex={-1}
+              component="h3"
+            >
+              More to do
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Button
+                variant="text"
+                onClick={(e) => e.preventDefault()}
+                aria-label="Manage your Home Loan"
+                sx={{
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  textTransform: 'none',
+                  p: 0,
+                  color: 'primary.main',
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    textDecoration: 'underline'
+                  }
+                }}
+              >
+                Manage your Home Loan
+              </Button>
+              <Link
+                href="#"
+                onClick={(e) => e.preventDefault()}
+                underline="hover"
+                aria-label="Complete a saved auto refinance application"
+                sx={{
+                  color: 'primary.main',
+                  fontSize: '0.875rem',
+                  display: 'block'
+                }}
+              >
+                Complete a saved auto refinance or lease buyout application
+              </Link>
+            </Box>
+          </Box>
+
+          {/* Test credentials info */}
+          <Box sx={{ mt: 2, textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary">
+              Test credentials: testuser / password
+            </Typography>
           </Box>
 
           {/* Debug: show current state */}
