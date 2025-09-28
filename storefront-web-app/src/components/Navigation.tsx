@@ -289,29 +289,30 @@ const Navigation: React.FC = () => {
           '& .MuiPaper-root': {
             minWidth: 200,
             boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-            border: `1px solid ${theme.palette.grey[200]}`,
+            border: `1px solid #E0E0E0`,
+            backgroundColor: '#FFFFFF',
           }
         }}
       >
         {/* User Info Header */}
-        <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${theme.palette.grey[200]}` }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+        <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid #E0E0E0` }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#333333' }}>
             {user?.given_name} {user?.family_name}
           </Typography>
-          <Typography variant="body2" color="textSecondary">
+          <Typography variant="body2" sx={{ color: '#666666' }}>
             {user?.email}
           </Typography>
         </Box>
 
         {/* Menu Items */}
         <MenuItem onClick={handleViewAccount} sx={{ py: 1.5 }}>
-          <AccountIcon sx={{ mr: 2, color: theme.palette.text.secondary }} />
-          <Typography>My Account</Typography>
+          <AccountIcon sx={{ mr: 2, color: '#666666' }} />
+          <Typography sx={{ color: '#333333' }}>My Account</Typography>
         </MenuItem>
         <Divider />
         <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
-          <LogoutIcon sx={{ mr: 2, color: theme.palette.text.secondary }} />
-          <Typography>Sign Out</Typography>
+          <LogoutIcon sx={{ mr: 2, color: '#666666' }} />
+          <Typography sx={{ color: '#333333' }}>Sign Out</Typography>
         </MenuItem>
       </Menu>
 
