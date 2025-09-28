@@ -30,7 +30,7 @@ const Navigation: React.FC = () => {
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
   const [loginSlideOutOpen, setLoginSlideOutOpen] = useState(false);
 
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
 
   const accountServicingUrl = import.meta.env.VITE_ACCOUNT_SERVICING_URL || 'http://localhost:3003';
 
@@ -202,7 +202,24 @@ const Navigation: React.FC = () => {
 
             {/* User Account or Login Button - Fixed width container to prevent layout shift */}
             <Box sx={{ minWidth: 120, display: 'flex', justifyContent: 'flex-end' }}>
-              {isAuthenticated ? (
+              {isLoading ? (
+                // Show skeleton/placeholder during auth initialization to prevent flicker
+                <Button
+                  variant="outlined"
+                  disabled
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    minWidth: 120,
+                    opacity: 0.3,
+                    borderColor: theme.palette.grey[300],
+                    color: theme.palette.grey[400],
+                  }}
+                >
+                  Loading...
+                </Button>
+              ) : isAuthenticated ? (
                 <Button
                   onClick={handleUserMenuOpen}
                   variant="outlined"
