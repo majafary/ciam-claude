@@ -31,7 +31,7 @@ const App: React.FC = () => {
           }}
         >
           <CircularProgress size={48} />
-          <Box>Loading your account...</Box>
+          <Box sx={{ color: 'white' }}>Loading your account...</Box>
         </Box>
       </ThemeProvider>
     );
