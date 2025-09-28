@@ -153,19 +153,7 @@ const SnapshotPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Box sx={{ mb: 4 }}>
-          <LinearProgress />
-          <Typography variant="h4" sx={{ mt: 2, mb: 1, color: 'white' }}>
-            Loading Account Snapshot...
-          </Typography>
-          <Typography variant="body1" sx={{ color: 'white' }}>
-            Please wait while we gather your account information.
-          </Typography>
-        </Box>
-      </Container>
-    );
+    return null; // Don't show loading - prevents flicker when auth check fails
   }
 
   if (error || !snapshot) {
