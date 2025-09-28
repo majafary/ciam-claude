@@ -157,10 +157,10 @@ const SnapshotPage: React.FC = () => {
       <Container maxWidth="lg" sx={{ py: 4 }}>
         <Box sx={{ mb: 4 }}>
           <LinearProgress />
-          <Typography variant="h4" sx={{ mt: 2, mb: 1 }}>
+          <Typography variant="h4" sx={{ mt: 2, mb: 1, color: 'white' }}>
             Loading Account Snapshot...
           </Typography>
-          <Typography variant="body1" color="text.secondary">
+          <Typography variant="body1" sx={{ color: 'white' }}>
             Please wait while we gather your account information.
           </Typography>
         </Box>
@@ -184,10 +184,10 @@ const SnapshotPage: React.FC = () => {
     <Container maxWidth="lg" sx={{ py: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ mb: 1 }}>
+        <Typography variant="h4" sx={{ mb: 1, color: 'white' }}>
           Account Snapshot
         </Typography>
-        <Typography variant="body1" color="text.secondary">
+        <Typography variant="body1" sx={{ color: 'white' }}>
           Welcome back, {user?.given_name || user?.preferred_username}. Here's your current account overview.
         </Typography>
       </Box>

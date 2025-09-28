@@ -1,125 +1,207 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
   Box,
-  Avatar,
+  Button,
   Menu,
   MenuItem,
-  IconButton,
+  useTheme,
+  Avatar,
   Divider,
 } from '@mui/material';
-import { AccountCircle, ExitToApp, Home } from '@mui/icons-material';
+import {
+  Home as HomeIcon,
+  Logout as LogoutIcon,
+} from '@mui/icons-material';
 import { useAuth } from 'ciam-ui';
 
 const Navigation: React.FC = () => {
-  const { user, logout, isLoading } = useAuth();
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const theme = useTheme();
+  const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
 
-  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
+  const { user, logout } = useAuth();
+
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setUserMenuAnchor(event.currentTarget);
   };
 
-  const handleClose = () => {
-    setAnchorEl(null);
+  const handleUserMenuClose = () => {
+    setUserMenuAnchor(null);
   };
+
+  const handleGoToStorefront = () => {
+    const storefrontUrl = import.meta.env.VITE_STOREFRONT_URL || 'http://localhost:3000';
+    window.open(storefrontUrl, '_self');
+    handleUserMenuClose();
+  };
+
 
   const handleLogout = async () => {
     try {
       await logout();
-      handleClose();
+      handleUserMenuClose();
     } catch (error) {
       console.error('Logout failed:', error);
     }
   };
 
-  const handleGoToStorefront = () => {
-    const storefrontUrl = import.meta.env.VITE_STOREFRONT_URL || 'http://localhost:3000';
-    window.location.href = storefrontUrl;
-  };
+  return (
+    <>
+      <AppBar position="static" elevation={0}>
+        <Toolbar
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            minHeight: '64px',
+            px: { xs: 2, md: 4 },
+          }}
+        >
+          {/* Left Section: Logo */}
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Typography
+              variant="h5"
+              component="div"
+              sx={{
+                fontWeight: 700,
+                color: '#1A1A1A', // Dark text for navigation logo (R26 G26 B26)
+                cursor: 'pointer',
+                letterSpacing: '-0.5px',
+              }}
+            >
+              Account Servicing
+            </Typography>
+          </Box>
 
-  if (isLoading) {
-    return (
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Account Servicing
-          </Typography>
+          {/* Spacer to push content to the right */}
+          <Box sx={{ flexGrow: 1 }} />
+
+          {/* Right Section: Navigation Links + User */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {/* Navigation Links */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, mr: 2 }}>
+              <Button
+                sx={{
+                  color: '#1A1A1A', // Dark text for navigation (R26 G26 B26)
+                  textTransform: 'none',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    color: theme.palette.primary.main,
+                  },
+                }}
+              >
+                About Us
+              </Button>
+              <Button
+                sx={{
+                  color: '#1A1A1A', // Dark text for navigation (R26 G26 B26)
+                  textTransform: 'none',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    color: theme.palette.primary.main,
+                  },
+                }}
+              >
+                Contact Us
+              </Button>
+              <Button
+                sx={{
+                  color: '#1A1A1A', // Dark text for navigation (R26 G26 B26)
+                  textTransform: 'none',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    color: theme.palette.primary.main,
+                  },
+                }}
+              >
+                Help
+              </Button>
+            </Box>
+
+            {/* User Account */}
+            <Button
+              onClick={handleUserMenuOpen}
+              variant="outlined"
+              startIcon={
+                <Avatar
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    bgcolor: theme.palette.primary.main,
+                    fontSize: '12px'
+                  }}
+                >
+                  {(user?.given_name?.[0] || user?.preferred_username?.[0] || 'U').toUpperCase()}
+                </Avatar>
+              }
+              sx={{
+                textTransform: 'none',
+                fontSize: '14px',
+                fontWeight: 500,
+                borderColor: theme.palette.primary.main,
+                color: theme.palette.primary.main,
+                '&:hover': {
+                  borderColor: theme.palette.primary.dark,
+                  backgroundColor: theme.palette.primary.light,
+                },
+              }}
+            >
+              {user?.given_name || user?.preferred_username || 'Account'}
+            </Button>
+          </Box>
         </Toolbar>
       </AppBar>
-    );
-  }
 
-  return (
-    <AppBar position="static" elevation={1}>
-      <Toolbar>
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-          Account Servicing
-        </Typography>
-
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button
-            color="inherit"
-            startIcon={<Home />}
-            onClick={handleGoToStorefront}
-            sx={{ mr: 1 }}
-          >
-            Storefront
-          </Button>
-
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2" sx={{ mr: 1 }}>
-              Welcome, {user?.given_name || user?.preferred_username || 'User'}
-            </Typography>
-            <IconButton
-              size="large"
-              aria-label="account of current user"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
-              onClick={handleMenu}
-              color="inherit"
-            >
-              <Avatar sx={{ width: 32, height: 32 }}>
-                <AccountCircle />
-              </Avatar>
-            </IconButton>
-            <Menu
-              id="menu-appbar"
-              anchorEl={anchorEl}
-              anchorOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              keepMounted
-              transformOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              open={Boolean(anchorEl)}
-              onClose={handleClose}
-            >
-              <MenuItem disabled>
-                <Typography variant="body2" color="text.secondary">
-                  Signed in as
-                </Typography>
-              </MenuItem>
-              <MenuItem disabled>
-                <Typography variant="body1" fontWeight="bold">
-                  {user?.given_name || user?.preferred_username}
-                </Typography>
-              </MenuItem>
-              <Divider />
-              <MenuItem onClick={handleLogout}>
-                <ExitToApp sx={{ mr: 1 }} />
-                Sign Out
-              </MenuItem>
-            </Menu>
-          </Box>
+      {/* User Menu */}
+      <Menu
+        anchorEl={userMenuAnchor}
+        open={Boolean(userMenuAnchor)}
+        onClose={handleUserMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        sx={{
+          '& .MuiPaper-root': {
+            minWidth: 200,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+            border: `1px solid ${theme.palette.grey[200]}`,
+          }
+        }}
+      >
+        {/* User Info Header */}
+        <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${theme.palette.grey[200]}` }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            {user?.given_name} {user?.family_name}
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            {user?.email}
+          </Typography>
         </Box>
-      </Toolbar>
-    </AppBar>
+
+        {/* Menu Items */}
+        <MenuItem onClick={handleGoToStorefront} sx={{ py: 1.5 }}>
+          <HomeIcon sx={{ mr: 2, color: theme.palette.text.secondary }} />
+          <Typography>Storefront</Typography>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
+          <LogoutIcon sx={{ mr: 2, color: theme.palette.text.secondary }} />
+          <Typography>Sign Out</Typography>
+        </MenuItem>
+      </Menu>
+    </>
   );
 };
 

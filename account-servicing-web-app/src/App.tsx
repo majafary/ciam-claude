@@ -1,42 +1,12 @@
 import React from 'react';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box, CircularProgress } from '@mui/material';
 import { ProtectedRoute, useAuth } from 'ciam-ui';
 import Navigation from './components/Navigation';
 import SnapshotPage from './pages/SnapshotPage';
 import LoginRedirect from './components/LoginRedirect';
-
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#2c5aa0',
-    },
-    secondary: {
-      main: '#f50057',
-    },
-    background: {
-      default: '#f5f5f5',
-    },
-  },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-        },
-      },
-    },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 12,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        },
-      },
-    },
-  },
-});
+import { brandTheme } from './theme/brandTheme';
 
 const App: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -48,7 +18,7 @@ const App: React.FC = () => {
 
   if (isLoading) {
     return (
-      <ThemeProvider theme={theme}>
+      <ThemeProvider theme={brandTheme}>
         <CssBaseline />
         <Box
           sx={{
@@ -68,7 +38,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={brandTheme}>
       <CssBaseline />
       <ProtectedRoute
         fallback={
