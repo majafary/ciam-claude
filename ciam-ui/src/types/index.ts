@@ -133,7 +133,7 @@ export interface SessionState {
 
 // Component Props Types
 export interface CiamLoginComponentProps {
-  variant?: 'form' | 'button' | 'inline';
+  variant?: 'form' | 'inline';
   onLoginSuccess?: (user: User) => void;
   onLoginError?: (error: ApiError) => void;
   onLogout?: () => void;

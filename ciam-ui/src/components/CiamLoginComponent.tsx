@@ -273,50 +273,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   // Authenticated state - show user info
   if (isAuthenticated && user && showUserInfo) {
-    if (variant === 'button') {
-      componentContent = (
-        <Box sx={customStyles} className={className}>
-          <Button
-            variant="outlined"
-            startIcon={<AccountCircleIcon />}
-            onClick={handleMenuOpen}
-            sx={{ textTransform: 'none' }}
-          >
-            {user.given_name || user.preferred_username || 'Account'}
-          </Button>
-
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleMenuClose}
-            anchorOrigin={{
-              vertical: 'bottom',
-              horizontal: 'right',
-            }}
-            transformOrigin={{
-              vertical: 'top',
-              horizontal: 'right',
-            }}
-          >
-            <MenuItem disabled>
-              <Box>
-                <Typography variant="subtitle2">
-                  {user.given_name} {user.family_name}
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  {user.email}
-                </Typography>
-              </Box>
-            </MenuItem>
-            <Divider />
-            <MenuItem onClick={handleLogout}>
-              <LogoutIcon sx={{ mr: 1 }} />
-              Sign Out
-            </MenuItem>
-          </Menu>
-        </Box>
-      );
-    } else if (variant === 'inline') {
+    if (variant === 'inline') {
       componentContent = (
         <Box
           sx={{
@@ -423,26 +380,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   if (!isAuthenticated || !showUserInfo) {
     // Not authenticated - show login form
-    if (variant === 'button') {
-      componentContent = (
-        <Box className={className}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          <Button
-            variant="contained"
-            startIcon={<LoginIcon />}
-            onClick={() => {/* Could open login modal */}}
-            sx={customStyles}
-            disabled={Boolean(error)}
-          >
-            Sign In
-          </Button>
-        </Box>
-      );
-    } else if (variant === 'inline') {
+    if (variant === 'inline') {
       // Single column layout for slide-out usage
       componentContent = (
         <Box className={className} sx={{ ...customStyles }}>
