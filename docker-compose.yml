@@ -3,10 +3,10 @@ services:
     build:
       context: ./ciam-backend
       dockerfile: Dockerfile
+      args:
+        CUSTOM_REGISTRY: https://registry.npmjs.org
     ports:
       - "8080:8080"
-    args:
-      CUSTOM_REGISTRY: https://registry.npmjs.org
     environment:
       - NODE_ENV=development
       - CUSTOM_REGISTRY=${CUSTOM_REGISTRY}
