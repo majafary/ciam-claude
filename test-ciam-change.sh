@@ -7,7 +7,7 @@ echo "=================================================="
 
 # 1. Stop containers
 echo "📦 Step 1: Stopping all containers..."
-docker-compose down
+docker compose down
 
 # 2. Build projects
 echo "🏪 Step 2: Building all projects"
@@ -17,8 +17,8 @@ npm run build:all
 # 3. Deploy with Docker
 echo "🐳 Step 3: Deploying with Docker..."
 cd ..
-docker-compose down
-docker-compose up --build -d
+docker compose down
+docker compose up --build -d
 
 echo "✅ Deployment complete!"
 echo "🌐 Storefront: http://localhost:3000"
