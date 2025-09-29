@@ -16,7 +16,7 @@ npm run build:all
 
 # 3. Deploy with Docker
 echo "🐳 Step 3: Deploying with Docker..."
-cd ..
+cd $PROJECT_ROOT
 docker compose down
 docker compose up --build -d
 
