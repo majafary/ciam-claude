@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "dev": "vite",
+    "dev:watch": "vite build --watch --mode development",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "jest",

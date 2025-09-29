@@ -44,7 +44,12 @@
       "Bash(node:*)",
       "Bash(npx playwright install:*)",
       "Bash(open http://localhost:3003)",
-      "Bash(ps:*)"
+      "Bash(ps:*)",
+      "Bash(readlink:*)",
+      "Bash(npm run install:all:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm run dev:all:*)",
+      "Bash(ln:*)"
     ],
     "deny": [],
     "ask": []
