@@ -11,7 +11,15 @@ export const usernameStorage = {
   save: (username: string): void => {
     try {
       if (username && username.trim()) {
+        console.log('💾 [STORAGE DEBUG] Saving username to localStorage:', {
+          username: username.trim(),
+          key: USERNAME_STORAGE_KEY,
+          origin: typeof window !== 'undefined' ? window.location.origin : 'unknown'
+        });
         localStorage.setItem(USERNAME_STORAGE_KEY, username.trim());
+        console.log('✅ [STORAGE DEBUG] Username saved successfully');
+      } else {
+        console.log('❌ [STORAGE DEBUG] Invalid username, not saving:', username);
       }
     } catch (error) {
       console.warn('Failed to save username to localStorage:', error);
@@ -23,7 +31,13 @@ export const usernameStorage = {
    */
   get: (): string => {
     try {
-      return localStorage.getItem(USERNAME_STORAGE_KEY) || '';
+      const stored = localStorage.getItem(USERNAME_STORAGE_KEY) || '';
+      console.log('🔍 [STORAGE DEBUG] Getting username from localStorage:', {
+        stored,
+        key: USERNAME_STORAGE_KEY,
+        origin: typeof window !== 'undefined' ? window.location.origin : 'unknown'
+      });
+      return stored;
     } catch (error) {
       console.warn('Failed to retrieve username from localStorage:', error);
       return '';

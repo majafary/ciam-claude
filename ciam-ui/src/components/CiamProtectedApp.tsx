@@ -36,8 +36,25 @@ export const CiamProtectedApp: React.FC<CiamProtectedAppProps> = ({
   fallback,
   onAuthenticated,
 }) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, mfaRequired } = useAuth();
   const { login, error, clearError } = useCiamContext();
+
+  // Track previous MFA state to detect transitions
+  const prevMfaRequired = React.useRef(mfaRequired);
+  const [wasMfaRequired, setWasMfaRequired] = React.useState(false);
+
+  React.useEffect(() => {
+    // Detect MFA → authenticated transition
+    if (prevMfaRequired.current && !mfaRequired && isAuthenticated) {
+      // We just completed MFA and became authenticated
+      // Keep the login component mounted briefly to prevent remounting
+      setWasMfaRequired(true);
+      // Clear the flag after a short delay to allow state to settle
+      const timer = setTimeout(() => setWasMfaRequired(false), 100);
+      return () => clearTimeout(timer);
+    }
+    prevMfaRequired.current = mfaRequired;
+  }, [mfaRequired, isAuthenticated]);
 
   // Call onAuthenticated callback when user becomes authenticated
   React.useEffect(() => {
@@ -47,9 +64,11 @@ export const CiamProtectedApp: React.FC<CiamProtectedAppProps> = ({
   }, [isAuthenticated, user, onAuthenticated]);
 
   // CRITICAL FIX: Show protected content optimistically during initialization
-  // Only show login if we've definitively determined user is not authenticated
-  // AND we're not in the initial loading/checking phase
-  if (!isAuthenticated && !isLoading) {
+  // Show login component if:
+  // 1. User is not authenticated AND not loading (normal login flow)
+  // 2. OR MFA is required (keep login component mounted during MFA to preserve state)
+  // 3. OR we just completed MFA (prevent remounting during transition)
+  if ((!isAuthenticated && !isLoading) || mfaRequired || wasMfaRequired) {
     // Support both static fallback and render prop pattern
     if (typeof fallback === 'function') {
       const loginActions: LoginActions = {

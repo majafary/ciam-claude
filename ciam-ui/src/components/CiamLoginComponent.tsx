@@ -57,20 +57,54 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   const [saveUsername, setSaveUsername] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Preserve original login state for MFA completion - use sessionStorage for persistence across remounts
+  const getOriginalLoginData = () => {
+    try {
+      const stored = sessionStorage.getItem('ciam_mfa_original_login_data');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const setOriginalLoginData = (data: { username: string; saveUsername: boolean } | null) => {
+    try {
+      if (data) {
+        sessionStorage.setItem('ciam_mfa_original_login_data', JSON.stringify(data));
+      } else {
+        sessionStorage.removeItem('ciam_mfa_original_login_data');
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  // Component instance tracking for debugging
+  const componentId = React.useRef(Math.random().toString(36).substr(2, 9));
+
   // Debug: Log state from Provider
-  console.log('CiamLoginComponent render - mfaRequired:', mfaRequired, 'mfaAvailableMethods:', mfaAvailableMethods);
+  console.log('CiamLoginComponent render - mfaRequired:', mfaRequired, 'mfaAvailableMethods:', mfaAvailableMethods, 'componentId:', componentId.current, 'originalLoginData:', getOriginalLoginData());
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   // Load saved username on component mount
   useEffect(() => {
     const savedUsername = usernameStorage.get();
+    console.log('🔍 [MOUNT DEBUG] localStorage check:', {
+      savedUsername,
+      origin: window.location.origin,
+      port: window.location.port,
+      key: 'ciam_saved_username'
+    });
     if (savedUsername) {
       setFormData(prev => ({
         ...prev,
         username: savedUsername,
       }));
       setSaveUsername(true);
+      console.log('✅ [MOUNT DEBUG] Pre-populated username:', savedUsername);
+    } else {
+      console.log('❌ [MOUNT DEBUG] No saved username found');
     }
   }, []);
 
@@ -109,16 +143,29 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     }
 
     const currentUsername = formData.username; // Preserve username for MFA
+    console.log('🚀 [SUBMIT DEBUG] Form submission:', {
+      username: formData.username,
+      saveUsername,
+      currentUsernameVar: currentUsername,
+      origin: window.location.origin
+    });
 
     try {
       const result = await login(formData.username, formData.password);
 
       if (result.responseTypeCode === 'SUCCESS') {
+        console.log('✅ [SUCCESS DEBUG] Direct login success - saving username:', {
+          username: formData.username,
+          saveUsername,
+          willSave: saveUsername
+        });
         // Save username if checkbox is checked
         if (saveUsername) {
           usernameStorage.save(formData.username);
+          console.log('💾 [SUCCESS DEBUG] Username saved to localStorage:', formData.username);
         } else {
           usernameStorage.remove();
+          console.log('🗑️ [SUCCESS DEBUG] Username removed from localStorage');
         }
 
         // Login successful
@@ -134,6 +181,16 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
           password: '',
         });
       } else if (result.responseTypeCode === 'MFA_REQUIRED') {
+        // Preserve original login data for MFA completion
+        setOriginalLoginData({
+          username: currentUsername,
+          saveUsername: saveUsername
+        });
+        console.log('💾 [MFA REQUIRED] Preserved original login data:', {
+          username: currentUsername,
+          saveUsername: saveUsername
+        });
+
         // MFA state is now handled centrally in the Provider
         // Clear password for security but keep username for MFA challenge
         setFormData({ username: currentUsername, password: '' });
@@ -155,9 +212,17 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   const handleLogout = async () => {
     try {
+      console.log('🚪 [LOGOUT DEBUG] Logout initiated, localStorage before:', {
+        currentStorage: usernameStorage.get(),
+        origin: window.location.origin
+      });
       await logout();
       onLogout?.();
       setAnchorEl(null);
+      console.log('🚪 [LOGOUT DEBUG] Logout completed, localStorage after:', {
+        currentStorage: usernameStorage.get(),
+        origin: window.location.origin
+      });
     } catch (error) {
       console.error('Logout failed:', error);
     }
@@ -166,12 +231,30 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   const handleMfaSuccess = async (mfaResponse: any) => {
     try {
       console.log('🟢 MFA Success - processing response:', mfaResponse);
+      // Use preserved original login data instead of current form state
+      const loginDataToUse = getOriginalLoginData() || {
+        username: formData.username,
+        saveUsername: saveUsername
+      };
 
-      // Save username if checkbox is checked
-      if (saveUsername) {
-        usernameStorage.save(formData.username);
+      console.log('🔍 [MFA SUCCESS DEBUG] State at MFA completion:', {
+        currentFormDataUsername: formData.username,
+        currentSaveUsername: saveUsername,
+        originalLoginData: getOriginalLoginData(),
+        loginDataToUse: loginDataToUse,
+        origin: window.location.origin,
+        willSave: loginDataToUse.saveUsername,
+        storageBefore: usernameStorage.get()
+      });
+
+      // Save username if checkbox was originally checked
+      if (loginDataToUse.saveUsername && loginDataToUse.username) {
+        usernameStorage.save(loginDataToUse.username);
+        console.log('💾 [MFA SUCCESS DEBUG] Username saved to localStorage:', loginDataToUse.username);
+        console.log('🔍 [MFA SUCCESS DEBUG] localStorage after save:', usernameStorage.get());
       } else {
         usernameStorage.remove();
+        console.log('🗑️ [MFA SUCCESS DEBUG] Username removed from localStorage');
       }
 
       // Trigger session refresh to update Provider state with authenticated user
@@ -183,9 +266,12 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       clearMfa();
       cancelTransaction(); // Clear transaction state to close dialog immediately
 
+      // Clear original login data since MFA is complete
+      setOriginalLoginData(null);
+
       // Clear form (but keep username if saving)
       setFormData({
-        username: saveUsername ? formData.username : '',
+        username: loginDataToUse.saveUsername ? loginDataToUse.username : '',
         password: '',
       });
 
