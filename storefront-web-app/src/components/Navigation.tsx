@@ -32,7 +32,7 @@ const Navigation: React.FC = () => {
 
   const { isAuthenticated, isLoading, user, logout } = useAuth();
 
-  const accountServicingUrl = import.meta.env.VITE_ACCOUNT_SERVICING_URL || 'http://localhost:3003';
+  const accountServicingUrl = import.meta.env.VITE_ACCOUNT_SERVICING_URL || 'http://localhost:3001';
 
   const handleMobileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setMobileMenuAnchor(event.currentTarget);
