@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export PROJECT_ROOT="."
+
 echo "🚀 CIAM Development Cache-Buster & Restart Script"
 echo "================================================="
 echo ""
@@ -29,7 +31,6 @@ print_info() {
 }
 
 # Set the project root directory
-PROJECT_ROOT="/Users/mjafary/Documents/dev-ai/claude-poc-9-24-2025/claude_poc_v2"
 cd "$PROJECT_ROOT" || exit 1
 
 echo "🛑 STEP 1: Killing all development processes"
