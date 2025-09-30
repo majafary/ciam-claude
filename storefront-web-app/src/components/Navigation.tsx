@@ -324,6 +324,16 @@ const Navigation: React.FC = () => {
           <Typography variant="body2" sx={{ color: '#666666' }}>
             {user?.email}
           </Typography>
+          <Typography variant="caption" sx={{ color: '#999999', mt: 0.5, display: 'block' }}>
+            Last Login: {new Date().toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              timeZoneName: 'short'
+            })}
+          </Typography>
         </Box>
 
         {/* Menu Items */}
@@ -334,7 +344,7 @@ const Navigation: React.FC = () => {
         <Divider />
         <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
           <LogoutIcon sx={{ mr: 2, color: '#666666' }} />
-          <Typography sx={{ color: '#333333' }}>Sign Out</Typography>
+          <Typography sx={{ color: '#333333' }}>Log Out</Typography>
         </MenuItem>
       </Menu>
 

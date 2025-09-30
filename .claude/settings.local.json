@@ -49,7 +49,9 @@
       "Bash(npm run install:all:*)",
       "Bash(npm ls:*)",
       "Bash(npm run dev:all:*)",
-      "Bash(ln:*)"
+      "Bash(ln:*)",
+      "Bash(./claudedocs/test-ciam-changes.sh:*)",
+      "Bash(npm cache clean:*)"
     ],
     "deny": [],
     "ask": []

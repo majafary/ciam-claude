@@ -26,6 +26,7 @@ import {
   Warning,
 } from '@mui/icons-material';
 import { useAuth } from 'ciam-ui';
+import BuildInfo from '../components/BuildInfo';
 
 interface AccountSnapshot {
   accountNumber: string;
@@ -169,6 +170,7 @@ const SnapshotPage: React.FC = () => {
   const creditUtilization = ((snapshot.creditLimit - snapshot.availableCredit) / snapshot.creditLimit) * 100;
 
   return (
+    <>
     <Container maxWidth="lg" sx={{ py: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
@@ -351,19 +353,24 @@ const SnapshotPage: React.FC = () => {
                   {formatCurrency(snapshot.creditLimit)}
                 </Typography>
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Typography variant="body2" color="text.secondary">
-                  Last Login
-                </Typography>
-                <Typography variant="body1">
-                  {formatDate(snapshot.lastLogin)}
-                </Typography>
-              </Grid>
             </Grid>
           </Paper>
         </Grid>
       </Grid>
     </Container>
+
+    {/* Footer with Build Info */}
+    <Box
+      sx={{
+        position: 'fixed',
+        bottom: 16,
+        right: 16,
+        zIndex: 1000,
+      }}
+    >
+      <BuildInfo />
+    </Box>
+    </>
   );
 };
 

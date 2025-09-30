@@ -29,6 +29,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/useAuth';
 import { useMfa } from '../hooks/useMfa';
+import { useSession } from '../hooks/useSession';
 import { MfaMethodSelectionDialog } from './MfaMethodSelectionDialog';
 import { CiamLoginComponentProps } from '../types';
 import { usernameStorage } from '../utils/usernameStorage';
@@ -49,6 +50,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     mfaRequired, mfaAvailableMethods, mfaError, mfaUsername, clearMfa, refreshSession, authService
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
+  const { currentSession } = useSession();
 
   const [formData, setFormData] = useState({
     username: '',
@@ -81,6 +83,32 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   // Component instance tracking for debugging
   const componentId = React.useRef(Math.random().toString(36).substr(2, 9));
+
+  // Format last login timestamp from actual data
+  const formatLastLogin = () => {
+    // Priority: user.lastLoginAt > currentSession.createdAt > fallback
+    let lastLoginDate: Date | null = null;
+
+    if (user?.lastLoginAt) {
+      lastLoginDate = new Date(user.lastLoginAt);
+    } else if (currentSession?.createdAt) {
+      lastLoginDate = new Date(currentSession.createdAt);
+    } else {
+      // Fallback to current time if no data available
+      lastLoginDate = new Date();
+    }
+
+    const options: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    };
+
+    return `My Last Login: ${lastLoginDate.toLocaleDateString('en-US', options)}`;
+  };
 
   // Debug: Log state from Provider
   console.log('CiamLoginComponent render - mfaRequired:', mfaRequired, 'mfaAvailableMethods:', mfaAvailableMethods, 'componentId:', componentId.current, 'originalLoginData:', getOriginalLoginData());
@@ -376,6 +404,9 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
           <Box>
             <Typography variant="body2">
               Welcome, {user.given_name || user.preferred_username}!
+            </Typography>
+            <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.25 }}>
+              {formatLastLogin()}
             </Typography>
             {user.roles && user.roles.length > 0 && (
               <Box sx={{ mt: 0.5 }}>

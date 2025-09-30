@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { useAuth } from 'ciam-ui';
 import BankingPromo from '../components/BankingPromo';
+import BuildInfo from '../components/BuildInfo';
 
 
 
@@ -113,6 +114,18 @@ const StorefrontPage: React.FC = () => {
             </Grid>
           </Grid>
         </Container>
+      </Box>
+
+      {/* Footer with Build Info */}
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+          zIndex: 1000,
+        }}
+      >
+        <BuildInfo />
       </Box>
     </Box>
   );

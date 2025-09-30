@@ -67,6 +67,7 @@ export interface UserInfoResponse {
   roles?: string[];
   iat: number;
   exp: number;
+  lastLoginAt?: string; // ISO string of last login timestamp
 }
 
 export interface SessionInfo {
@@ -97,6 +98,7 @@ export interface User {
   given_name?: string;
   family_name?: string;
   roles?: string[];
+  lastLoginAt?: string; // ISO string of last login timestamp
 }
 
 export interface AuthState {
