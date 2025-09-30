@@ -4,7 +4,7 @@ React components and hooks for Customer Identity and Access Management (CIAM) in
 
 ## 🚀 Features
 
-- **Complete Authentication Flow**: Login, logout, MFA, session management
+- **Complete Authentication Flow**: Login, logout, MFA with device trust
 - **React Components**: Pre-built, customizable UI components
 - **React Hooks**: Powerful hooks for authentication state management
 - **TypeScript**: Full type safety and IntelliSense support
@@ -149,19 +149,6 @@ import { ProtectedRoute } from 'ciam-ui';
 </ProtectedRoute>
 ```
 
-### SessionManager
-
-Displays active sessions and device management:
-
-```tsx
-import { SessionManager } from 'ciam-ui';
-
-<SessionManager
-  onSessionRevoked={(sessionId) => console.log('Revoked:', sessionId)}
-  showDeviceInfo={true}
-  allowSignOutAll={true}
-/>
-```
 
 ## 🎣 Hooks
 
@@ -249,41 +236,6 @@ const MfaFlow: React.FC = () => {
 };
 ```
 
-### useSession
-
-Session management:
-
-```tsx
-import { useSession } from 'ciam-ui';
-
-const SessionInfo: React.FC = () => {
-  const {
-    // State
-    sessions,
-    currentSession,
-    isLoading,
-
-    // Actions
-    loadSessions,
-    revokeSession,
-    revokeAllOtherSessions
-  } = useSession();
-
-  return (
-    <div>
-      <h3>Active Sessions: {sessions.length}</h3>
-      {sessions.map(session => (
-        <div key={session.sessionId}>
-          {session.deviceId} - {session.location}
-          <button onClick={() => revokeSession(session.sessionId)}>
-            Sign Out
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-};
-```
 
 ## ⚙️ Configuration
 
@@ -341,15 +293,18 @@ const customTheme = createCiamTheme({
 The SDK includes service classes for direct API interaction:
 
 ```tsx
-import { AuthService, MfaService, SessionService } from 'ciam-ui';
+import { AuthService } from 'ciam-ui';
 
 // Direct API calls (used internally by hooks)
-const authService = new AuthService('http://localhost:8080');
+const authService = new AuthService({
+  baseURL: 'http://localhost:8080',
+  debug: true
+});
 
 try {
   const loginResult = await authService.login('username', 'password');
   const userInfo = await authService.getUserInfo();
-  const sessions = await sessionService.getSessions();
+  const mfaChallenge = await authService.initiateMFAChallenge('otp', 'username');
 } catch (error) {
   console.error('API call failed:', error);
 }

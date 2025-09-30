@@ -29,7 +29,6 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/useAuth';
 import { useMfa } from '../hooks/useMfa';
-import { useSession } from '../hooks/useSession';
 import { MfaMethodSelectionDialog } from './MfaMethodSelectionDialog';
 import { CiamLoginComponentProps } from '../types';
 import { usernameStorage } from '../utils/usernameStorage';
@@ -50,7 +49,6 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     mfaRequired, mfaAvailableMethods, mfaError, mfaUsername, clearMfa, refreshSession, authService
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
-  const { currentSession } = useSession();
 
   const [formData, setFormData] = useState({
     username: '',
@@ -86,13 +84,11 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   // Format last login timestamp from actual data
   const formatLastLogin = () => {
-    // Priority: user.lastLoginAt > currentSession.createdAt > fallback
+    // Use user.lastLoginAt or fallback to current time
     let lastLoginDate: Date | null = null;
 
     if (user?.lastLoginAt) {
       lastLoginDate = new Date(user.lastLoginAt);
-    } else if (currentSession?.createdAt) {
-      lastLoginDate = new Date(currentSession.createdAt);
     } else {
       // Fallback to current time if no data available
       lastLoginDate = new Date();

@@ -8,7 +8,9 @@ export interface LoginResponse {
   sessionId: string;
   transactionId?: string;
   deviceId?: string;
+  deviceFingerprint?: string;
   mfa_required?: boolean;
+  mfa_skipped?: boolean;
   available_methods?: string[];
 }
 
@@ -28,6 +30,8 @@ export interface MFAVerifyResponse {
   refresh_token?: string;
   sessionId?: string;
   transactionId: string;
+  deviceFingerprint?: string;
+  device_bound?: boolean;
   message?: string;
   error?: string;
   attempts?: number;
@@ -70,15 +74,6 @@ export interface UserInfoResponse {
   lastLoginAt?: string; // ISO string of last login timestamp
 }
 
-export interface SessionInfo {
-  sessionId: string;
-  deviceId?: string;
-  createdAt: string;
-  lastSeenAt: string;
-  ip?: string;
-  userAgent?: string;
-  location?: string;
-}
 
 export interface ApiError {
   code: string;
@@ -126,12 +121,6 @@ export interface MFAState {
   error: string | null;
 }
 
-export interface SessionState {
-  sessions: SessionInfo[];
-  currentSession: SessionInfo | null;
-  isLoading: boolean;
-  error: string | null;
-}
 
 // Component Props Types
 export interface CiamLoginComponentProps {
@@ -164,12 +153,6 @@ export interface ProtectedRouteProps {
   onUnauthorized?: () => void;
 }
 
-export interface SessionManagerProps {
-  onSessionRevoked?: (sessionId: string) => void;
-  showDeviceInfo?: boolean;
-  allowSignOutAll?: boolean;
-  maxSessions?: number;
-}
 
 // Provider Props
 export interface CiamProviderProps {
@@ -256,19 +239,6 @@ export interface UseMfaReturn {
   cancelTransaction: () => void;
 }
 
-export interface UseSessionReturn {
-  // State
-  sessions: SessionInfo[];
-  currentSession: SessionInfo | null;
-  isLoading: boolean;
-  error: string | null;
-
-  // Actions
-  loadSessions: () => Promise<void>;
-  revokeSession: (sessionId: string) => Promise<void>;
-  revokeAllOtherSessions: () => Promise<void>;
-  verifySession: (sessionId?: string) => Promise<boolean>;
-}
 
 // Service Configuration
 export interface ServiceConfig {

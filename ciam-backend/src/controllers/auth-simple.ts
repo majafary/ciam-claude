@@ -11,7 +11,16 @@ interface PushChallenge {
   attempts: number;
 }
 
+// In-memory storage for device trust (in production, use Redis or database)
+interface DeviceTrust {
+  deviceFingerprint: string;
+  username: string;
+  trustedAt: number;
+  lastUsed: number;
+}
+
 const pushChallenges = new Map<string, PushChallenge>();
+const deviceTrusts = new Map<string, DeviceTrust>(); // key: deviceFingerprint
 
 // Helper function to generate 3 random numbers
 const generatePushNumbers = (): { numbers: number[], correctNumber: number } => {
@@ -24,18 +33,59 @@ const generatePushNumbers = (): { numbers: number[], correctNumber: number } => 
   return { numbers, correctNumber };
 };
 
+// Mock function to convert actionToken to deviceFingerprint (simulates Transmit Security DRS)
+const convertActionTokenToFingerprint = (actionToken: string): string => {
+  // In production, this would call Transmit Security API
+  // For demo: create deterministic fingerprint from actionToken
+  const hash = actionToken.split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0);
+    return a & a;
+  }, 0);
+  return `device_${Math.abs(hash)}_${Date.now().toString(36)}`;
+};
+
+// Helper function to check if device is trusted for user
+const isDeviceTrusted = (deviceFingerprint: string, username: string): boolean => {
+  const trust = deviceTrusts.get(deviceFingerprint);
+  return trust ? trust.username === username : false;
+};
+
+// Helper function to trust a device for user
+const trustDevice = (deviceFingerprint: string, username: string): void => {
+  const now = Date.now();
+  deviceTrusts.set(deviceFingerprint, {
+    deviceFingerprint,
+    username,
+    trustedAt: now,
+    lastUsed: now
+  });
+  console.log('🔐 Device trusted:', { deviceFingerprint, username });
+};
+
 // Simple auth controller for quick Docker build
 export const authController = {
   login: async (req: Request, res: Response) => {
-    const { username, password } = req.body;
+    const { username, password, drs_action_token } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({
         responseTypeCode: 'MISSING_CREDENTIALS',
         message: 'Username and password are required',
         timestamp: new Date().toISOString(),
-        sessionId: ''
+        sessionId: '',
+        transactionId: ''
       });
+    }
+
+    // Generate sessionId and transactionId for tracking
+    const sessionId = 'session-' + Date.now();
+    const transactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+    // Process device fingerprint if actionToken provided
+    let deviceFingerprint: string | undefined;
+    if (drs_action_token) {
+      deviceFingerprint = convertActionTokenToFingerprint(drs_action_token);
+      console.log('🔍 Device fingerprint generated:', { actionToken: drs_action_token, deviceFingerprint });
     }
 
     // Mock user validation
@@ -63,7 +113,9 @@ export const authController = {
         access_token: accessToken,
         token_type: 'Bearer',
         expires_in: 900,
-        sessionId: 'session-' + Date.now(),
+        sessionId,
+        transactionId,
+        deviceFingerprint,
         user
       });
     }
@@ -73,17 +125,63 @@ export const authController = {
         responseTypeCode: 'ACCOUNT_LOCKED',
         message: 'Account is temporarily locked',
         timestamp: new Date().toISOString(),
-        sessionId: ''
+        sessionId,
+        transactionId
       });
     }
 
     if ((username === 'mfauser' || username === 'pushexpired' || username === 'pushfail') && password === 'password') {
+      // Check if device is already trusted for this user (MFA skip)
+      if (deviceFingerprint && isDeviceTrusted(deviceFingerprint, username)) {
+        console.log('🚀 MFA Skip - Device trusted:', { username, deviceFingerprint });
+
+        // Update device last used time
+        const trust = deviceTrusts.get(deviceFingerprint);
+        if (trust) {
+          trust.lastUsed = Date.now();
+          deviceTrusts.set(deviceFingerprint, trust);
+        }
+
+        const user = {
+          id: username,
+          username: username,
+          email: `${username}@example.com`,
+          roles: ['user']
+        };
+
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        // Set refresh token as HTTP-only cookie
+        res.cookie('refresh_token', refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          sameSite: 'strict'
+        });
+
+        return res.json({
+          responseTypeCode: 'SUCCESS',
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: 900,
+          sessionId,
+          transactionId,
+          deviceFingerprint,
+          mfa_skipped: true,
+          user
+        });
+      }
+
+      // Device not trusted, require MFA
       return res.status(428).json({
         responseTypeCode: 'MFA_REQUIRED',
         message: 'Multi-factor authentication required',
         mfa_required: true,
         available_methods: ['otp', 'push'],
-        sessionId: 'session-mfa-' + Date.now()
+        sessionId,
+        transactionId,
+        deviceFingerprint
       });
     }
 
@@ -92,7 +190,8 @@ export const authController = {
         responseTypeCode: 'MFA_LOCKED',
         message: 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
         timestamp: new Date().toISOString(),
-        sessionId: ''
+        sessionId,
+        transactionId
       });
     }
 
@@ -101,7 +200,8 @@ export const authController = {
       responseTypeCode: 'INVALID_CREDENTIALS',
       message: 'Invalid username or password',
       timestamp: new Date().toISOString(),
-      sessionId: ''
+      sessionId,
+      transactionId
     });
   },
 
@@ -337,7 +437,7 @@ export const authController = {
   },
 
   verifyMfa: async (req: Request, res: Response) => {
-    const { transactionId, method, code, pushResult, selectedNumber } = req.body;
+    const { transactionId, method, code, pushResult, selectedNumber, deviceFingerprint } = req.body;
 
     if (!transactionId) {
       return res.status(400).json({
@@ -367,6 +467,11 @@ export const authController = {
           sameSite: 'strict'
         });
 
+        // Atomically bind device if deviceFingerprint provided
+        if (deviceFingerprint) {
+          trustDevice(deviceFingerprint, 'mfauser');
+        }
+
         return res.json({
           success: true,
           id_token: accessToken,
@@ -375,6 +480,8 @@ export const authController = {
           expires_in: 900,
           sessionId: 'session-' + Date.now(),
           transactionId,
+          deviceFingerprint,
+          device_bound: !!deviceFingerprint,
           message: 'MFA verification successful'
         });
       } else {
@@ -437,6 +544,11 @@ export const authController = {
 
         console.log('✅ Push verification successful:', { username, selectedNumber });
 
+        // Atomically bind device if deviceFingerprint provided
+        if (deviceFingerprint) {
+          trustDevice(deviceFingerprint, username);
+        }
+
         return res.json({
           success: true,
           id_token: accessToken,
@@ -445,6 +557,8 @@ export const authController = {
           expires_in: 900,
           sessionId: 'session-' + Date.now(),
           transactionId,
+          deviceFingerprint,
+          device_bound: !!deviceFingerprint,
           message: `Push verification successful - correct number selected: ${selectedNumber}`
         });
       } else {
@@ -486,6 +600,11 @@ export const authController = {
         sameSite: 'strict'
       });
 
+      // Atomically bind device if deviceFingerprint provided (legacy support)
+      if (deviceFingerprint) {
+        trustDevice(deviceFingerprint, username);
+      }
+
       return res.json({
         success: true,
         id_token: accessToken,
@@ -494,6 +613,8 @@ export const authController = {
         expires_in: 900,
         sessionId: 'session-' + Date.now(),
         transactionId,
+        deviceFingerprint,
+        device_bound: !!deviceFingerprint,
         message: 'Push notification verified successfully'
       });
     } else if (pushResult === 'REJECTED') {

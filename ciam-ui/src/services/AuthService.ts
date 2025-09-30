@@ -5,7 +5,6 @@ import {
   MFATransactionStatusResponse,
   TokenRefreshResponse,
   UserInfoResponse,
-  SessionInfo,
   ApiError,
   ServiceConfig
 } from '../types';
@@ -167,16 +166,37 @@ export class AuthService {
   }
 
   /**
+   * Generate mock actionToken for device fingerprinting (simulates Transmit Security DRS UI SDK)
+   */
+  private generateActionToken(): string {
+    // In production, this would come from Transmit Security DRS UI SDK
+    // For demo: generate deterministic token based on browser characteristics
+    const browserInfo = {
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      platform: navigator.platform,
+      timestamp: Date.now().toString(36),
+      random: Math.random().toString(36).substr(2, 8)
+    };
+
+    const combined = Object.values(browserInfo).join('|');
+    return `action_${btoa(combined).replace(/[^a-zA-Z0-9]/g, '').substr(0, 32)}`;
+  }
+
+  /**
    * User login
    */
   async login(username: string, password: string, drsActionToken?: string): Promise<LoginResponse> {
     try {
+      // Generate actionToken for device fingerprinting if not provided
+      const actionToken = drsActionToken || this.generateActionToken();
+
       const response = await this.apiCall<any>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({
           username,
           password,
-          drs_action_token: drsActionToken,
+          drs_action_token: actionToken,
         }),
       });
 
@@ -186,8 +206,10 @@ export class AuthService {
           responseTypeCode: response.responseTypeCode,
           message: response.message || this.getDefaultErrorMessage(response.responseTypeCode),
           sessionId: response.sessionId || '',
+          transactionId: response.transactionId || '',
           available_methods: response.available_methods,
           mfa_required: response.mfa_required,
+          deviceFingerprint: response.deviceFingerprint,
         };
       }
 
@@ -206,6 +228,8 @@ export class AuthService {
         sessionId: response.sessionId || '',
         transactionId: response.transactionId,
         deviceId: response.deviceId,
+        deviceFingerprint: response.deviceFingerprint,
+        mfa_skipped: response.mfa_skipped,
       };
     } catch (error) {
       // Handle regular error cases
@@ -281,26 +305,21 @@ export class AuthService {
   }
 
   /**
-   * Verify session
+   * Store device fingerprint for session
    */
-  async verifySession(sessionId: string): Promise<{ isValid: boolean; message?: string; expiresAt?: string }> {
-    return this.apiCall(`/session/verify?sessionId=${encodeURIComponent(sessionId)}`);
+  private setDeviceFingerprint(fingerprint: string | null): void {
+    if (fingerprint) {
+      (globalThis as any).__CIAM_DEVICE_FINGERPRINT__ = fingerprint;
+    } else {
+      delete (globalThis as any).__CIAM_DEVICE_FINGERPRINT__;
+    }
   }
 
   /**
-   * Get user sessions
+   * Get stored device fingerprint
    */
-  async getSessions(): Promise<{ sessions: SessionInfo[] }> {
-    return this.apiCall('/sessions');
-  }
-
-  /**
-   * Revoke session
-   */
-  async revokeSession(sessionId: string): Promise<{ message: string }> {
-    return this.apiCall(`/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE',
-    });
+  getDeviceFingerprint(): string | null {
+    return (globalThis as any).__CIAM_DEVICE_FINGERPRINT__ || null;
   }
 
   /**
@@ -329,13 +348,14 @@ export class AuthService {
   }
 
   /**
-   * Verify MFA challenge
+   * Verify MFA challenge with optional device binding
    */
   async verifyMFAChallenge(
     transactionId: string,
     otp?: string,
     pushResult?: 'APPROVED' | 'REJECTED',
-    selectedNumber?: number
+    selectedNumber?: number,
+    deviceFingerprint?: string
   ): Promise<MFAVerifyResponse> {
     // Determine method from transaction ID
     const method = transactionId.includes('otp') ? 'otp' : 'push';
@@ -348,6 +368,7 @@ export class AuthService {
         code: otp,
         pushResult,
         selectedNumber,
+        deviceFingerprint,
       }),
     });
 

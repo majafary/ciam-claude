@@ -11,13 +11,11 @@ export { MfaMethodSelectionDialog } from './components/MfaMethodSelectionDialog'
 
 // Legacy Components (consider removing in future versions)
 export { ProtectedRoute } from './components/ProtectedRoute';
-export { SessionManager } from './components/SessionManager';
 
 // Hooks (primary integration method)
 export { useAuth } from './hooks/useAuth';
 export { useAuthActions } from './hooks/useAuthActions';
 export { useMfa } from './hooks/useMfa';
-export { useSession } from './hooks/useSession';
 
 // Services
 export { AuthService } from './services/AuthService';
