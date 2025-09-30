@@ -22,6 +22,12 @@ interface DeviceTrust {
 const pushChallenges = new Map<string, PushChallenge>();
 const deviceTrusts = new Map<string, DeviceTrust>(); // key: deviceFingerprint
 
+// In-memory store for user login timestamps (in production, use proper database)
+const userLoginTimes = new Map<string, {
+  lastLogin: Date | null;
+  currentLogin: Date;
+}>();
+
 // Helper function to generate 3 random numbers
 const generatePushNumbers = (): { numbers: number[], correctNumber: number } => {
   const numbers = [
@@ -48,6 +54,18 @@ const convertActionTokenToFingerprint = (actionToken: string): string => {
 const isDeviceTrusted = (deviceFingerprint: string, username: string): boolean => {
   const trust = deviceTrusts.get(deviceFingerprint);
   return trust ? trust.username === username : false;
+};
+
+// Helper function to update login timestamps
+const updateLoginTime = (username: string): void => {
+  const now = new Date();
+  const existing = userLoginTimes.get(username);
+
+  // Set previous current login as last login, and update current to now
+  userLoginTimes.set(username, {
+    lastLogin: existing?.currentLogin || null,
+    currentLogin: now
+  });
 };
 
 // Helper function to trust a device for user
@@ -96,6 +114,9 @@ export const authController = {
         email: 'testuser@example.com',
         roles: ['user']
       };
+
+      // Track login timestamp for this user
+      updateLoginTime(username);
 
       const accessToken = generateAccessToken(user);
       const refreshToken = generateRefreshToken(user);
@@ -449,12 +470,19 @@ export const authController = {
 
     if (method === 'otp') {
       if (code === '1234') {
+        // Get username from challenge data, similar to push verification
+        const challenge = pushChallenges.get(transactionId);
+        const username = challenge?.username || 'mfauser';
+
         const user = {
-          id: 'mfauser',
-          username: 'mfauser',
-          email: 'mfauser@example.com',
+          id: username,
+          username: username,
+          email: `${username}@example.com`,
           roles: ['user']
         };
+
+        // Track login timestamp for this user
+        updateLoginTime(username);
 
         const accessToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
@@ -531,6 +559,9 @@ export const authController = {
           roles: ['user']
         };
 
+        // Track login timestamp for this user
+        updateLoginTime(username);
+
         const accessToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
 
@@ -588,6 +619,9 @@ export const authController = {
         email: `${username}@example.com`,
         roles: ['user']
       };
+
+      // Track login timestamp for this user
+      updateLoginTime(username);
 
       const accessToken = generateAccessToken(user);
       const refreshToken = generateRefreshToken(user);
@@ -664,6 +698,10 @@ export const authController = {
 
     const decoded = result.payload;
 
+    // Get login timestamp for this user
+    const loginTimes = userLoginTimes.get(decoded.username);
+    const lastLoginAt = loginTimes?.lastLogin ? loginTimes.lastLogin.toISOString() : null;
+
     return res.json({
       sub: decoded.sub,
       preferred_username: decoded.username,
@@ -671,7 +709,8 @@ export const authController = {
       email_verified: true,
       given_name: decoded.username.charAt(0).toUpperCase() + decoded.username.slice(1),
       family_name: 'User',
-      roles: decoded.roles || ['user']
+      roles: decoded.roles || ['user'],
+      lastLoginAt
     });
   }
 };

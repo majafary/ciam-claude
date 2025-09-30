@@ -82,18 +82,13 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   // Component instance tracking for debugging
   const componentId = React.useRef(Math.random().toString(36).substr(2, 9));
 
-  // Format last login timestamp from actual data
+  // Format last login timestamp from API data
   const formatLastLogin = () => {
-    // Use user.lastLoginAt or fallback to current time
-    let lastLoginDate: Date | null = null;
-
-    if (user?.lastLoginAt) {
-      lastLoginDate = new Date(user.lastLoginAt);
-    } else {
-      // Fallback to current time if no data available
-      lastLoginDate = new Date();
+    if (!user?.lastLoginAt) {
+      return 'My Last Login: First time signing in';
     }
 
+    const lastLoginDate = new Date(user.lastLoginAt);
     const options: Intl.DateTimeFormatOptions = {
       month: 'short',
       day: 'numeric',
