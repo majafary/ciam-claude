@@ -1,9 +1,13 @@
 #!/bin/bash
 
-export PROJECT_ROOT="."
+# Get absolute path to project root
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PROJECT_ROOT
 
 echo "🚀 CIAM Development Cache-Buster & Restart Script"
 echo "================================================="
+echo ""
+echo "📁 Project Root: $PROJECT_ROOT"
 echo ""
 
 # Color codes for better output
@@ -106,40 +110,25 @@ fi
 cd "$PROJECT_ROOT"
 
 echo ""
-echo "🚦 STEP 4: Starting development servers (in correct order)"
-echo "=========================================================="
+echo "🚦 STEP 4: Starting all development servers"
+echo "============================================"
 
-# Start backend first
-print_info "Starting backend server (port 8080)..."
-npm run dev:backend &
-BACKEND_PID=$!
+# Ensure we're in project root
+cd "$PROJECT_ROOT" || exit 1
+print_info "Working directory: $PWD"
+print_info "Starting all services with concurrently..."
+echo ""
 
-# Wait for backend to start
-sleep 3
+# Start all services using the dev:all command
+npm run dev:all &
+DEV_ALL_PID=$!
 
-# Check if backend is running
-if curl -s http://localhost:8080/health > /dev/null; then
-    print_status "Backend server started successfully"
-else
-    print_warning "Backend might still be starting..."
-fi
+print_warning "Main process PID: $DEV_ALL_PID"
+echo ""
 
-# Start account-servicing app
-print_info "Starting account-servicing app (port 3001)..."
-cd "$PROJECT_ROOT/account-servicing-web-app"
-npm run dev &
-ACCOUNT_PID=$!
-
-# Start storefront app
-print_info "Starting storefront app (port 3000)..."
-cd "$PROJECT_ROOT/storefront-web-app"
-npm run dev &
-STOREFRONT_PID=$!
-
-cd "$PROJECT_ROOT"
-
-# Wait for frontend apps to start
-sleep 5
+# Wait for services to start
+print_info "Waiting for services to start (15 seconds)..."
+sleep 15
 
 echo ""
 echo "🔍 STEP 5: Health checks"
@@ -206,9 +195,9 @@ echo "  • MFA Dialog: Available in all variants"
 echo ""
 
 print_warning "Process IDs (for manual killing if needed):"
-echo "  • Backend PID: $BACKEND_PID"
-echo "  • Account PID: $ACCOUNT_PID"
-echo "  • Storefront PID: $STOREFRONT_PID"
+echo "  • Main dev:all process PID: $DEV_ALL_PID"
+echo "  • To stop all services: kill $DEV_ALL_PID"
+echo "  • Or run: pkill -f 'npm run dev'"
 
 echo ""
 print_status "🚀 Development environment ready! All caches cleared, fresh builds deployed."
