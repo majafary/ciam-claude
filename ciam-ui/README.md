@@ -346,13 +346,18 @@ test('renders authenticated state', () => {
 
 ## 📋 Testing Credentials
 
-For local development and testing:
+For local development and testing (all users use password: **`password`**):
 
-| Username | Password | MFA | Expected Behavior |
-|----------|----------|-----|------------------|
-| `testuser` | `password` | OTP: `1234` | ✅ Successful login |
-| `userlockeduser` | `password` | N/A | ❌ Account locked |
-| `mfalockeduser` | `password` | N/A | ❌ MFA locked |
+| Username | MFA | Expected Behavior |
+|----------|-----|------------------|
+| `mfauser` | OTP: `1234` or Push | ✅ MFA required → Success |
+| `trusteduser` | None | ✅ Instant login (pre-trusted device) |
+| `lockeduser` | N/A | ❌ Account locked |
+| `mfalockeduser` | N/A | ❌ MFA locked |
+| `mfaesignuser` | OTP/Push → eSign | ✅ MFA → eSign → Success |
+| `complianceuser` | None → eSign | ✅ eSign required → Success |
+
+See [main README](../README.md) for complete test user matrix with all 10 test accounts.
 
 ## 🚀 Development
 

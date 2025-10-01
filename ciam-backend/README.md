@@ -51,6 +51,15 @@ RATE_LIMIT_WINDOW_MS=900000
 
 ## 📋 API Endpoints
 
+### OpenAPI Specification
+
+📘 **[View Full API Documentation (OpenAPI 3.0)](./openapi.yaml)**
+
+Complete API specification available in OpenAPI 3.0 format:
+- View in [Swagger Editor](https://editor.swagger.io/)
+- Import into [Postman](https://www.postman.com/) or [Insomnia](https://insomnia.rest/)
+- Generate client SDKs with [OpenAPI Generator](https://openapi-generator.tech/)
+
 ### Authentication
 ```
 POST /login                    # User authentication
@@ -96,37 +105,40 @@ GET /api-docs                 # Swagger API documentation
 
 ### Authentication Test Matrix
 
-| Username | Password | Expected Behavior |
-|----------|----------|------------------|
-| `testuser` | `password` | ✅ Login → MFA Required → Success |
-| `userlockeduser` | `password` | ❌ 423 Account Locked |
-| `mfalockeduser` | `password` | ✅ Login → ❌ 423 MFA Locked |
-| `wronguser` | `password` | ❌ 401 Invalid Credentials |
-| `testuser` | `wrongpass` | ❌ 401 Invalid Credentials |
+All test users use password: **`password`**
+
+| Username | Expected Behavior |
+|----------|------------------|
+| `mfauser` | ✅ Login → MFA Required → Success |
+| `trusteduser` | ✅ Instant login (device pre-trusted, skips MFA) |
+| `lockeduser` | ❌ 423 Account Locked |
+| `mfalockeduser` | ❌ 423 MFA Locked |
+| `wronguser` | ❌ 401 Invalid Credentials |
 
 ### MFA Test Scenarios
-- **OTP Success**: Enter `1234`
-- **OTP Failure**: Enter any other value
-- **Push Success**: Auto-approves after 3-5 seconds
-- **Push Failure**: Can be simulated by modifying transaction status
+- **OTP Success**: Login with `mfauser`, select "Text Message (OTP)", enter `1234`
+- **OTP Failure**: Enter any code other than `1234`
+- **Push Success**: Login with `mfauser`, select "Push Notification", auto-approves after 3 seconds
+- **Push Failure**: Login with `pushfail`, select "Push Notification", auto-rejects after 7 seconds
+- **Push Timeout**: Login with `pushexpired`, select "Push Notification", times out after 10 seconds
 
 ### API Testing with curl
 
 #### 1. Login Flow
 ```bash
 # Login
-curl -X POST http://localhost:8080/login \
+curl -X POST http://localhost:8080/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"password"}' \
+  -d '{"username":"mfauser","password":"password"}' \
   -c cookies.txt
 
-# MFA Challenge
-curl -X POST http://localhost:8080/mfa/challenge \
+# MFA Initiate
+curl -X POST http://localhost:8080/auth/mfa/initiate \
   -H "Content-Type: application/json" \
-  -d '{"username":"testuser","method":"otp","transactionId":"tx-123"}'
+  -d '{"username":"mfauser","method":"otp","transactionId":"tx-123"}'
 
 # MFA Verify
-curl -X POST http://localhost:8080/mfa/verify \
+curl -X POST http://localhost:8080/auth/mfa/verify \
   -H "Content-Type: application/json" \
   -d '{"transactionId":"tx-123","otp":"1234"}' \
   -c cookies.txt
@@ -139,19 +151,21 @@ curl -X GET http://localhost:8080/userinfo \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 
 # Refresh tokens
-curl -X POST http://localhost:8080/token/refresh \
+curl -X POST http://localhost:8080/auth/refresh \
   -b cookies.txt \
   -c cookies.txt
 ```
 
-#### 3. Session Management
+#### 3. eSign Flow
 ```bash
-# List sessions
-curl -X GET http://localhost:8080/sessions \
+# Get eSign document
+curl -X GET http://localhost:8080/esign/document/terms-v1 \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 
-# Verify session
-curl -X GET "http://localhost:8080/session/verify?sessionId=sess-123"
+# Accept eSign
+curl -X POST http://localhost:8080/esign/accept \
+  -H "Content-Type: application/json" \
+  -d '{"transactionId":"tx-123","documentId":"terms-v1"}'
 ```
 
 ## 🔒 Security Features

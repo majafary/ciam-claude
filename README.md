@@ -289,6 +289,16 @@ npm run format:all
 
 ## 🔍 API Documentation
 
+### OpenAPI Specification
+
+📘 **[View Full API Documentation (OpenAPI 3.0)](./ciam-backend/openapi.yaml)**
+
+The complete API specification is available in OpenAPI 3.0 format. You can:
+
+- View it in [Swagger Editor](https://editor.swagger.io/) - paste the YAML content
+- Use tools like [Postman](https://www.postman.com/) or [Insomnia](https://insomnia.rest/) to import and test endpoints
+- Generate client SDKs using [OpenAPI Generator](https://openapi-generator.tech/)
+
 ### CIAM Backend Endpoints
 
 - **Base URL**: `http://localhost:8080`
