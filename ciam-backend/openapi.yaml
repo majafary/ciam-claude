@@ -476,7 +476,7 @@ paths:
                 properties:
                   responseTypeCode:
                     type: string
-                    example: ESIGN_DECLINED
+                    enum: [ESIGN_DECLINED]
                   message:
                     type: string
                   sessionId:
@@ -598,7 +598,7 @@ components:
       properties:
         responseTypeCode:
           type: string
-          example: SUCCESS
+          enum: [SUCCESS]
         access_token:
           type: string
         id_token:
@@ -638,7 +638,7 @@ components:
       properties:
         responseTypeCode:
           type: string
-          example: MFA_REQUIRED
+          enum: [MFA_REQUIRED]
         message:
           type: string
         reason:
@@ -661,15 +661,13 @@ components:
           type: string
         deviceFingerprint:
           type: string
-        is_first_login:
-          type: boolean
 
     ESignRequiredResponse:
       type: object
       properties:
         responseTypeCode:
           type: string
-          example: ESIGN_REQUIRED
+          enum: [ESIGN_REQUIRED]
         message:
           type: string
         sessionId:
@@ -685,8 +683,6 @@ components:
         esign_url:
           type: string
         is_mandatory:
-          type: boolean
-        is_first_login:
           type: boolean
 
     MFAChallengeResponse:
@@ -773,7 +769,7 @@ components:
       properties:
         responseTypeCode:
           type: string
-          example: SUCCESS
+          enum: [SUCCESS]
         access_token:
           type: string
         id_token:
@@ -827,7 +823,7 @@ components:
       properties:
         responseTypeCode:
           type: string
-          example: SUCCESS
+          enum: [SUCCESS]
         message:
           type: string
 

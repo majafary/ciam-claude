@@ -16,7 +16,6 @@ export interface LoginResponse {
   esign_url?: string;
   reason?: string;
   trust_expired_at?: string;
-  is_first_login?: boolean;
 }
 
 export interface MFAChallengeResponse {
@@ -40,7 +39,6 @@ export interface MFAVerifyResponse {
   device_bound?: boolean;
   esign_document_id?: string;
   is_mandatory?: boolean;
-  is_first_login?: boolean;
   message?: string;
   error?: string;
   attempts?: number;
@@ -134,7 +132,6 @@ export interface PostMFACheckResponse {
   message?: string;
   esign_document_id?: string;
   is_mandatory?: boolean;
-  is_first_login?: boolean;
 }
 
 export interface PostLoginCheckResponse {

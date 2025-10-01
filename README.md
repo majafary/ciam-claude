@@ -80,13 +80,15 @@ All test users use password: **`password`** (except where noted)
 | `trusteduser`      | Instant login (device pre-trusted, skips MFA) |
 | `trustedesignuser` | Device trusted → eSign dialog → Success       |
 
-#### ✅ MFA Flows (3 users)
+#### ✅ MFA Flows (5 users)
 
 | Username      | Expected Behavior                              |
 | ------------- | ---------------------------------------------- |
 | `mfauser`     | MFA (OTP/Push) → Device Bind Dialog → Success  |
 | `pushfail`    | MFA → Push auto-rejects after 7s               |
 | `pushexpired` | MFA → Push times out after 10s (stays PENDING) |
+| `otponlyuser` | MFA with **OTP only** (no Push option)         |
+| `pushonlyuser`| MFA with **Push only** (no OTP option)         |
 
 #### ✅ Compliance Flow (1 user)
 
@@ -116,7 +118,7 @@ All test users use password: **`password`** (except where noted)
 | `mfauser`       | `wrongpass` | Invalid credentials error               |
 | (empty)         | (empty)     | Missing credentials error               |
 
-**Total Test Users: 10** | All use password: `password`
+**Total Test Users: 12** | All use password: `password`
 
 ### MFA Test Scenarios
 
@@ -136,6 +138,15 @@ All test users use password: **`password`** (except where noted)
 - Login with `mfauser` → Select "Push Notification" → Auto-success after 5 seconds
 - Login with `pushfail` → Select "Push Notification" → Auto-reject after 7 seconds
 - Login with `pushexpired` → Select "Push Notification" → Timeout after 10 seconds
+
+#### **Single-Method MFA Testing**
+
+Test MFA dialog when only one authentication method is available:
+
+- **OTP Only**: Login with `otponlyuser` → No method selection dialog → **Direct to OTP entry** → Enter `1234` → Success
+- **Push Only**: Login with `pushonlyuser` → No method selection dialog → **Direct to Push waiting screen** → Auto-success after 3 seconds
+
+These users help test the UX when only one MFA method is configured for a user (e.g., user hasn't enrolled in Push, or org policy restricts to OTP only).
 
 ### Device Binding (Trust This Device) Testing
 

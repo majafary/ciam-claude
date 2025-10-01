@@ -232,6 +232,7 @@ const USER_SCENARIOS: Record<string, {
   riskLevel?: 'low' | 'high';
   isFirstLogin?: boolean;
   adminReset?: boolean;
+  availableMethods?: ('otp' | 'push')[];
 }> = {
   // A1: Trusted Device - Instant Login
   'trusteduser': {
@@ -302,6 +303,22 @@ const USER_SCENARIOS: Record<string, {
     password: 'password',
     scenario: 'esign_required',
     esignBehavior: 'compliance'
+  },
+
+  // F1: OTP-only MFA User
+  'otponlyuser': {
+    password: 'password',
+    scenario: 'mfa_required',
+    mfaBehavior: 'normal',
+    availableMethods: ['otp']
+  },
+
+  // F2: Push-only MFA User
+  'pushonlyuser': {
+    password: 'password',
+    scenario: 'mfa_required',
+    mfaBehavior: 'normal',
+    availableMethods: ['push']
   }
 };
 
@@ -476,8 +493,7 @@ export const authController = {
             deviceFingerprint,
             mfa_skipped: true,
             esign_document_id: 'terms-v1-2025',
-            is_mandatory: true,
-            is_first_login: false
+            is_mandatory: true
           });
         }
 
@@ -503,7 +519,7 @@ export const authController = {
           reason: 'TRUST_EXPIRED',
           trust_expired_at: trust ? new Date(trust.expiresAt).toISOString() : undefined,
           mfa_required: true,
-          available_methods: ['otp', 'push'],
+          available_methods: userScenario.availableMethods || ['otp', 'push'],
           sessionId,
           transactionId,
           deviceFingerprint
@@ -517,7 +533,7 @@ export const authController = {
           message: 'Unusual activity detected. Please verify your identity.',
           reason: 'RISK_DETECTED',
           mfa_required: true,
-          available_methods: ['otp', 'push'],
+          available_methods: userScenario.availableMethods || ['otp', 'push'],
           sessionId,
           transactionId,
           deviceFingerprint
@@ -537,9 +553,8 @@ export const authController = {
         return res.status(428).json({
           responseTypeCode: 'MFA_REQUIRED',
           message: 'First-time login. MFA setup required.',
-          is_first_login: true,
           mfa_required: true,
-          available_methods: ['otp', 'push'],
+          available_methods: userScenario.availableMethods || ['otp', 'push'],
           sessionId,
           transactionId,
           deviceFingerprint
@@ -553,7 +568,7 @@ export const authController = {
           message: 'Admin reset detected. Fresh MFA required.',
           reason: 'ADMIN_RESET',
           mfa_required: true,
-          available_methods: ['otp', 'push'],
+          available_methods: userScenario.availableMethods || ['otp', 'push'],
           sessionId,
           transactionId,
           deviceFingerprint
@@ -575,7 +590,7 @@ export const authController = {
         responseTypeCode: 'MFA_REQUIRED',
         message: 'Multi-factor authentication required',
         mfa_required: true,
-        available_methods: ['otp', 'push'],
+        available_methods: userScenario.availableMethods || ['otp', 'push'],
         sessionId,
         transactionId,
         deviceFingerprint
@@ -607,8 +622,7 @@ export const authController = {
           transactionId,
           deviceFingerprint,
           esign_document_id: 'terms-v1-2025',
-          is_mandatory: true,
-          is_first_login: false
+          is_mandatory: true
         });
       }
 
@@ -930,7 +944,6 @@ export const authController = {
             device_bound: !!deviceFingerprint,
             esign_document_id: pendingESign.documentId,
             is_mandatory: pendingESign.mandatory,
-            is_first_login: pendingESign.reason === 'first_login',
             message: 'Please review and accept the terms and conditions'
           });
         }
@@ -1010,7 +1023,6 @@ export const authController = {
             device_bound: !!deviceFingerprint,
             esign_document_id: pendingESign.documentId,
             is_mandatory: pendingESign.mandatory,
-            is_first_login: pendingESign.reason === 'first_login',
             message: 'Please review and accept the terms and conditions'
           });
         }
@@ -1252,8 +1264,7 @@ export const authController = {
           ? 'Welcome! Please review and accept our terms of service.'
           : 'Please review and accept the updated terms and conditions.',
         esign_document_id: pendingESign.documentId,
-        is_mandatory: pendingESign.mandatory,
-        is_first_login: pendingESign.reason === 'first_login'
+        is_mandatory: pendingESign.mandatory
       });
     }
 

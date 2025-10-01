@@ -221,7 +221,6 @@ export class AuthService {
           esign_url: response.esign_url,
           reason: response.reason,
           trust_expired_at: response.trust_expired_at,
-          is_first_login: response.is_first_login,
         };
       }
 
