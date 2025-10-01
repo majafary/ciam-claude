@@ -6,7 +6,11 @@ import {
   TokenRefreshResponse,
   UserInfoResponse,
   ApiError,
-  ServiceConfig
+  ServiceConfig,
+  ESignDocument,
+  ESignResponse,
+  PostMFACheckResponse,
+  PostLoginCheckResponse
 } from '../types';
 
 export class AuthService {
@@ -34,7 +38,9 @@ export class AuthService {
       'MFA_LOCKED': 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
       'ACCOUNT_LOCKED': 'Account is temporarily locked',
       'INVALID_CREDENTIALS': 'Invalid username or password',
-      'MISSING_CREDENTIALS': 'Username and password are required'
+      'MISSING_CREDENTIALS': 'Username and password are required',
+      'ESIGN_REQUIRED': 'Electronic signature required for terms and conditions',
+      'ESIGN_DECLINED': 'Terms and conditions were declined'
     };
     return messages[responseTypeCode] || 'An error occurred during authentication';
   }
@@ -65,7 +71,8 @@ export class AuthService {
           const responseTypeCode = responseData?.responseTypeCode;
           if (responseTypeCode && [
             'MFA_REQUIRED', 'MFA_LOCKED', 'ACCOUNT_LOCKED',
-            'INVALID_CREDENTIALS', 'MISSING_CREDENTIALS'
+            'INVALID_CREDENTIALS', 'MISSING_CREDENTIALS',
+            'ESIGN_REQUIRED', 'ESIGN_DECLINED'
           ].includes(responseTypeCode)) {
             return responseData;
           }
@@ -210,6 +217,11 @@ export class AuthService {
           available_methods: response.available_methods,
           mfa_required: response.mfa_required,
           deviceFingerprint: response.deviceFingerprint,
+          esign_document_id: response.esign_document_id,
+          esign_url: response.esign_url,
+          reason: response.reason,
+          trust_expired_at: response.trust_expired_at,
+          is_first_login: response.is_first_login,
         };
       }
 
@@ -420,6 +432,89 @@ export class AuthService {
    */
   setAccessToken(token: string | null): void {
     this.setStoredAccessToken(token);
+  }
+
+  /**
+   * Get eSign document by ID
+   */
+  async getESignDocument(documentId: string): Promise<ESignDocument> {
+    return this.apiCall<ESignDocument>(`/esign/document/${encodeURIComponent(documentId)}`);
+  }
+
+  /**
+   * Accept eSign document
+   */
+  async acceptESign(
+    transactionId: string,
+    documentId: string,
+    acceptanceIp?: string,
+    deviceFingerprint?: string
+  ): Promise<ESignResponse> {
+    const response = await this.apiCall<ESignResponse>('/esign/accept', {
+      method: 'POST',
+      body: JSON.stringify({
+        transactionId,
+        documentId,
+        acceptanceIp,
+        deviceFingerprint,
+        acceptanceTimestamp: new Date().toISOString(),
+      }),
+    });
+
+    // Store access token if eSign acceptance was successful
+    if (response.access_token) {
+      this.setStoredAccessToken(response.access_token);
+    }
+
+    return response;
+  }
+
+  /**
+   * Decline eSign document
+   */
+  async declineESign(
+    transactionId: string,
+    documentId: string,
+    reason?: string
+  ): Promise<ESignResponse> {
+    return this.apiCall<ESignResponse>('/esign/decline', {
+      method: 'POST',
+      body: JSON.stringify({
+        transactionId,
+        documentId,
+        reason,
+      }),
+    });
+  }
+
+  /**
+   * Check for eSign requirement after MFA completion
+   */
+  async postMfaCheck(transactionId: string): Promise<PostMFACheckResponse> {
+    return this.apiCall<PostMFACheckResponse>('/auth/post-mfa-check', {
+      method: 'POST',
+      body: JSON.stringify({ transactionId }),
+    });
+  }
+
+  /**
+   * Check for eSign requirement after successful login
+   */
+  async postLoginCheck(sessionId: string): Promise<PostLoginCheckResponse> {
+    return this.apiCall<PostLoginCheckResponse>('/auth/post-login-check', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  }
+
+  /**
+   * Bind device (trust device for future logins)
+   */
+  async bindDevice(username: string, deviceFingerprint: string): Promise<{ success: boolean; message: string }> {
+    return this.apiCall<{ success: boolean; message: string }>('/device/bind', {
+      method: 'POST',
+      body: JSON.stringify({ username, deviceFingerprint }),
+    });
   }
 
 }

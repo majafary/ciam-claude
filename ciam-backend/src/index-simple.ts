@@ -13,6 +13,8 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:3001',
+    'http://localhost:3002',
+    'http://localhost:3003',
     'http://localhost:6006'
   ],
   credentials: true
@@ -33,22 +35,54 @@ app.post('/auth/introspect', authController.introspect);
 app.post('/auth/mfa/verify', authController.verifyMfa);
 app.post('/auth/mfa/initiate', authController.initiateMfaChallenge);
 app.get('/mfa/transaction/:transactionId', authController.checkMfaStatus);
+app.post('/auth/post-mfa-check', authController.postMfaCheck);
+app.post('/auth/post-login-check', authController.postLoginCheck);
+
+// eSign routes
+app.get('/esign/document/:documentId', authController.getESignDocument);
+app.post('/esign/accept', authController.acceptESign);
+app.post('/esign/decline', authController.declineESign);
+
+// User info routes
 app.get('/userinfo', authController.userinfo);
+
+// Device management routes
+app.post('/device/bind', authController.bindDevice);
+
+// OIDC routes
 app.get('/.well-known/jwks.json', authController.jwks);
 
 // Default route
 app.get('/', (req, res) => {
   res.json({
     message: 'CIAM Backend API',
-    version: '1.0.0',
+    version: '2.0.0',
     endpoints: {
       health: '/health',
-      login: '/auth/login',
-      logout: '/auth/logout',
-      refresh: '/auth/refresh',
-      introspect: '/auth/introspect',
-      mfa_verify: '/auth/mfa/verify',
-      jwks: '/.well-known/jwks.json'
+      auth: {
+        login: 'POST /auth/login',
+        logout: 'POST /auth/logout',
+        refresh: 'POST /auth/refresh',
+        introspect: 'POST /auth/introspect',
+        post_mfa_check: 'POST /auth/post-mfa-check',
+        post_login_check: 'POST /auth/post-login-check'
+      },
+      mfa: {
+        initiate: 'POST /auth/mfa/initiate',
+        verify: 'POST /auth/mfa/verify',
+        status: 'GET /mfa/transaction/:transactionId'
+      },
+      esign: {
+        get_document: 'GET /esign/document/:documentId',
+        accept: 'POST /esign/accept',
+        decline: 'POST /esign/decline'
+      },
+      user: {
+        info: 'GET /userinfo'
+      },
+      oidc: {
+        jwks: 'GET /.well-known/jwks.json'
+      }
     }
   });
 });

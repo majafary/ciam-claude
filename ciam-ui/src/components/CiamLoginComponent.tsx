@@ -46,7 +46,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 }) => {
   const {
     isAuthenticated, isLoading, user, error, login, logout, clearError,
-    mfaRequired, mfaAvailableMethods, mfaError, mfaUsername, clearMfa, refreshSession, authService
+    mfaRequired, mfaAvailableMethods, mfaError, mfaUsername, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
 
@@ -173,12 +173,10 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       const result = await login(formData.username, formData.password);
 
       if (result.responseTypeCode === 'SUCCESS') {
-        console.log('✅ [SUCCESS DEBUG] Direct login success - saving username:', {
-          username: formData.username,
-          saveUsername,
-          willSave: saveUsername
-        });
-        // Save username if checkbox is checked
+        console.log('✅ Direct login success - completing authentication');
+
+        // eSign requirement now comes directly in login response as ESIGN_REQUIRED
+        // No need for post-login-check (deprecated flow removed)
         if (saveUsername) {
           usernameStorage.save(formData.username);
           console.log('💾 [SUCCESS DEBUG] Username saved to localStorage:', formData.username);
@@ -199,6 +197,58 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
           username: saveUsername ? formData.username : '',
           password: '',
         });
+      } else if (result.responseTypeCode === 'ESIGN_REQUIRED') {
+        console.log('📝 eSign required after login - calling Provider');
+        // Preserve login data for eSign completion
+        setOriginalLoginData({
+          username: currentUsername,
+          saveUsername: saveUsername
+        });
+
+        // Use Provider's showESignDialog to manage state persistently
+        showESignDialog(
+          result.esign_document_id || '',
+          result.transactionId || result.sessionId || '',
+          true, // Login-level eSign is always mandatory
+          currentUsername,
+          saveUsername,
+          result.deviceFingerprint || mfaDeviceFingerprint || '', // Pass deviceFingerprint for device binding check
+          async () => {
+            // On complete callback - handle component-specific logic
+            console.log('✅ eSign completed via Provider');
+
+            // Use preserved original login data
+            const loginDataToUse = getOriginalLoginData() || {
+              username: formData.username,
+              saveUsername: saveUsername
+            };
+
+            // Save username if checkbox was originally checked
+            if (loginDataToUse.saveUsername && loginDataToUse.username) {
+              usernameStorage.save(loginDataToUse.username);
+            } else {
+              usernameStorage.remove();
+            }
+
+            // Clear original login data
+            setOriginalLoginData(null);
+
+            // Clear form
+            setFormData({
+              username: loginDataToUse.saveUsername ? loginDataToUse.username : '',
+              password: '',
+            });
+
+            // Complete login
+            if (user) {
+              onLoginSuccess?.(user);
+            }
+
+            if (autoRedirect && redirectUrl) {
+              window.location.href = redirectUrl;
+            }
+          }
+        );
       } else if (result.responseTypeCode === 'MFA_REQUIRED') {
         // Preserve original login data for MFA completion
         setOriginalLoginData({
@@ -250,6 +300,62 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   const handleMfaSuccess = async (mfaResponse: any) => {
     try {
       console.log('🟢 MFA Success - processing response:', mfaResponse);
+
+      // Check for eSign requirement directly in MFA response
+      if (mfaResponse.responseTypeCode === 'ESIGN_REQUIRED') {
+        console.log('📝 eSign required after MFA - calling Provider');
+
+        // Use preserved original login data
+        const loginDataToUse = getOriginalLoginData() || {
+          username: formData.username,
+          saveUsername: saveUsername
+        };
+
+        // Use Provider's showESignDialog to manage state persistently
+        showESignDialog(
+          mfaResponse.esign_document_id || '',
+          mfaResponse.transactionId || '',
+          mfaResponse.is_mandatory || false,
+          loginDataToUse.username,
+          loginDataToUse.saveUsername,
+          mfaResponse.deviceFingerprint || mfaDeviceFingerprint || '', // Pass deviceFingerprint for device binding check
+          async () => {
+            // On complete callback
+            console.log('✅ Post-MFA eSign completed via Provider');
+
+            // Save username if checkbox was originally checked
+            if (loginDataToUse.saveUsername && loginDataToUse.username) {
+              usernameStorage.save(loginDataToUse.username);
+            } else {
+              usernameStorage.remove();
+            }
+
+            // Clear original login data
+            setOriginalLoginData(null);
+
+            // Clear form
+            setFormData({
+              username: loginDataToUse.saveUsername ? loginDataToUse.username : '',
+              password: '',
+            });
+
+            // Complete login
+            if (user) {
+              onLoginSuccess?.(user);
+            }
+
+            if (autoRedirect && redirectUrl) {
+              window.location.href = redirectUrl;
+            }
+          }
+        );
+
+        // Clear MFA dialog but keep original login data for eSign completion
+        clearMfa();
+        cancelTransaction();
+        return; // Don't complete authentication yet, wait for eSign
+      }
+
       // Use preserved original login data instead of current form state
       const loginDataToUse = getOriginalLoginData() || {
         username: formData.username,
@@ -280,6 +386,42 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
       await refreshSession();
 
       console.log('🟢 MFA Success - session refreshed, user should be authenticated');
+
+      // Check if device binding should be offered
+      console.log('🔍 [DEVICE BIND CHECK]', {
+        mfaDeviceFingerprint,
+        username: loginDataToUse.username,
+        willShowDialog: !!(mfaDeviceFingerprint && loginDataToUse.username)
+      });
+
+      if (mfaDeviceFingerprint && loginDataToUse.username) {
+        console.log('🔐 Offering device binding:', { username: loginDataToUse.username, deviceFingerprint: mfaDeviceFingerprint });
+
+        // Clear MFA dialog immediately
+        clearMfa();
+        cancelTransaction();
+
+        // Show device bind dialog (managed by provider, persists after component unmount)
+        showDeviceBindDialog(loginDataToUse.username, mfaDeviceFingerprint, () => {
+          // This callback runs after device bind (whether trusted or skipped)
+          console.log('🔐 Device bind completed, finishing authentication flow');
+          setOriginalLoginData(null);
+
+          // Clear form (but keep username if saving)
+          setFormData({
+            username: loginDataToUse.saveUsername ? loginDataToUse.username : '',
+            password: '',
+          });
+
+          onLoginSuccess?.(user!);
+
+          if (autoRedirect && redirectUrl) {
+            window.location.href = redirectUrl;
+          }
+        });
+
+        return; // Don't complete authentication flow yet - wait for device bind dialog
+      }
 
       // Clear MFA state after successful authentication - this will close the dialog
       clearMfa();

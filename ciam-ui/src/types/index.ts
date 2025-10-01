@@ -1,6 +1,6 @@
 // API Response Types (matching backend)
 export interface LoginResponse {
-  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'MFA_LOCKED' | 'ACCOUNT_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
+  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
   message?: string;
   id_token?: string;
   access_token?: string;
@@ -12,6 +12,11 @@ export interface LoginResponse {
   mfa_required?: boolean;
   mfa_skipped?: boolean;
   available_methods?: string[];
+  esign_document_id?: string;
+  esign_url?: string;
+  reason?: string;
+  trust_expired_at?: string;
+  is_first_login?: boolean;
 }
 
 export interface MFAChallengeResponse {
@@ -24,7 +29,8 @@ export interface MFAChallengeResponse {
 }
 
 export interface MFAVerifyResponse {
-  success: boolean;
+  success?: boolean;
+  responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
   id_token?: string;
   access_token?: string;
   refresh_token?: string;
@@ -32,6 +38,9 @@ export interface MFAVerifyResponse {
   transactionId: string;
   deviceFingerprint?: string;
   device_bound?: boolean;
+  esign_document_id?: string;
+  is_mandatory?: boolean;
+  is_first_login?: boolean;
   message?: string;
   error?: string;
   attempts?: number;
@@ -80,6 +89,60 @@ export interface ApiError {
   message: string;
   timestamp: string;
   details?: Record<string, unknown>;
+}
+
+// eSign Types
+export interface ESignDocument {
+  documentId: string;
+  title: string;
+  content: string;
+  version: string;
+  mandatory: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ESignAcceptanceRequest {
+  transactionId: string;
+  documentId: string;
+  acceptanceIp?: string;
+  acceptanceTimestamp?: string;
+}
+
+export interface ESignDeclineRequest {
+  transactionId: string;
+  documentId: string;
+  reason?: string;
+}
+
+export interface ESignResponse {
+  responseTypeCode: 'SUCCESS' | 'ESIGN_DECLINED';
+  message?: string;
+  access_token?: string;
+  id_token?: string;
+  sessionId?: string;
+  transactionId?: string;
+  esign_accepted?: boolean;
+  esign_accepted_at?: string;
+  can_retry?: boolean;
+  device_bound?: boolean; // Whether device is already trusted (true) or needs binding (false)
+  deviceFingerprint?: string; // Device fingerprint for binding
+}
+
+export interface PostMFACheckResponse {
+  responseTypeCode: 'SUCCESS' | 'ESIGN_REQUIRED';
+  message?: string;
+  esign_document_id?: string;
+  is_mandatory?: boolean;
+  is_first_login?: boolean;
+}
+
+export interface PostLoginCheckResponse {
+  responseTypeCode: 'SUCCESS' | 'ESIGN_REQUIRED';
+  message?: string;
+  esign_document_id?: string;
+  is_mandatory?: boolean;
+  force_logout_if_declined?: boolean;
 }
 
 export type MFAChallengeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
@@ -153,6 +216,17 @@ export interface ProtectedRouteProps {
   onUnauthorized?: () => void;
 }
 
+export interface ESignComponentProps {
+  open: boolean;
+  documentId: string;
+  transactionId: string;
+  mandatory: boolean;
+  onAccept: () => Promise<void>;
+  onDecline: (reason?: string) => Promise<void>;
+  isLoading?: boolean;
+  error?: string | null;
+}
+
 
 // Provider Props
 export interface CiamProviderProps {
@@ -213,6 +287,7 @@ export interface UseAuthReturn {
   mfaAvailableMethods: ('otp' | 'push')[];
   mfaError: string | null;
   mfaUsername: string | null; // Store username when MFA is required
+  mfaDeviceFingerprint: string | null; // Store device fingerprint for device binding
 
   // Services
   authService: any; // AuthService instance for direct access
@@ -223,6 +298,10 @@ export interface UseAuthReturn {
   refreshSession: () => Promise<void>;
   clearError: () => void;
   clearMfa: () => void;
+  // Device binding
+  showDeviceBindDialog: (username: string, deviceFingerprint: string, onComplete?: () => void) => void;
+  // eSign
+  showESignDialog: (documentId: string, transactionId: string, mandatory: boolean, username: string, saveUsername: boolean, deviceFingerprint?: string, onComplete?: () => void) => void;
 }
 
 export interface UseMfaReturn {

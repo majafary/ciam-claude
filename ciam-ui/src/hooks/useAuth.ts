@@ -20,6 +20,7 @@ export const useAuth = (): UseAuthReturn => {
     mfaAvailableMethods: context.mfaAvailableMethods,
     mfaError: context.mfaError,
     mfaUsername: context.mfaUsername,
+    mfaDeviceFingerprint: context.mfaDeviceFingerprint,
     // Services
     authService: context.authService,
     // Actions
@@ -28,5 +29,9 @@ export const useAuth = (): UseAuthReturn => {
     refreshSession: context.refreshSession,
     clearError: context.clearError,
     clearMfa: context.clearMfa,
+    // Device binding
+    showDeviceBindDialog: context.showDeviceBindDialog,
+    // eSign
+    showESignDialog: context.showESignDialog,
   };
 };

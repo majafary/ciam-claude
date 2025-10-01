@@ -8,6 +8,8 @@ export { CiamProtectedApp } from './components/CiamProtectedApp';
 // Optional UI Components (Material-UI based - teams can replace with custom)
 export { CiamLoginComponent } from './components/CiamLoginComponent';
 export { MfaMethodSelectionDialog } from './components/MfaMethodSelectionDialog';
+export { ESignDialog } from './components/ESignDialog';
+export { DeviceBindDialog } from './components/DeviceBindDialog';
 
 // Legacy Components (consider removing in future versions)
 export { ProtectedRoute } from './components/ProtectedRoute';

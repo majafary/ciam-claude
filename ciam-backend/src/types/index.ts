@@ -7,7 +7,7 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED';
+  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS';
   message?: string;
   id_token?: string;
   access_token?: string;
@@ -15,6 +15,15 @@ export interface LoginResponse {
   sessionId: string;
   transactionId?: string;
   deviceId?: string;
+  deviceFingerprint?: string;
+  mfa_skipped?: boolean;
+  mfa_required?: boolean;
+  available_methods?: ('otp' | 'push')[];
+  esign_document_id?: string;
+  esign_url?: string;
+  reason?: string;
+  trust_expired_at?: string;
+  is_first_login?: boolean;
 }
 
 export interface MFAChallengeRequest {
@@ -237,4 +246,56 @@ export type UserScenario = 'SUCCESS' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALI
 export interface MockUserScenario {
   type: UserScenario;
   user?: User;
+}
+
+// eSign Types
+export interface ESignDocument {
+  documentId: string;
+  title: string;
+  content: string;
+  version: string;
+  mandatory: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ESignAcceptanceRequest {
+  transactionId: string;
+  documentId: string;
+  acceptanceIp?: string;
+  acceptanceTimestamp?: string;
+}
+
+export interface ESignDeclineRequest {
+  transactionId: string;
+  documentId: string;
+  reason?: string;
+}
+
+export interface ESignResponse {
+  responseTypeCode: 'SUCCESS' | 'ESIGN_DECLINED';
+  message?: string;
+  access_token?: string;
+  id_token?: string;
+  sessionId?: string;
+  transactionId?: string;
+  esign_accepted?: boolean;
+  esign_accepted_at?: string;
+  can_retry?: boolean;
+}
+
+export interface PostMFACheckResponse {
+  responseTypeCode: 'SUCCESS' | 'ESIGN_REQUIRED';
+  message?: string;
+  esign_document_id?: string;
+  is_mandatory?: boolean;
+  is_first_login?: boolean;
+}
+
+export interface PostLoginCheckResponse {
+  responseTypeCode: 'SUCCESS' | 'ESIGN_REQUIRED';
+  message?: string;
+  esign_document_id?: string;
+  is_mandatory?: boolean;
+  force_logout_if_declined?: boolean;
 }
