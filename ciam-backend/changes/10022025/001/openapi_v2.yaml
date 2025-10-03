@@ -1,0 +1,828 @@
+openapi: 3.0.3
+info:
+  title: CIAM Backend API
+  description: Customer Identity and Access Management (CIAM) Backend API with MFA, eSign, and device trust capabilities
+  version: 2.0.0
+  contact:
+    name: CIAM Team
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.example.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Authentication
+    description: User authentication and session management
+  - name: MFA
+    description: Multi-factor authentication endpoints
+  - name: eSign
+    description: Electronic signature endpoints
+  - name: User
+    description: User information endpoints
+  - name: Device
+    description: Device management and trust
+  - name: OIDC
+    description: OpenID Connect endpoints
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the API
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user with username and password. Returns tokens on success or MFA/eSign requirement.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+                - app_id
+                - app_version
+              properties:
+                username:
+                  type: string
+                  example: mfauser
+                password:
+                  type: string
+                  format: password
+                  example: password
+                app_id:
+                  type: string
+                  description: Client application identifier
+                app_version:
+                  type: string
+                  description: Client application version
+                drs_action_token:
+                  type: string
+                  description: Device recognition token from DRS SDK
+      responses:
+        '200':
+          description: Additional authentication steps required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MFARequiredResponse'
+                  - $ref: '#/components/schemas/ESignRequiredResponse'
+        '201':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginSuccessResponse'
+        '401':
+          description: Invalid credentials or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '423':
+          description: Account or MFA locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: Logout user and clear session
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Logout successful
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Refresh access token using refresh token cookie
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: Bearer
+                  expires_in:
+                    type: integer
+                    example: 900
+                    description: Token lifetime in seconds
+        '401':
+          description: Invalid or missing refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/mfa/initiate:
+    post:
+      tags:
+        - MFA
+      summary: Initiate MFA challenge
+      description: Start MFA challenge for OTP or Push notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_id
+                - method
+              properties:
+                transaction_id:
+                  type: string
+                method:
+                  type: string
+                  enum: [otp, push]
+                  example: otp
+                mfa_option_id:
+                  type: integer
+                  enum: [1, 2, 3, 4, 5, 6]
+                  description: Required when method is 'otp' to specify which phone number to use
+      responses:
+        '200':
+          description: MFA challenge initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAChallengeResponse'
+        '400':
+          description: Invalid MFA method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/mfa/verify:
+    post:
+      tags:
+        - MFA
+      summary: Verify MFA challenge
+      description: Verify OTP code or retrieve tokens after push approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_id
+                - method
+              properties:
+                transaction_id:
+                  type: string
+                method:
+                  type: string
+                  enum: [otp, push]
+                code:
+                  type: string
+                  description: OTP code (required when method is 'otp')
+                  example: "1234"
+      responses:
+        '200':
+          description: MFA verification result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MFAVerifySuccessResponse'
+                  - $ref: '#/components/schemas/ESignRequiredResponse'
+        '400':
+          description: Invalid OTP or transaction not approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /mfa/transaction/{transaction_id}:
+    get:
+      tags:
+        - MFA
+      summary: Get MFA transaction status
+      description: Poll MFA transaction status (for push notifications)
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFATransactionStatusResponse'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /mfa/transaction/{transaction_id}/approve:
+    post:
+      tags:
+        - MFA
+      summary: Approve push notification (mobile device)
+      description: Mobile app approves push notification with number matching. Does not return tokens.
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - selected_number
+              properties:
+                selected_number:
+                  type: integer
+                  description: Number selected by user on mobile device for matching
+      responses:
+        '200':
+          description: Push notification approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAApproveResponse'
+        '400':
+          description: Invalid number or transaction already processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Transaction expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /esign/document/{document_id}:
+    get:
+      tags:
+        - eSign
+      summary: Get eSign document
+      description: Retrieve electronic signature document by ID
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: terms-v1-2025
+      responses:
+        '200':
+          description: Document retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ESignDocument'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /esign/accept:
+    post:
+      tags:
+        - eSign
+      summary: Accept eSign document
+      description: Accept electronic signature document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_id
+                - document_id
+              properties:
+                transaction_id:
+                  type: string
+                document_id:
+                  type: string
+                  example: terms-v1-2025
+                acceptance_ip:
+                  type: string
+                acceptance_timestamp:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Document accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ESignAcceptResponse'
+        '400':
+          description: Invalid request or no pending eSign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /device/bind:
+    post:
+      tags:
+        - Device
+      summary: Bind/trust device
+      description: Trust a device for future logins (skip MFA)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_id
+              properties:
+                transaction_id:
+                  type: string
+      responses:
+        '200':
+          description: Device trusted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - transaction_id
+                  - trusted_at
+                  - already_trusted
+                properties:
+                  success:
+                    type: boolean
+                  transaction_id:
+                    type: string
+                  trusted_at:
+                    type: string
+                    format: date-time
+                  already_trusted:
+                    type: boolean
+                    description: True if device was already trusted, false if newly trusted
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /.well-known/jwks.json:
+    get:
+      tags:
+        - OIDC
+      summary: JWKS endpoint
+      description: JSON Web Key Set for token verification
+      responses:
+        '200':
+          description: JWKS
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+
+  schemas:
+    LoginSuccessResponse:
+      type: object
+      required:
+        - responseTypeCode
+        - access_token
+        - id_token
+        - refresh_token
+        - token_type
+        - expires_in
+        - session_id
+        - device_bound
+      properties:
+        responseTypeCode:
+          type: string
+          enum: [SUCCESS]
+        access_token:
+          type: string
+        id_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 900
+          description: Token lifetime in seconds
+        session_id:
+          type: string
+        device_bound:
+          type: boolean
+          description: True if device already trusted, false to show device trust prompt
+
+    MFARequiredResponse:
+      type: object
+      required:
+        - responseTypeCode
+        - otp_methods
+        - mobile_approve_status
+        - session_id
+        - transaction_id
+      properties:
+        responseTypeCode:
+          type: string
+          enum: [MFA_REQUIRED]
+        otp_methods:
+          type: array
+          description: Available phone numbers for OTP delivery
+          items:
+            type: object
+            required:
+              - value
+              - mfa_option_id
+            properties:
+              value:
+                type: string
+                description: Last 4 digits of phone number
+                pattern: '^\d{4}$'
+                example: "1234"
+              mfa_option_id:
+                type: integer
+                enum: [1, 2, 3, 4, 5, 6]
+                description: Option identifier to use when initiating OTP challenge
+        mobile_approve_status:
+          type: string
+          enum: [NOT_REGISTERED, ENABLED, DISABLED]
+          description: Push notification availability (NOT_REGISTERED, ENABLED, or DISABLED)
+        session_id:
+          type: string
+        transaction_id:
+          type: string
+
+    ESignRequiredResponse:
+      type: object
+      required:
+        - responseTypeCode
+        - session_id
+        - transaction_id
+        - esign_document_id
+        - esign_url
+        - is_mandatory
+      properties:
+        responseTypeCode:
+          type: string
+          enum: [ESIGN_REQUIRED]
+        session_id:
+          type: string
+        transaction_id:
+          type: string
+        esign_document_id:
+          type: string
+        esign_url:
+          type: string
+        is_mandatory:
+          type: boolean
+          description: True if user must accept to proceed, false if acceptance is optional
+
+    MFAChallengeResponse:
+      type: object
+      required:
+        - success
+        - transaction_id
+        - challenge_status
+        - expires_at
+      properties:
+        success:
+          type: boolean
+        transaction_id:
+          type: string
+        challenge_status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+          description: Current status of the MFA challenge
+        expires_at:
+          type: string
+          format: date-time
+        display_number:
+          type: integer
+          description: Number to display for push challenge
+
+    MFAVerifySuccessResponse:
+      type: object
+      required:
+        - success
+        - access_token
+        - id_token
+        - refresh_token
+        - token_type
+        - expires_in
+        - session_id
+        - transaction_id
+        - device_bound
+      properties:
+        success:
+          type: boolean
+        access_token:
+          type: string
+        id_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+        session_id:
+          type: string
+        transaction_id:
+          type: string
+        device_bound:
+          type: boolean
+          description: True if device already trusted, false to show device trust prompt
+
+    MFATransactionStatusResponse:
+      type: object
+      required:
+        - transaction_id
+        - challenge_status
+        - updated_at
+        - expires_at
+      properties:
+        transaction_id:
+          type: string
+        challenge_status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+          description: Current status of the MFA challenge
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        display_number:
+          type: integer
+          description: Number displayed to user for matching
+        selected_number:
+          type: integer
+          description: Number selected by user on mobile device
+
+    MFAApproveResponse:
+      type: object
+      required:
+        - success
+        - transaction_id
+        - challenge_status
+      properties:
+        success:
+          type: boolean
+        transaction_id:
+          type: string
+        challenge_status:
+          type: string
+          enum: [APPROVED]
+          description: Challenge status after successful approval
+
+    ESignDocument:
+      type: object
+      required:
+        - document_id
+        - title
+        - content
+        - version
+        - mandatory
+      properties:
+        document_id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        version:
+          type: string
+        mandatory:
+          type: boolean
+
+    ESignAcceptResponse:
+      type: object
+      required:
+        - responseTypeCode
+        - access_token
+        - id_token
+        - refresh_token
+        - token_type
+        - expires_in
+        - session_id
+        - transaction_id
+        - esign_accepted
+        - esign_accepted_at
+        - device_bound
+      properties:
+        responseTypeCode:
+          type: string
+          enum: [SUCCESS]
+        access_token:
+          type: string
+        id_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+        session_id:
+          type: string
+        transaction_id:
+          type: string
+        esign_accepted:
+          type: boolean
+        esign_accepted_at:
+          type: string
+          format: date-time
+        device_bound:
+          type: boolean
+          description: True if device already trusted, false to show device trust prompt
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: |
+            Error code indicating the type of failure:
+            * `CIAM_E01_01_001` - User not found or invalid credentials
+            * `CIAM_E01_01_016` - Username contains masked value
+            * `CIAM_E01_01_002` - User password locked
+            * `CIAM_E01_01_003` - User disabled
+            * `CIAM_E01_01_004` - Enterprise credential block
+            * `CIAM_E01_01_005` - MFA locked
+            * `CIAM_E01_01_006` - User deceased
+            * `CIAM_E01_01_008` - CAPI restriction blocked by bank or customer
+            * `CIAM_E01_02_001` - Authentication token missing
+            * `CIAM_E01_02_002` - Authentication token invalid or expired
+            * `CIAM_E05_00_001` - Server error
+            * `CIAM_E05_00_002` - Server info not available (e.g. CAPI communication failure)
+          enum:
+            - CIAM_E01_01_001
+            - CIAM_E01_01_016
+            - CIAM_E01_01_002
+            - CIAM_E01_01_003
+            - CIAM_E01_01_004
+            - CIAM_E01_01_005
+            - CIAM_E01_01_006
+            - CIAM_E01_01_008
+            - CIAM_E01_02_001
+            - CIAM_E01_02_002
+            - CIAM_E05_00_001
+            - CIAM_E05_00_002
+        message:
+          type: string
