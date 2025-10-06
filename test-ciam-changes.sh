@@ -87,6 +87,7 @@ echo "🔨 STEP 3: Fresh CIAM-UI build"
 echo "==============================="
 
 print_info "Building ciam-ui from scratch..."
+print_warning "Note: Node version warnings are safe to ignore (app works on Node 18+)"
 cd "$PROJECT_ROOT/ciam-ui" || exit 1
 
 # Force fresh install to ensure no cached dependencies
@@ -119,8 +120,8 @@ print_info "Working directory: $PWD"
 print_info "Starting all services with concurrently..."
 echo ""
 
-# Start all services using the dev:all command
-npm run dev:all &
+# Start services (skip ciam-ui watch mode since we already built it)
+npx concurrently "npm run dev:backend" "npm run dev:storefront" "npm run dev:account" &
 DEV_ALL_PID=$!
 
 print_warning "Main process PID: $DEV_ALL_PID"
@@ -159,16 +160,17 @@ echo ""
 echo "🧪 STEP 6: Testing CIAM functionality"
 echo "====================================="
 
-print_info "Testing backend login API..."
+print_info "Testing backend login API (v2.0.0)..."
 BACKEND_TEST=$(curl -X POST http://localhost:8080/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"password"}' \
+  -d '{"username":"trusteduser","password":"password","app_id":"test-script","app_version":"1.0.0","drs_action_token":"test_device"}' \
   -s -w "\nHTTP_STATUS:%{http_code}" | tail -1)
 
-if echo "$BACKEND_TEST" | grep -q "HTTP_STATUS:200"; then
-    print_status "Backend API: Working"
+if echo "$BACKEND_TEST" | grep -qE "HTTP_STATUS:(200|201)"; then
+    print_status "Backend API v2.0.0: Working (Status: $(echo "$BACKEND_TEST" | grep -oE '[0-9]{3}'))"
 else
-    print_error "Backend API: Failed"
+    print_error "Backend API v2.0.0: Failed (Check backend logs)"
+    echo "Response: $(curl -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" -d '{"username":"trusteduser","password":"password","app_id":"test","app_version":"1.0"}' -s)"
 fi
 
 echo ""

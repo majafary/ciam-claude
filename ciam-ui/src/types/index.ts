@@ -1,30 +1,28 @@
-// API Response Types (matching backend)
+// API Response Types (matching backend v2.0.0)
 export interface LoginResponse {
   responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
   message?: string;
   id_token?: string;
   access_token?: string;
   refresh_token?: string;
-  sessionId: string;
-  transactionId?: string;
-  deviceId?: string;
-  deviceFingerprint?: string;
-  mfa_required?: boolean;
-  mfa_skipped?: boolean;
-  available_methods?: string[];
+  session_id: string;
+  transaction_id?: string;
+  device_bound?: boolean;
+  // MFA Required specific fields (200 response)
+  otp_methods?: Array<{ value: string; mfa_option_id: number }>;
+  mobile_approve_status?: 'NOT_REGISTERED' | 'ENABLED' | 'DISABLED';
+  // eSign Required specific fields (200 response)
   esign_document_id?: string;
   esign_url?: string;
-  reason?: string;
-  trust_expired_at?: string;
+  is_mandatory?: boolean;
 }
 
 export interface MFAChallengeResponse {
-  challengeId?: string;
-  transactionId: string;
-  challengeStatus: MFAChallengeStatus;
-  expiresAt: string;
-  message?: string;
-  displayNumber?: number; // For push challenges - single number to display on UI
+  success: boolean;
+  transaction_id: string;
+  challenge_status: MFAChallengeStatus;
+  expires_at: string;
+  display_number?: number; // For push challenges - single number to display on UI
 }
 
 export interface MFAVerifyResponse {
@@ -33,26 +31,23 @@ export interface MFAVerifyResponse {
   id_token?: string;
   access_token?: string;
   refresh_token?: string;
-  sessionId?: string;
-  transactionId: string;
-  deviceFingerprint?: string;
+  session_id?: string;
+  transaction_id: string;
   device_bound?: boolean;
   esign_document_id?: string;
   is_mandatory?: boolean;
-  message?: string;
   error?: string;
   attempts?: number;
   canRetry?: boolean;
 }
 
 export interface MFATransactionStatusResponse {
-  transactionId: string;
-  challengeStatus: MFAChallengeStatus;
-  updatedAt: string;
-  expiresAt: string;
-  message?: string;
-  displayNumber?: number; // For push challenges - single number to display on UI
-  selectedNumber?: number; // For push challenges - auto-selected number by test users
+  transaction_id: string;
+  challenge_status: MFAChallengeStatus;
+  updated_at: string;
+  expires_at: string;
+  display_number?: number; // For push challenges - single number to display on UI
+  selected_number?: number; // For push challenges - auto-selected number by test users
 }
 
 export interface TokenRefreshResponse {
@@ -83,33 +78,33 @@ export interface UserInfoResponse {
 
 
 export interface ApiError {
-  code: string;
+  code: string; // Changed from error_code to code for consistency
   message: string;
-  timestamp: string;
+  timestamp?: string;
   details?: Record<string, unknown>;
 }
 
 // eSign Types
 export interface ESignDocument {
-  documentId: string;
+  document_id: string;
   title: string;
   content: string;
   version: string;
   mandatory: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ESignAcceptanceRequest {
-  transactionId: string;
-  documentId: string;
-  acceptanceIp?: string;
-  acceptanceTimestamp?: string;
+  transaction_id: string;
+  document_id: string;
+  acceptance_ip?: string;
+  acceptance_timestamp?: string;
 }
 
 export interface ESignDeclineRequest {
-  transactionId: string;
-  documentId: string;
+  transaction_id: string;
+  document_id: string;
   reason?: string;
 }
 
@@ -118,13 +113,13 @@ export interface ESignResponse {
   message?: string;
   access_token?: string;
   id_token?: string;
-  sessionId?: string;
-  transactionId?: string;
+  refresh_token?: string;
+  session_id?: string;
+  transaction_id?: string;
   esign_accepted?: boolean;
   esign_accepted_at?: string;
   can_retry?: boolean;
   device_bound?: boolean; // Whether device is already trusted (true) or needs binding (false)
-  deviceFingerprint?: string; // Device fingerprint for binding
 }
 
 export interface PostMFACheckResponse {
@@ -166,13 +161,13 @@ export interface AuthState {
 }
 
 export interface MFATransaction {
-  transactionId: string;
+  transaction_id: string;
   method: 'otp' | 'push';
   status: MFAChallengeStatus;
-  expiresAt: string;
-  createdAt: string;
-  displayNumber?: number; // For push challenges - single number to display on UI
-  selectedNumber?: number; // For push challenges - auto-selected number by test users
+  expires_at: string;
+  created_at: string;
+  display_number?: number; // For push challenges - single number to display on UI
+  selected_number?: number; // For push challenges - auto-selected number by test users
 }
 
 export interface MFAState {
@@ -282,8 +277,10 @@ export interface UseAuthReturn {
   // MFA state - centralized to avoid timing conflicts
   mfaRequired: boolean;
   mfaAvailableMethods: ('otp' | 'push')[];
+  mfaOtpMethods: Array<{ value: string; mfa_option_id: number }> | null; // OTP method options from login response
   mfaError: string | null;
   mfaUsername: string | null; // Store username when MFA is required
+  mfaTransactionId: string | null; // Store transaction_id for MFA operations
   mfaDeviceFingerprint: string | null; // Store device fingerprint for device binding
 
   // Services
@@ -308,7 +305,7 @@ export interface UseMfaReturn {
   error: string | null;
 
   // Actions
-  initiateChallenge: (method: 'otp' | 'push', username?: string) => Promise<MFAChallengeResponse>;
+  initiateChallenge: (method: 'otp' | 'push', transactionId: string, mfaOptionId?: number) => Promise<MFAChallengeResponse>;
   verifyOtp: (transactionId: string, otp: string) => Promise<MFAVerifyResponse>;
   verifyPush: (transactionId: string, pushResult?: 'APPROVED' | 'REJECTED', selectedNumber?: number) => Promise<MFAVerifyResponse>;
   checkStatus: (transactionId: string) => Promise<MFATransactionStatusResponse>;

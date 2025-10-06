@@ -51,6 +51,20 @@ export const validateLoginRequest = [
     .isLength({ min: 1, max: 200 })
     .withMessage('Password must be between 1 and 200 characters'),
 
+  body('app_id')
+    .isString()
+    .notEmpty()
+    .withMessage('app_id is required')
+    .isLength({ min: 1, max: 100 })
+    .withMessage('app_id must be between 1 and 100 characters'),
+
+  body('app_version')
+    .isString()
+    .notEmpty()
+    .withMessage('app_version is required')
+    .isLength({ min: 1, max: 50 })
+    .withMessage('app_version must be between 1 and 50 characters'),
+
   body('drs_action_token')
     .optional()
     .isString()
@@ -64,28 +78,21 @@ export const validateLoginRequest = [
  * MFA challenge request validation
  */
 export const validateMFAChallengeRequest = [
-  body('username')
-    .optional()
+  body('transaction_id')
     .isString()
-    .isLength({ min: 1, max: 100 })
-    .withMessage('Username must be between 1 and 100 characters'),
+    .notEmpty()
+    .matches(/^tx-[a-zA-Z0-9-]+$/)
+    .withMessage('Valid transaction_id is required'),
 
   body('method')
     .isString()
     .isIn(['otp', 'push'])
     .withMessage('Method must be either "otp" or "push"'),
 
-  body('sessionId')
+  body('mfa_option_id')
     .optional()
-    .isString()
-    .matches(/^sess-[a-zA-Z0-9-]+$/)
-    .withMessage('Invalid session ID format'),
-
-  body('transactionId')
-    .optional()
-    .isString()
-    .matches(/^tx-[a-zA-Z0-9-]+$/)
-    .withMessage('Invalid transaction ID format'),
+    .isInt({ min: 1, max: 6 })
+    .withMessage('mfa_option_id must be an integer between 1 and 6'),
 
   handleValidationErrors
 ];
@@ -94,24 +101,23 @@ export const validateMFAChallengeRequest = [
  * MFA verify request validation
  */
 export const validateMFAVerifyRequest = [
-  body('transactionId')
+  body('transaction_id')
     .isString()
     .notEmpty()
     .matches(/^tx-[a-zA-Z0-9-]+$/)
-    .withMessage('Valid transaction ID is required'),
+    .withMessage('Valid transaction_id is required'),
 
-  body('otp')
+  body('method')
+    .isString()
+    .isIn(['otp', 'push'])
+    .withMessage('Method must be either "otp" or "push"'),
+
+  body('code')
     .optional()
     .isString()
     .isLength({ min: 4, max: 10 })
     .isNumeric()
-    .withMessage('OTP must be a 4-10 digit number'),
-
-  body('pushResult')
-    .optional()
-    .isString()
-    .isIn(['APPROVED', 'REJECTED'])
-    .withMessage('Push result must be either "APPROVED" or "REJECTED"'),
+    .withMessage('code must be a 4-10 digit number'),
 
   handleValidationErrors
 ];
@@ -280,3 +286,55 @@ export const isValidSessionId = (sessionId: string): boolean => {
 export const isValidTransactionId = (transactionId: string): boolean => {
   return /^tx-[a-zA-Z0-9-]+$/.test(transactionId);
 };
+
+/**
+ * MFA push approval request validation
+ */
+export const validateMFAPushApprovalRequest = [
+  body('selected_number')
+    .isInt()
+    .notEmpty()
+    .withMessage('selected_number is required and must be an integer'),
+
+  handleValidationErrors
+];
+
+/**
+ * eSign document ID parameter validation
+ */
+export const validateDocumentIdParam = [
+  param('document_id')
+    .isString()
+    .notEmpty()
+    .withMessage('Valid document_id is required'),
+
+  handleValidationErrors
+];
+
+/**
+ * eSign acceptance request validation
+ */
+export const validateESignAcceptRequest = [
+  body('transaction_id')
+    .isString()
+    .notEmpty()
+    .matches(/^tx-[a-zA-Z0-9-]+$/)
+    .withMessage('Valid transaction_id is required'),
+
+  body('document_id')
+    .isString()
+    .notEmpty()
+    .withMessage('document_id is required'),
+
+  body('acceptance_ip')
+    .optional()
+    .isString()
+    .withMessage('acceptance_ip must be a string'),
+
+  body('acceptance_timestamp')
+    .optional()
+    .isISO8601()
+    .withMessage('acceptance_timestamp must be a valid ISO 8601 date'),
+
+  handleValidationErrors
+];

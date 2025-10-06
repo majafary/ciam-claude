@@ -37,7 +37,6 @@ export interface MfaMethodSelectionProps {
   onOtpVerify?: (otp: string) => Promise<void>;
   onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED', selectedNumber?: number) => Promise<void>;
   onMfaSuccess?: (response: any) => Promise<void>;
-  onResendOtp?: () => Promise<void>;
   onCheckStatus?: (transactionId: string) => Promise<any>;
   username?: string;
 }
@@ -53,7 +52,6 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   onOtpVerify,
   onPushVerify,
   onMfaSuccess,
-  onResendOtp,
   onCheckStatus,
   username,
 }) => {
@@ -64,12 +62,12 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   const [otp, setOtp] = useState('');
   const [otpError, setOtpError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [resending, setResending] = useState(false);
   const [timeLeft, setTimeLeft] = useState(10); // 10 seconds
   const [isExpired, setIsExpired] = useState(false);
   const [backendTimeLeft, setBackendTimeLeft] = useState(10); // Separate state for backend polling
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastTransactionIdRef = useRef<string | null>(null);
+  const pollingStartedRef = useRef<boolean>(false);
 
   // Push status state
   const [pushStatus, setPushStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
@@ -91,9 +89,9 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
   // Reset states when transaction changes
   useEffect(() => {
-    if (transaction && transaction.transactionId !== lastTransactionIdRef.current) {
-      console.log('🔄 Transaction changed, resetting states:', transaction.transactionId);
-      lastTransactionIdRef.current = transaction.transactionId;
+    if (transaction && transaction.transaction_id !== lastTransactionIdRef.current) {
+      console.log('🔄 Transaction changed, resetting states:', transaction.transaction_id);
+      lastTransactionIdRef.current = transaction.transaction_id;
       setOtp('');
       setOtpError(null);
       setVerifying(false);
@@ -102,11 +100,12 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       setIsExpired(false);
       setPushStatus(null);
 
-      // Clear any existing interval
+      // Clear any existing interval and reset polling flag
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      pollingStartedRef.current = false;
     }
   }, [transaction]);
 
@@ -117,7 +116,14 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       return;
     }
 
+    // Prevent duplicate polling for the same transaction
+    if (pollingStartedRef.current) {
+      console.log('⚠️ Polling already started for this transaction, skipping');
+      return;
+    }
+
     console.log('🚀 Starting polling for transaction:', transactionId);
+    pollingStartedRef.current = true;
 
     // Clear any existing interval
     if (intervalRef.current) {
@@ -129,21 +135,23 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
         const data = await onCheckStatus(transactionId);
 
         // Check status first - rejection/approval takes precedence over expiration
-        if (data.challengeStatus === 'APPROVED') {
+        if (data.challenge_status === 'APPROVED') {
           console.log('🟢 Push notification approved by backend (mobile device selection)');
-          console.log('📊 Selected number from polling:', data.selectedNumber);
+          console.log('📊 Selected number from polling:', data.selected_number);
           if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
           }
-          await onPushVerify('APPROVED', data.selectedNumber);
+          pollingStartedRef.current = false;
+          await onPushVerify('APPROVED', data.selected_number);
           return;
-        } else if (data.challengeStatus === 'REJECTED') {
+        } else if (data.challenge_status === 'REJECTED') {
           console.log('🔴 Push notification rejected by backend (mobile device selection)');
           if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
           }
+          pollingStartedRef.current = false;
           // Handle rejection locally - show error state instead of calling backend verify
           setPushStatus('rejected');
           setTimeLeft(0);
@@ -152,8 +160,8 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
         }
 
         // Update timer based on backend expiry time (only if still PENDING)
-        if (data.expiresAt) {
-          const expiryTime = new Date(data.expiresAt).getTime();
+        if (data.expires_at) {
+          const expiryTime = new Date(data.expires_at).getTime();
           const currentTime = new Date().getTime();
           const timeRemainingMs = expiryTime - currentTime;
           const timeRemainingSec = Math.max(0, Math.ceil(timeRemainingMs / 1000));
@@ -168,6 +176,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
               clearInterval(intervalRef.current);
               intervalRef.current = null;
             }
+            pollingStartedRef.current = false;
             setIsExpired(true);
             setTimeLeft(0);
             return;
@@ -182,9 +191,10 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
   // Start polling when push transaction begins
   useEffect(() => {
-    if (isPushWaiting && transaction?.transactionId && !intervalRef.current) {
-      console.log('🔄 Push transaction detected, starting polling:', transaction.transactionId);
-      startPolling(transaction.transactionId);
+    // Don't start polling if already rejected or expired
+    if (isPushWaiting && transaction?.transaction_id && !intervalRef.current && !pollingStartedRef.current && pushStatus !== 'rejected' && !isExpired) {
+      console.log('🔄 Push transaction detected, starting polling:', transaction.transaction_id);
+      startPolling(transaction.transaction_id);
     }
 
     // Cleanup on unmount or when transaction ends
@@ -193,9 +203,10 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
         console.log('🧹 Cleaning up polling interval');
         clearInterval(intervalRef.current);
         intervalRef.current = null;
+        pollingStartedRef.current = false;
       }
     };
-  }, [isPushWaiting, transaction?.transactionId]); // Removed startPolling dependency
+  }, [isPushWaiting, transaction, pushStatus, isExpired]); // Depend on entire transaction object and terminal states
 
   // Debug logging
   console.log('MfaMethodSelectionDialog render:', {
@@ -264,27 +275,6 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       handleOtpVerify();
     }
   };
-
-  const handleResendOtp = async () => {
-    if (!onResendOtp || resending) return;
-
-    try {
-      setResending(true);
-      setOtpError(null);
-      setIsExpired(false);
-      setOtp('');
-
-      await onResendOtp();
-
-      // Reset timer after successful resend
-      setTimeLeft(10);
-    } catch (error: any) {
-      setOtpError(error.message || 'Failed to resend OTP. Please try again.');
-    } finally {
-      setResending(false);
-    }
-  };
-
 
   const getMethodInfo = (method: 'otp' | 'push') => {
     switch (method) {
@@ -447,23 +437,18 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
         )}
 
         {isExpired && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Verification code has expired.
-            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={handleResendOtp}
-                disabled={resending || !onResendOtp}
-                startIcon={resending ? <CircularProgress size={16} /> : null}
-              >
-                {resending ? 'Resending...' : 'Resend OTP'}
-              </Button>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Verification code has expired. Please login again or use Push authentication.
+            <Box sx={{ mt: 2 }}>
               <Button
                 size="small"
                 variant="outlined"
                 onClick={async () => {
-                  // Switch to Push method
+                  // Reset expired state and switch to Push method
+                  console.log('🔄 Switching from expired OTP to Push - resetting states');
+                  setIsExpired(false);
+                  setTimeLeft(10);
+                  setBackendTimeLeft(10);
                   if (onMethodSelected) {
                     try {
                       await onMethodSelected('push');
@@ -549,7 +534,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
   // Render push notification display content - shows single number, user selects on mobile
   const renderPushWaiting = () => {
-    const displayNumber = transaction?.displayNumber;
+    const displayNumber = transaction?.display_number;
     const hasDisplayNumber = displayNumber !== undefined;
     const isAutoMode = username && ['mfauser', 'pushfail', 'pushexpired'].includes(username);
 
@@ -637,12 +622,22 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   variant="outlined"
                   onClick={async () => {
                     // Restart Push flow by reinitiating challenge
+                    console.log('🔄 Restarting Push after rejection - resetting all states');
+                    // Reset all states first
+                    setPushStatus(null);
+                    setTimeLeft(10);
+                    setBackendTimeLeft(10);
+                    setIsExpired(false);
+                    // CRITICAL: Reset polling flag to allow new polling to start
+                    pollingStartedRef.current = false;
+                    // Clear any existing interval
+                    if (intervalRef.current) {
+                      clearInterval(intervalRef.current);
+                      intervalRef.current = null;
+                    }
+                    // Then reinitiate Push challenge
                     if (onMethodSelected) {
                       try {
-                        // Reset rejection state first
-                        setPushStatus(null);
-                        setTimeLeft(10);
-                        // Then reinitiate Push challenge
                         await onMethodSelected('push');
                       } catch (error) {
                         console.error('Failed to restart Push:', error);
@@ -656,8 +651,12 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   size="small"
                   variant="outlined"
                   onClick={async () => {
-                    // Switch to OTP method
+                    // Switch to OTP method - reset all states
+                    console.log('🔄 Switching from rejected Push to OTP');
                     setPushStatus(null);
+                    setIsExpired(false);
+                    setTimeLeft(10);
+                    setBackendTimeLeft(10);
                     if (onMethodSelected) {
                       try {
                         await onMethodSelected('otp');
@@ -682,12 +681,22 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   variant="outlined"
                   onClick={async () => {
                     // Restart Push flow by reinitiating challenge
+                    console.log('🔄 Restarting Push after expiration - resetting all states');
+                    // Reset all states first
+                    setIsExpired(false);
+                    setTimeLeft(10);
+                    setBackendTimeLeft(10);
+                    setPushStatus(null);
+                    // CRITICAL: Reset polling flag to allow new polling to start
+                    pollingStartedRef.current = false;
+                    // Clear any existing interval
+                    if (intervalRef.current) {
+                      clearInterval(intervalRef.current);
+                      intervalRef.current = null;
+                    }
+                    // Then reinitiate Push challenge
                     if (onMethodSelected) {
                       try {
-                        // Reset expired state first
-                        setIsExpired(false);
-                        setTimeLeft(10);
-                        // Then reinitiate Push challenge
                         await onMethodSelected('push');
                       } catch (error) {
                         console.error('Failed to restart Push:', error);
@@ -701,8 +710,12 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   size="small"
                   variant="outlined"
                   onClick={async () => {
-                    // Switch to OTP method
+                    // Switch to OTP method - reset all states
+                    console.log('🔄 Switching from expired Push to OTP');
                     setIsExpired(false);
+                    setTimeLeft(10);
+                    setBackendTimeLeft(10);
+                    setPushStatus(null);
                     if (onMethodSelected) {
                       try {
                         await onMethodSelected('otp');
@@ -834,6 +847,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
       maxWidth="sm"
       fullWidth
       disableEscapeKeyDown={submitting || verifying}
+      disableEnforceFocus={true}
       sx={{
         zIndex: 1400, // Ensure dialog appears above navigation (MUI AppBar default is 1100)
       }}

@@ -5,6 +5,14 @@ import { generateAccessToken, generateRefreshToken, verifyToken, generateJWKS } 
 // IN-MEMORY STORAGE (Mock Database - Production would use Redis/PostgreSQL)
 // ============================================================================
 
+// MFA Transaction Storage (track username for transaction_id)
+interface MFATransaction {
+  transaction_id: string;
+  username: string;
+  createdAt: number;
+  method?: 'otp' | 'push';
+}
+
 // Push Challenge Storage
 interface PushChallenge {
   transactionId: string;
@@ -51,6 +59,7 @@ interface PendingESign {
   reason: 'first_login' | 'compliance' | 'policy_update';
 }
 
+const mfaTransactions = new Map<string, MFATransaction>(); // key: transaction_id
 const pushChallenges = new Map<string, PushChallenge>();
 const deviceTrusts = new Map<string, DeviceTrust>(); // key: deviceFingerprint
 const esignDocuments = new Map<string, ESignDocument>();
@@ -188,6 +197,16 @@ const updateLoginTime = (username: string): void => {
   userLoginTimes.set(username, {
     lastLogin: existing?.currentLogin || null,
     currentLogin: now
+  });
+};
+
+// Add pending eSign requirement
+const addPendingESign = (username: string, documentId: string, mandatory: boolean, reason: 'first_login' | 'compliance' | 'policy_update'): void => {
+  pendingESigns.set(username, {
+    username,
+    documentId,
+    mandatory,
+    reason
   });
 };
 
@@ -332,20 +351,24 @@ export const authController = {
    * POST /auth/login
    */
   login: async (req: Request, res: Response) => {
-    const { username, password, drs_action_token } = req.body;
+    const { username, password, drs_action_token, app_id, app_version } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({
-        responseTypeCode: 'MISSING_CREDENTIALS',
-        message: 'Username and password are required',
-        timestamp: new Date().toISOString(),
-        sessionId: '',
-        transactionId: ''
+        error_code: 'MISSING_CREDENTIALS',
+        message: 'Username and password are required'
       });
     }
 
-    const sessionId = 'session-' + Date.now();
-    const transactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    if (!app_id || !app_version) {
+      return res.status(400).json({
+        error_code: 'MISSING_APP_INFO',
+        message: 'app_id and app_version are required'
+      });
+    }
+
+    const session_id = 'session-' + Date.now();
+    const transaction_id = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
     // Process device fingerprint if provided
     let deviceFingerprint: string | undefined;
@@ -360,11 +383,8 @@ export const authController = {
     // Check password
     if (!userScenario || userScenario.password !== password) {
       return res.status(401).json({
-        responseTypeCode: 'INVALID_CREDENTIALS',
-        message: 'Invalid username or password',
-        timestamp: new Date().toISOString(),
-        sessionId,
-        transactionId
+        error_code: 'CIAM_E01_01_001',
+        message: 'Invalid username or password'
       });
     }
 
@@ -379,21 +399,15 @@ export const authController = {
     // Handle locked scenarios
     if (userScenario.scenario === 'locked') {
       return res.status(423).json({
-        responseTypeCode: 'ACCOUNT_LOCKED',
-        message: 'Account is temporarily locked',
-        timestamp: new Date().toISOString(),
-        sessionId,
-        transactionId
+        error_code: 'CIAM_E01_01_002',
+        message: 'Account is temporarily locked'
       });
     }
 
     if (userScenario.scenario === 'mfa_locked') {
       return res.status(423).json({
-        responseTypeCode: 'MFA_LOCKED',
-        message: 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
-        timestamp: new Date().toISOString(),
-        sessionId,
-        transactionId
+        error_code: 'CIAM_E01_01_005',
+        message: 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.'
       });
     }
 
@@ -412,6 +426,7 @@ export const authController = {
       updateLoginTime(username);
 
       const accessToken = generateAccessToken(user);
+      const idToken = generateAccessToken(user); // In production, this would be different
       const refreshToken = generateRefreshToken(user);
 
       res.cookie('refresh_token', refreshToken, {
@@ -421,16 +436,15 @@ export const authController = {
         sameSite: 'strict'
       });
 
-      return res.json({
+      return res.status(201).json({
         responseTypeCode: 'SUCCESS',
         access_token: accessToken,
+        id_token: idToken,
+        refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
-        sessionId,
-        transactionId,
-        deviceFingerprint,
-        mfa_skipped: true,
-        user
+        session_id: session_id,
+        device_bound: true
       });
     }
 
@@ -446,14 +460,13 @@ export const authController = {
         reason: 'policy_update'
       });
 
-      return res.json({
+      return res.status(200).json({
         responseTypeCode: 'ESIGN_REQUIRED',
-        sessionId,
-        transactionId,
-        deviceFingerprint,
+        session_id: session_id,
+        transaction_id: transaction_id,
         esign_document_id: 'terms-v1-2025',
         esign_url: '/esign/document/terms-v1-2025',
-        message: 'Please review and accept the updated terms and conditions'
+        is_mandatory: true
       });
     }
 
@@ -473,6 +486,7 @@ export const authController = {
         updateLoginTime(username);
 
         const accessToken = generateAccessToken(user);
+        const idToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
 
         res.cookie('refresh_token', refreshToken, {
@@ -485,115 +499,74 @@ export const authController = {
         // Check for pending eSign (compliance scenario)
         if (userScenario.esignBehavior === 'compliance' && !hasAcceptedDocument(username, 'terms-v1-2025')) {
           addPendingESign(username, 'terms-v1-2025', true, 'compliance');
-          return res.json({
+          return res.status(200).json({
             responseTypeCode: 'ESIGN_REQUIRED',
-            message: 'Updated terms and conditions require your acceptance',
-            sessionId,
-            transactionId,
-            deviceFingerprint,
-            mfa_skipped: true,
+            session_id: session_id,
+            transaction_id: transaction_id,
             esign_document_id: 'terms-v1-2025',
+            esign_url: '/esign/document/terms-v1-2025',
             is_mandatory: true
           });
         }
 
-        return res.json({
+        return res.status(201).json({
           responseTypeCode: 'SUCCESS',
           access_token: accessToken,
+          id_token: idToken,
+          refresh_token: refreshToken,
           token_type: 'Bearer',
           expires_in: 900,
-          sessionId,
-          transactionId,
-          deviceFingerprint,
-          mfa_skipped: true,
-          user
-        });
-      }
-
-      // Check for expired trust
-      if (deviceFingerprint && isDeviceTrustExpired(deviceFingerprint, username)) {
-        const trust = deviceTrusts.get(deviceFingerprint);
-        return res.status(428).json({
-          responseTypeCode: 'MFA_REQUIRED',
-          message: 'Device trust expired. Please complete MFA to re-authenticate.',
-          reason: 'TRUST_EXPIRED',
-          trust_expired_at: trust ? new Date(trust.expiresAt).toISOString() : undefined,
-          mfa_required: true,
-          available_methods: userScenario.availableMethods || ['otp', 'push'],
-          sessionId,
-          transactionId,
-          deviceFingerprint
-        });
-      }
-
-      // Check for risk detection
-      if (detectRisk(username, deviceFingerprint)) {
-        return res.status(428).json({
-          responseTypeCode: 'MFA_REQUIRED',
-          message: 'Unusual activity detected. Please verify your identity.',
-          reason: 'RISK_DETECTED',
-          mfa_required: true,
-          available_methods: userScenario.availableMethods || ['otp', 'push'],
-          sessionId,
-          transactionId,
-          deviceFingerprint
-        });
-      }
-
-      // Check for first-time login
-      if (userScenario.isFirstLogin) {
-        // Add to pending eSigns for post-MFA
-        pendingESigns.set(username, {
-          username,
-          documentId: 'terms-v1-2025',
-          mandatory: true,
-          reason: 'first_login'
-        });
-
-        return res.status(428).json({
-          responseTypeCode: 'MFA_REQUIRED',
-          message: 'First-time login. MFA setup required.',
-          mfa_required: true,
-          available_methods: userScenario.availableMethods || ['otp', 'push'],
-          sessionId,
-          transactionId,
-          deviceFingerprint
-        });
-      }
-
-      // Check for admin reset
-      if (userScenario.adminReset) {
-        return res.status(428).json({
-          responseTypeCode: 'MFA_REQUIRED',
-          message: 'Admin reset detected. Fresh MFA required.',
-          reason: 'ADMIN_RESET',
-          mfa_required: true,
-          available_methods: userScenario.availableMethods || ['otp', 'push'],
-          sessionId,
-          transactionId,
-          deviceFingerprint
+          session_id: session_id,
+          device_bound: true
         });
       }
 
       // Check for eSign scenarios after MFA
       if (userScenario.esignBehavior && ['accept', 'decline'].includes(userScenario.esignBehavior)) {
+        console.log('📝 [LOGIN] Setting pending eSign for user after MFA:', { username, esignBehavior: userScenario.esignBehavior });
         pendingESigns.set(username, {
           username,
           documentId: 'terms-v1-2025',
           mandatory: true,
           reason: 'policy_update'
         });
+        console.log('📝 [LOGIN] Pending eSign set:', pendingESigns.get(username));
       }
 
+      // Determine available MFA methods based on user scenario
+      const availableMethods = userScenario.availableMethods || ['otp', 'push'];
+
+      // Build otp_methods array (simulate multiple phone numbers)
+      const otp_methods = availableMethods.includes('otp') ? [
+        { value: '1234', mfa_option_id: 1 },
+        { value: '5678', mfa_option_id: 2 }
+      ] : [];
+
+      // Determine mobile approve status
+      let mobile_approve_status: 'NOT_REGISTERED' | 'ENABLED' | 'DISABLED';
+      if (!availableMethods.includes('push')) {
+        mobile_approve_status = 'NOT_REGISTERED';
+      } else if (username === 'pushonlyuser') {
+        mobile_approve_status = 'ENABLED';
+      } else {
+        mobile_approve_status = 'ENABLED';
+      }
+
+      // Store MFA transaction for username retrieval during verify
+      mfaTransactions.set(transaction_id, {
+        transaction_id,
+        username,
+        createdAt: Date.now()
+      });
+      console.log('📝 [LOGIN] Stored MFA transaction:', { transaction_id, username });
+
       // Standard MFA required
-      return res.status(428).json({
+      return res.status(200).json({
         responseTypeCode: 'MFA_REQUIRED',
-        message: 'Multi-factor authentication required',
-        mfa_required: true,
-        available_methods: userScenario.availableMethods || ['otp', 'push'],
-        sessionId,
-        transactionId,
-        deviceFingerprint
+        otp_methods: otp_methods,
+        mobile_approve_status: mobile_approve_status,
+        session_id: session_id,
+        transaction_id: transaction_id
       });
     }
 
@@ -603,6 +576,7 @@ export const authController = {
       updateLoginTime(username);
 
       const accessToken = generateAccessToken(user);
+      const idToken = generateAccessToken(user);
       const refreshToken = generateRefreshToken(user);
 
       res.cookie('refresh_token', refreshToken, {
@@ -615,33 +589,31 @@ export const authController = {
       // Check for compliance pending
       if (userScenario.esignBehavior === 'compliance' && !hasAcceptedDocument(username, 'terms-v1-2025')) {
         addPendingESign(username, 'terms-v1-2025', true, 'compliance');
-        return res.json({
+        return res.status(200).json({
           responseTypeCode: 'ESIGN_REQUIRED',
-          message: 'Updated terms and conditions require your acceptance',
-          sessionId,
-          transactionId,
-          deviceFingerprint,
+          session_id: session_id,
+          transaction_id: transaction_id,
           esign_document_id: 'terms-v1-2025',
+          esign_url: '/esign/document/terms-v1-2025',
           is_mandatory: true
         });
       }
 
-      return res.json({
+      return res.status(201).json({
         responseTypeCode: 'SUCCESS',
         access_token: accessToken,
+        id_token: idToken,
+        refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
-        sessionId,
-        transactionId,
-        deviceFingerprint,
-        user
+        session_id: session_id,
+        device_bound: deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false
       });
     }
 
     // Fallback - should not reach here
-    return res.status(500).json({
-      success: false,
-      error: 'INTERNAL_ERROR',
+    return res.status(503).json({
+      error_code: 'CIAM_E05_00_001',
       message: 'Unexpected error occurred'
     });
   },
@@ -667,8 +639,7 @@ export const authController = {
 
     if (!refreshToken) {
       return res.status(401).json({
-        success: false,
-        error: 'MISSING_REFRESH_TOKEN',
+        error_code: 'CIAM_E01_02_001',
         message: 'Refresh token is required'
       });
     }
@@ -677,8 +648,7 @@ export const authController = {
 
     if (!result.valid) {
       return res.status(401).json({
-        success: false,
-        error: 'INVALID_REFRESH_TOKEN',
+        error_code: 'CIAM_E01_02_002',
         message: 'Invalid or expired refresh token'
       });
     }
@@ -747,29 +717,52 @@ export const authController = {
    * POST /auth/mfa/initiate
    */
   initiateMfaChallenge: async (req: Request, res: Response) => {
-    const { method, username, sessionId } = req.body;
+    const { method, transaction_id, mfa_option_id } = req.body;
 
-    console.log('🔍 MFA Challenge Request:', { method, username, sessionId });
+    console.log('🔍 MFA Challenge Request:', { method, transaction_id, mfa_option_id });
+
+    if (!transaction_id) {
+      return res.status(400).json({
+        error_code: 'MISSING_TRANSACTION_ID',
+        message: 'transaction_id is required'
+      });
+    }
 
     if (!method || !['otp', 'push'].includes(method)) {
       return res.status(400).json({
-        success: false,
-        error: 'INVALID_MFA_METHOD',
+        error_code: 'INVALID_MFA_METHOD',
         message: 'Valid MFA method (otp or push) is required'
       });
     }
 
-    const transactionId = `mfa-${method}-${username}-${Date.now()}`;
-    console.log('🎫 Generated transaction ID:', transactionId);
-    const expiresAt = new Date(Date.now() + 10 * 1000).toISOString();
+    if (method === 'otp' && !mfa_option_id) {
+      return res.status(400).json({
+        error_code: 'MISSING_MFA_OPTION_ID',
+        message: 'mfa_option_id is required when method is otp'
+      });
+    }
+
+    // Retrieve username from MFA transaction storage
+    const mfaTransaction = mfaTransactions.get(transaction_id);
+    if (!mfaTransaction) {
+      console.log('❌ [MFA INITIATE] No MFA transaction found for:', transaction_id);
+      return res.status(400).json({
+        error_code: 'INVALID_TRANSACTION',
+        message: 'Invalid or expired transaction_id'
+      });
+    }
+
+    const username = mfaTransaction.username;
+    console.log('✅ [MFA INITIATE] Retrieved username from transaction:', { transaction_id, username });
+
+    const expires_at = new Date(Date.now() + 10 * 1000).toISOString();
 
     if (method === 'otp') {
       return res.json({
         success: true,
-        transactionId,
-        challengeStatus: 'PENDING',
-        expiresAt,
-        message: 'OTP sent to your device'
+        transaction_id: transaction_id,
+        challenge_status: 'PENDING',
+        expires_at: expires_at
       });
     }
 
@@ -777,7 +770,7 @@ export const authController = {
       const { numbers, correctNumber } = generatePushNumbers();
 
       const pushChallenge: PushChallenge = {
-        transactionId,
+        transactionId: transaction_id,
         numbers,
         correctNumber,
         username,
@@ -785,23 +778,21 @@ export const authController = {
         attempts: 0
       };
 
-      pushChallenges.set(transactionId, pushChallenge);
-      console.log('🎲 Push challenge created:', { transactionId, numbers, correctNumber, username });
+      pushChallenges.set(transaction_id, pushChallenge);
+      console.log('🎲 Push challenge created:', { transaction_id, numbers, correctNumber, username });
 
       return res.json({
         success: true,
-        transactionId,
-        challengeStatus: 'PENDING',
-        expiresAt,
-        displayNumber: correctNumber,
-        message: 'Push notification sent. Select the number shown below on your mobile device'
+        transaction_id: transaction_id,
+        challenge_status: 'PENDING',
+        expires_at: expires_at,
+        display_number: correctNumber
       });
     }
 
     // Fallback (should never reach here due to validation above)
     return res.status(400).json({
-      success: false,
-      error: 'INVALID_MFA_METHOD',
+      error_code: 'INVALID_MFA_METHOD',
       message: 'Unsupported MFA method'
     });
   },
@@ -817,62 +808,52 @@ export const authController = {
 
     if (!transactionId) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_TRANSACTION_ID',
+        error_code: 'MISSING_TRANSACTION_ID',
         message: 'Transaction ID is required'
       });
     }
 
-    if (transactionId.includes('push')) {
-      const challenge = pushChallenges.get(transactionId);
-
-      if (!challenge) {
-        return res.status(404).json({
-          success: false,
-          error: 'CHALLENGE_NOT_FOUND',
-          message: 'Push challenge not found or expired'
-        });
-      }
+    // Check if this is a Push challenge by looking in the pushChallenges Map
+    const challenge = pushChallenges.get(transactionId);
+    if (challenge) {
+      console.log('📱 Found Push challenge for transaction:', transactionId);
 
       const timeElapsed = Date.now() - challenge.createdAt;
-      console.log('⏱️ Time elapsed:', timeElapsed, 'ms');
+      console.log('⏱️ Push challenge time elapsed:', timeElapsed, 'ms');
 
-      let challengeStatus = 'PENDING';
-      let message = 'Push challenge pending user selection';
-      let selectedNumber: number | undefined;
+      let challenge_status = 'PENDING';
+      let selected_number: number | undefined;
 
-      if (transactionId.includes('pushfail')) {
+      // Check username from challenge object, not transaction_id string
+      if (challenge.username === 'pushfail') {
         console.log('🚫 pushfail user detected');
         if (timeElapsed > 7000) {
           const wrongNumbers = challenge.numbers.filter(n => n !== challenge.correctNumber);
-          selectedNumber = wrongNumbers[0];
-          challengeStatus = 'REJECTED';
-          message = `User selected wrong number: ${selectedNumber}`;
-          console.log('❌ pushfail: auto-selected wrong number', selectedNumber);
+          selected_number = wrongNumbers[0];
+          challenge_status = 'REJECTED';
+          console.log('❌ pushfail: auto-selected wrong number', selected_number);
         }
-      } else if (transactionId.includes('pushexpired')) {
+      } else if (challenge.username === 'pushexpired') {
         console.log('⏰ pushexpired user detected - should remain PENDING');
-        challengeStatus = 'PENDING';
+        challenge_status = 'PENDING';
       } else {
-        console.log('✅ mfauser (default) detected');
+        console.log('✅ mfauser (or default) detected');
         if (timeElapsed > 5000) {
-          selectedNumber = challenge.correctNumber;
-          challengeStatus = 'APPROVED';
-          message = `User selected correct number: ${selectedNumber}`;
-          console.log('✅ auto-selected correct number', selectedNumber);
+          selected_number = challenge.correctNumber;
+          challenge_status = 'APPROVED';
+          console.log('✅ auto-selected correct number', selected_number);
         }
       }
 
-      console.log('📊 Final status:', challengeStatus, 'message:', message);
+      console.log('📊 Final status:', challenge_status);
 
       return res.json({
-        transactionId,
-        challengeStatus,
-        updatedAt: new Date().toISOString(),
-        expiresAt: new Date(challenge.createdAt + 10 * 1000).toISOString(),
-        displayNumber: challenge.correctNumber,
-        selectedNumber,
-        message
+        transaction_id: transactionId,
+        challenge_status: challenge_status,
+        updated_at: new Date().toISOString(),
+        expires_at: new Date(challenge.createdAt + 10 * 1000).toISOString(),
+        display_number: challenge.correctNumber,
+        selected_number: selected_number
       });
     }
 
@@ -881,17 +862,15 @@ export const authController = {
 
     console.log('⏱️ Time elapsed:', timeElapsed, 'ms');
 
-    let challengeStatus = 'PENDING';
-    let message = 'Challenge pending';
+    let challenge_status = 'PENDING';
 
-    console.log('📊 Final status:', challengeStatus, 'message:', message);
+    console.log('📊 Final status:', challenge_status);
 
     return res.json({
-      transactionId,
-      challengeStatus,
-      updatedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 10 * 1000).toISOString(),
-      message
+      transaction_id: transactionId,
+      challenge_status: challenge_status,
+      updated_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 10 * 1000).toISOString()
     });
   },
 
@@ -900,26 +879,50 @@ export const authController = {
    * POST /auth/mfa/verify
    */
   verifyMfa: async (req: Request, res: Response) => {
-    const { transactionId, method, code, pushResult, selectedNumber, deviceFingerprint } = req.body;
+    const { transaction_id, method, code } = req.body;
 
-    if (!transactionId) {
+    if (!transaction_id) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_TRANSACTION_ID',
-        message: 'Transaction ID is required'
+        error_code: 'MISSING_TRANSACTION_ID',
+        message: 'transaction_id is required'
       });
     }
 
-    // Extract username from transaction ID
-    const username = transactionId.split('-')[2] || 'unknown';
+    if (!method) {
+      return res.status(400).json({
+        error_code: 'MISSING_METHOD',
+        message: 'method is required'
+      });
+    }
+
+    // Retrieve username from MFA transaction storage
+    const mfaTransaction = mfaTransactions.get(transaction_id);
+    if (!mfaTransaction) {
+      console.log('❌ [OTP VERIFY] No MFA transaction found for:', transaction_id);
+      return res.status(400).json({
+        error_code: 'INVALID_TRANSACTION',
+        message: 'Invalid or expired transaction_id'
+      });
+    }
+
+    const username = mfaTransaction.username;
+    console.log('✅ [OTP VERIFY] Retrieved username from transaction:', { transaction_id, username });
     const userScenario = USER_SCENARIOS[username];
 
     if (method === 'otp') {
+      if (!code) {
+        return res.status(400).json({
+          error_code: 'MISSING_CODE',
+          message: 'code is required when method is otp'
+        });
+      }
+
       if (code === '1234') {
         const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
         updateLoginTime(username);
 
         const accessToken = generateAccessToken(user);
+        const idToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
 
         res.cookie('refresh_token', refreshToken, {
@@ -929,135 +932,84 @@ export const authController = {
           sameSite: 'strict'
         });
 
-        if (deviceFingerprint) {
-          trustDevice(deviceFingerprint, username);
-        }
-
         // Check if eSign is required after MFA
+        console.log('🔍 [OTP VERIFY] Checking for pending eSign:', { username, transaction_id });
         const pendingESign = getPendingESign(username);
+        console.log('🔍 [OTP VERIFY] Pending eSign result:', pendingESign);
         if (pendingESign) {
-          return res.json({
+          return res.status(200).json({
             responseTypeCode: 'ESIGN_REQUIRED',
-            sessionId: `session-${Date.now()}`,
-            transactionId,
-            deviceFingerprint,
-            device_bound: !!deviceFingerprint,
+            session_id: `session-${Date.now()}`,
+            transaction_id: transaction_id,
             esign_document_id: pendingESign.documentId,
-            is_mandatory: pendingESign.mandatory,
-            message: 'Please review and accept the terms and conditions'
+            esign_url: `/esign/document/${pendingESign.documentId}`,
+            is_mandatory: pendingESign.mandatory
           });
         }
 
-        return res.json({
+        return res.status(200).json({
           success: true,
-          id_token: accessToken,
           access_token: accessToken,
+          id_token: idToken,
+          refresh_token: refreshToken,
           token_type: 'Bearer',
           expires_in: 900,
-          sessionId: `session-${Date.now()}`,
-          transactionId,
-          deviceFingerprint,
-          device_bound: !!deviceFingerprint,
-          message: 'MFA verification successful'
+          session_id: `session-${Date.now()}`,
+          transaction_id: transaction_id,
+          device_bound: false
         });
       } else {
         return res.status(400).json({
-          success: false,
-          error: 'INVALID_MFA_CODE',
+          error_code: 'INVALID_MFA_CODE',
           message: 'Invalid or expired MFA code'
         });
       }
     }
 
-    if (method === 'push' || selectedNumber !== undefined) {
-      const challenge = pushChallenges.get(transactionId);
+    if (method === 'push') {
+      // For push, check the transaction status
+      const challenge = pushChallenges.get(transaction_id);
 
       if (!challenge) {
         return res.status(400).json({
-          success: false,
-          error: 'CHALLENGE_NOT_FOUND',
+          error_code: 'CHALLENGE_NOT_FOUND',
           message: 'Push challenge not found or expired'
         });
       }
 
-      challenge.attempts += 1;
-      pushChallenges.set(transactionId, challenge);
+      // Check current status (would be APPROVED if user selected correct number on mobile)
+      const timeElapsed = Date.now() - challenge.createdAt;
+      let challenge_status = 'PENDING';
 
-      console.log('🎯 Push verification attempt:', {
-        transactionId,
-        selectedNumber,
-        correctNumber: challenge.correctNumber,
-        attempts: challenge.attempts
-      });
-
-      if (selectedNumber === challenge.correctNumber) {
-        pushChallenges.delete(transactionId);
-
-        const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
-        updateLoginTime(username);
-
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken(user);
-
-        res.cookie('refresh_token', refreshToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-          sameSite: 'strict'
-        });
-
-        console.log('✅ Push verification successful:', { username, selectedNumber });
-
-        if (deviceFingerprint) {
-          trustDevice(deviceFingerprint, username);
+      if (transaction_id.includes('pushfail')) {
+        if (timeElapsed > 7000) {
+          challenge_status = 'REJECTED';
         }
-
-        // Check if eSign is required after MFA
-        const pendingESign = getPendingESign(username);
-        if (pendingESign) {
-          return res.json({
-            responseTypeCode: 'ESIGN_REQUIRED',
-            sessionId: `session-${Date.now()}`,
-            transactionId,
-            deviceFingerprint,
-            device_bound: !!deviceFingerprint,
-            esign_document_id: pendingESign.documentId,
-            is_mandatory: pendingESign.mandatory,
-            message: 'Please review and accept the terms and conditions'
-          });
-        }
-
-        return res.json({
-          success: true,
-          id_token: accessToken,
-          access_token: accessToken,
-          token_type: 'Bearer',
-          expires_in: 900,
-          sessionId: `session-${Date.now()}`,
-          transactionId,
-          deviceFingerprint,
-          device_bound: !!deviceFingerprint,
-          message: `Push verification successful - correct number selected: ${selectedNumber}`
-        });
+      } else if (transaction_id.includes('pushexpired')) {
+        challenge_status = 'PENDING';
       } else {
-        console.log('❌ Push verification failed:', { selectedNumber, correctNumber: challenge.correctNumber });
+        if (timeElapsed > 5000) {
+          challenge_status = 'APPROVED';
+        }
+      }
 
+      if (challenge_status !== 'APPROVED') {
         return res.status(400).json({
-          success: false,
-          error: 'INCORRECT_NUMBER',
-          message: `Incorrect number selected. You selected ${selectedNumber}, but that was not the correct number.`,
-          attempts: challenge.attempts,
-          canRetry: challenge.attempts < 3
+          error_code: 'TRANSACTION_NOT_APPROVED',
+          message: challenge_status === 'REJECTED'
+            ? 'Push notification was rejected'
+            : 'Push notification not yet approved'
         });
       }
-    }
 
-    // Legacy support for old pushResult format
-    if (pushResult === 'APPROVED') {
+      // Push approved - issue tokens
+      pushChallenges.delete(transaction_id);
+
       const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
       updateLoginTime(username);
 
       const accessToken = generateAccessToken(user);
+      const idToken = generateAccessToken(user);
       const refreshToken = generateRefreshToken(user);
 
       res.cookie('refresh_token', refreshToken, {
@@ -1067,33 +1019,36 @@ export const authController = {
         sameSite: 'strict'
       });
 
-      if (deviceFingerprint) {
-        trustDevice(deviceFingerprint, username);
+      console.log('✅ Push verification successful:', { username });
+
+      // Check if eSign is required after MFA
+      const pendingESign = getPendingESign(username);
+      if (pendingESign) {
+        return res.status(200).json({
+          responseTypeCode: 'ESIGN_REQUIRED',
+          session_id: `session-${Date.now()}`,
+          transaction_id: transaction_id,
+          esign_document_id: pendingESign.documentId,
+          esign_url: `/esign/document/${pendingESign.documentId}`,
+          is_mandatory: pendingESign.mandatory
+        });
       }
 
-      return res.json({
+      return res.status(200).json({
         success: true,
-        id_token: accessToken,
         access_token: accessToken,
+        id_token: idToken,
+        refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
-        sessionId: `session-${Date.now()}`,
-        transactionId,
-        deviceFingerprint,
-        device_bound: !!deviceFingerprint,
-        message: 'Push notification verified successfully'
-      });
-    } else if (pushResult === 'REJECTED') {
-      return res.status(400).json({
-        success: false,
-        error: 'PUSH_REJECTED',
-        message: 'Push notification was rejected'
+        session_id: `session-${Date.now()}`,
+        transaction_id: transaction_id,
+        device_bound: false
       });
     }
 
     return res.status(400).json({
-      success: false,
-      error: 'UNSUPPORTED_MFA_METHOD',
+      error_code: 'UNSUPPORTED_MFA_METHOD',
       message: 'MFA method not supported'
     });
   },
@@ -1109,14 +1064,13 @@ export const authController = {
 
     if (!document) {
       return res.status(404).json({
-        success: false,
-        error: 'DOCUMENT_NOT_FOUND',
+        error_code: 'DOCUMENT_NOT_FOUND',
         message: 'eSign document not found'
       });
     }
 
     return res.json({
-      documentId: document.documentId,
+      document_id: document.documentId,
       title: document.title,
       content: document.content,
       version: document.version,
@@ -1129,20 +1083,19 @@ export const authController = {
    * POST /esign/accept
    */
   acceptESign: async (req: Request, res: Response) => {
-    const { transactionId, documentId, acceptanceIp } = req.body;
+    const { transaction_id, document_id, acceptance_ip, acceptance_timestamp } = req.body;
 
-    if (!transactionId || !documentId) {
+    if (!transaction_id || !document_id) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Transaction ID and document ID are required'
+        error_code: 'MISSING_REQUIRED_FIELDS',
+        message: 'transaction_id and document_id are required'
       });
     }
 
     // Extract username from pending eSigns
     let username: string | null = null;
-    for (const [user, pending] of pendingESigns.entries()) {
-      if (pending.documentId === documentId) {
+    for (const [user, pending] of Array.from(pendingESigns.entries())) {
+      if (pending.documentId === document_id) {
         username = user;
         break;
       }
@@ -1150,27 +1103,20 @@ export const authController = {
 
     if (!username) {
       return res.status(400).json({
-        success: false,
-        error: 'NO_PENDING_ESIGN',
+        error_code: 'NO_PENDING_ESIGN',
         message: 'No pending eSign found for this document'
       });
     }
 
     const userScenario = USER_SCENARIOS[username];
 
-    // Handle decline behavior
-    if (userScenario.esignBehavior === 'decline') {
-      // Simulate user declining (this would come from UI, but for testing we auto-decline)
-      // In real scenario, this endpoint wouldn't be called, the decline endpoint would be used
-      console.log('📝 eSign acceptance processed (but will auto-decline for testing):', { username, documentId });
-    }
-
     // Mark as accepted
-    completeESign(username, documentId, acceptanceIp);
+    completeESign(username, document_id, acceptance_ip);
 
     // Generate tokens
     const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
     const accessToken = generateAccessToken(user);
+    const idToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
     res.cookie('refresh_token', refreshToken, {
@@ -1180,23 +1126,24 @@ export const authController = {
       sameSite: 'strict'
     });
 
-    // Check if device binding is needed (extract deviceFingerprint from transactionId context)
-    const deviceFingerprint = req.body.deviceFingerprint || `device_${username}_${Date.now()}`;
-    const isTrusted = isDeviceTrusted(deviceFingerprint, username);
+    // Check if device binding is needed (extract deviceFingerprint from context)
+    const deviceFingerprint = req.body.drs_action_token
+      ? convertActionTokenToFingerprint(req.body.drs_action_token)
+      : undefined;
+    const device_bound = deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false;
 
-    return res.json({
+    return res.status(200).json({
       responseTypeCode: 'SUCCESS',
       access_token: accessToken,
-      id_token: accessToken,
+      id_token: idToken,
+      refresh_token: refreshToken,
       token_type: 'Bearer',
       expires_in: 900,
-      sessionId: `session-${Date.now()}`,
-      transactionId,
+      session_id: `session-${Date.now()}`,
+      transaction_id: transaction_id,
       esign_accepted: true,
       esign_accepted_at: new Date().toISOString(),
-      device_bound: isTrusted,
-      deviceFingerprint: deviceFingerprint,
-      message: 'Terms and conditions accepted successfully'
+      device_bound: device_bound
     });
   },
 
@@ -1217,7 +1164,7 @@ export const authController = {
 
     // Extract username from pending eSigns
     let username: string | null = null;
-    for (const [user, pending] of pendingESigns.entries()) {
+    for (const [user, pending] of Array.from(pendingESigns.entries())) {
       if (pending.documentId === documentId) {
         username = user;
         break;
@@ -1366,48 +1313,63 @@ export const authController = {
    * POST /device/bind
    */
   bindDevice: async (req: Request, res: Response) => {
-    const { username, deviceFingerprint } = req.body;
+    const { transaction_id } = req.body;
 
-    if (!username || !deviceFingerprint) {
+    if (!transaction_id) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Username and device fingerprint are required'
+        error_code: 'MISSING_TRANSACTION_ID',
+        message: 'transaction_id is required'
       });
     }
+
+    // Retrieve username from MFA transaction storage
+    const mfaTransaction = mfaTransactions.get(transaction_id);
+    if (!mfaTransaction) {
+      console.log('❌ [DEVICE BIND] No MFA transaction found for:', transaction_id);
+      return res.status(404).json({
+        error_code: 'TRANSACTION_NOT_FOUND',
+        message: 'Transaction not found'
+      });
+    }
+
+    const username = mfaTransaction.username;
+    console.log('✅ [DEVICE BIND] Retrieved username from transaction:', { transaction_id, username });
 
     // Verify user exists
     const userScenario = USER_SCENARIOS[username];
     if (!userScenario) {
       return res.status(404).json({
-        success: false,
-        error: 'USER_NOT_FOUND',
-        message: 'User not found'
+        error_code: 'TRANSACTION_NOT_FOUND',
+        message: 'Transaction not found'
       });
     }
+
+    // Generate device fingerprint from DRS token if available
+    const deviceFingerprint = req.body.drs_action_token
+      ? convertActionTokenToFingerprint(req.body.drs_action_token)
+      : `device_${username}_${Date.now()}`;
 
     // Check if device is already trusted
-    if (isDeviceTrusted(deviceFingerprint, username)) {
-      return res.json({
-        success: true,
-        message: 'Device is already trusted',
-        deviceFingerprint,
-        username,
-        alreadyTrusted: true
-      });
+    const already_trusted = isDeviceTrusted(deviceFingerprint, username);
+
+    let trusted_at = new Date().toISOString();
+    if (!already_trusted) {
+      // Trust the device
+      trustDevice(deviceFingerprint, username);
+      console.log('🔐 Device bound via /device/bind:', { username, deviceFingerprint });
+    } else {
+      // Get existing trust timestamp
+      const trust = deviceTrusts.get(deviceFingerprint);
+      if (trust) {
+        trusted_at = new Date(trust.trustedAt).toISOString();
+      }
     }
 
-    // Trust the device
-    trustDevice(deviceFingerprint, username);
-
-    console.log('🔐 Device bound via /device/bind:', { username, deviceFingerprint });
-
-    return res.json({
+    return res.status(200).json({
       success: true,
-      message: 'Device trusted successfully',
-      deviceFingerprint,
-      username,
-      trustedAt: new Date().toISOString()
+      transaction_id: transaction_id,
+      trusted_at: trusted_at,
+      already_trusted: already_trusted
     });
   }
 };

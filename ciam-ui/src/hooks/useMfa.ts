@@ -20,21 +20,23 @@ export const useMfa = (): UseMfaReturn => {
 
   const initiateChallenge = useCallback(async (
     method: 'otp' | 'push',
-    username?: string
+    transactionId: string,
+    mfaOptionId?: number
   ): Promise<MFAChallengeResponse> => {
     try {
-      console.log('🔍 useMfa.initiateChallenge called with:', { method, username });
+      console.log('🔍 useMfa.initiateChallenge called with:', { method, transactionId, mfaOptionId });
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await authService.initiateMFAChallenge(method, username);
+      // For v2.0.0, we use transaction_id from login response
+      const response = await authService.initiateMFAChallenge(transactionId, method, mfaOptionId);
 
       const transaction: MFATransaction = {
-        transactionId: response.transactionId,
+        transaction_id: response.transaction_id,
         method,
-        status: response.challengeStatus,
-        expiresAt: response.expiresAt,
-        createdAt: new Date().toISOString(),
-        displayNumber: response.displayNumber, // Single number to display on UI for push challenges
+        status: response.challenge_status,
+        expires_at: response.expires_at,
+        created_at: new Date().toISOString(),
+        display_number: response.display_number, // Single number to display on UI for push challenges
       };
 
       setState(prev => ({
@@ -64,7 +66,7 @@ export const useMfa = (): UseMfaReturn => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await authService.verifyMFAChallenge(transactionId, otp);
+      const response = await authService.verifyMFAChallenge(transactionId, 'otp', otp);
 
       // Update transaction status
       setState(prev => ({
@@ -92,13 +94,13 @@ export const useMfa = (): UseMfaReturn => {
 
   const verifyPush = useCallback(async (
     transactionId: string,
-    pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED',
+    pushResult?: 'APPROVED' | 'REJECTED',
     selectedNumber?: number
   ): Promise<MFAVerifyResponse> => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await authService.verifyMFAChallenge(transactionId, undefined, pushResult, selectedNumber);
+      const response = await authService.verifyMFAChallenge(transactionId, 'push');
 
       // Update transaction status
       setState(prev => ({
@@ -106,7 +108,7 @@ export const useMfa = (): UseMfaReturn => {
         isLoading: false,
         transaction: prev.transaction ? {
           ...prev.transaction,
-          status: pushResult,
+          status: 'APPROVED',
         } : null,
       }));
 
@@ -133,12 +135,12 @@ export const useMfa = (): UseMfaReturn => {
       // Update local transaction status and display numbers from polling
       setState(prev => ({
         ...prev,
-        transaction: prev.transaction && prev.transaction.transactionId === transactionId
+        transaction: prev.transaction && prev.transaction.transaction_id === transactionId
           ? {
               ...prev.transaction,
-              status: response.challengeStatus,
-              displayNumber: response.displayNumber ?? prev.transaction.displayNumber,
-              selectedNumber: response.selectedNumber ?? prev.transaction.selectedNumber,
+              status: response.challenge_status,
+              display_number: response.display_number ?? prev.transaction.display_number,
+              selected_number: response.selected_number ?? prev.transaction.selected_number,
             }
           : prev.transaction,
       }));

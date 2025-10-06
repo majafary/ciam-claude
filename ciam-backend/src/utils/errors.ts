@@ -50,11 +50,11 @@ export const ErrorCodes = {
  * Create standardized API error
  */
 export const createApiError = (
-  code: string,
+  error_code: string,
   message: string,
   details?: Record<string, unknown>
 ): ApiError => ({
-  code,
+  error_code,
   message,
   timestamp: new Date().toISOString(),
   details

@@ -46,7 +46,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 }) => {
   const {
     isAuthenticated, isLoading, user, error, login, logout, clearError,
-    mfaRequired, mfaAvailableMethods, mfaError, mfaUsername, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
+    mfaRequired, mfaAvailableMethods, mfaOtpMethods, mfaError, mfaUsername, mfaTransactionId, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
 
@@ -208,11 +208,11 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         // Use Provider's showESignDialog to manage state persistently
         showESignDialog(
           result.esign_document_id || '',
-          result.transactionId || result.sessionId || '',
+          result.transaction_id || result.session_id || '',
           true, // Login-level eSign is always mandatory
           currentUsername,
           saveUsername,
-          result.deviceFingerprint || mfaDeviceFingerprint || '', // Pass deviceFingerprint for device binding check
+          '', // deviceFingerprint removed from v2.0.0 API
           async () => {
             // On complete callback - handle component-specific logic
             console.log('✅ eSign completed via Provider');
@@ -314,11 +314,11 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         // Use Provider's showESignDialog to manage state persistently
         showESignDialog(
           mfaResponse.esign_document_id || '',
-          mfaResponse.transactionId || '',
+          mfaResponse.transaction_id || '',
           mfaResponse.is_mandatory || false,
           loginDataToUse.username,
           loginDataToUse.saveUsername,
-          mfaResponse.deviceFingerprint || mfaDeviceFingerprint || '', // Pass deviceFingerprint for device binding check
+          mfaResponse.transaction_id || '', // Pass transaction_id for device binding (backend handles fingerprint)
           async () => {
             // On complete callback
             console.log('✅ Post-MFA eSign completed via Provider');
@@ -452,16 +452,25 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   const handleMethodSelected = async (method: 'otp' | 'push') => {
     try {
-      // Use stored username from context (preferred) or fallback to local form state
-      const usernameToUse = mfaUsername || formData.username;
+      // Use stored transaction_id from context (required for v2.0.0)
+      if (!mfaTransactionId) {
+        console.error('❌ Missing transaction_id for MFA initiate');
+        throw new Error('Missing transaction_id for MFA challenge');
+      }
+
+      // For OTP method, we need to pass the mfa_option_id from the first available OTP method
+      let mfaOptionId: number | undefined;
+      if (method === 'otp' && mfaOtpMethods && mfaOtpMethods.length > 0) {
+        mfaOptionId = mfaOtpMethods[0].mfa_option_id;
+      }
+
       console.log('🔍 handleMethodSelected called with:', {
         method,
-        mfaUsername,
-        formDataUsername: formData.username,
-        usernameToUse
+        mfaTransactionId,
+        mfaOptionId,
       });
 
-      await initiateChallenge(method, usernameToUse);
+      await initiateChallenge(method as 'otp' | 'push', mfaTransactionId, mfaOptionId);
       // MFA state transition is handled by the MFA hook
     } catch (error: any) {
       console.error('Failed to initiate MFA challenge:', error);
@@ -472,7 +481,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     if (!transaction) return;
 
     try {
-      const response = await verifyOtp(transaction.transactionId, otp);
+      const response = await verifyOtp(transaction.transaction_id, otp);
       await handleMfaSuccess(response);
     } catch (error) {
       throw error; // Let the dialog handle the error display
@@ -483,21 +492,10 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     if (!transaction) return;
 
     try {
-      const response = await verifyPush(transaction.transactionId, pushResult, selectedNumber);
+      const response = await verifyPush(transaction.transaction_id, pushResult, selectedNumber);
       await handleMfaSuccess(response);
     } catch (error) {
       throw error; // Let the dialog handle the error display
-    }
-  };
-
-  const handleResendOtp = async () => {
-    try {
-      // Re-initiate OTP challenge to get a new code
-      await initiateChallenge('otp', formData.username);
-      console.log('🔄 New OTP challenge initiated');
-    } catch (error: any) {
-      console.error('Failed to resend OTP:', error);
-      throw error;
     }
   };
 
@@ -1117,7 +1115,6 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         onOtpVerify={handleOtpVerify}
         onPushVerify={handlePushVerify}
         onMfaSuccess={handleMfaSuccess}
-        onResendOtp={handleResendOtp}
         onCheckStatus={checkStatus}
         username={formData.username}
       />

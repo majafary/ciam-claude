@@ -13,8 +13,9 @@ const mockTransactions: Map<string, MFATransaction> = new Map();
 export const createMFATransaction = async (
   userId: string,
   method: 'otp' | 'push',
-  sessionId?: string
-): Promise<MFATransaction> => {
+  sessionId?: string,
+  mfaOptionId?: number
+): Promise<MFATransaction & { displayNumber?: number }> => {
   const transactionId = `tx-${uuidv4()}`;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes
@@ -32,6 +33,9 @@ export const createMFATransaction = async (
     updatedAt: now
   };
 
+  // For push notifications, generate a display number for matching
+  const displayNumber = method === 'push' ? Math.floor(10 + Math.random() * 90) : undefined;
+
   // TODO: Store in database in production
   mockTransactions.set(transactionId, transaction);
 
@@ -40,7 +44,7 @@ export const createMFATransaction = async (
     simulatePushResponse(transactionId);
   }
 
-  return transaction;
+  return { ...transaction, displayNumber };
 };
 
 /**
@@ -288,6 +292,64 @@ const simulatePushResponse = (transactionId: string): void => {
       transaction.updatedAt = new Date();
     }
   }, delay);
+};
+
+/**
+ * Approve push notification with number matching
+ */
+export const approvePushWithNumber = async (
+  transactionId: string,
+  selectedNumber: number
+): Promise<{
+  success: boolean;
+  transaction: MFATransaction | null;
+  error?: string;
+}> => {
+  const transaction = await getMFATransaction(transactionId);
+
+  if (!transaction) {
+    return {
+      success: false,
+      transaction: null,
+      error: 'Transaction not found'
+    };
+  }
+
+  if (transaction.method !== 'push') {
+    return {
+      success: false,
+      transaction,
+      error: 'Transaction is not a push transaction'
+    };
+  }
+
+  if (transaction.status !== 'PENDING') {
+    return {
+      success: false,
+      transaction,
+      error: 'Transaction is not pending'
+    };
+  }
+
+  if (transaction.expiresAt < new Date()) {
+    transaction.status = 'EXPIRED';
+    transaction.updatedAt = new Date();
+    return {
+      success: false,
+      transaction,
+      error: 'Transaction has expired'
+    };
+  }
+
+  // In a real implementation, you would validate the selected number matches the display number
+  // For now, we'll accept any valid number
+  transaction.status = 'APPROVED';
+  transaction.updatedAt = new Date();
+
+  return {
+    success: true,
+    transaction
+  };
 };
 
 /**

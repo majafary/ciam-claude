@@ -25,12 +25,16 @@ import {
   validateTransactionIdParam,
   validateSessionIdParam,
   validateTokenRevocationRequest,
-  validateTokenIntrospectionRequest
+  validateTokenIntrospectionRequest,
+  validateMFAPushApprovalRequest,
+  validateDocumentIdParam,
+  validateESignAcceptRequest
 } from './utils/validation';
 
 // Import controllers
-import { login, logout, refreshToken, revokeToken, introspectToken } from './controllers/authController';
-import { initiateChallenge, verifyChallenge, getTransactionStatus, getOTPForTestEndpoint } from './controllers/mfaController';
+import { login, logout, refreshToken, getESignDocument, acceptESign } from './controllers/authController';
+import { initiateChallenge, verifyChallenge, getTransactionStatus, approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
+import { bindDevice } from './controllers/deviceController';
 import { verifySessionEndpoint, listUserSessions, revokeSessionEndpoint } from './controllers/sessionController';
 import { getUserInfo } from './controllers/userController';
 import { getOIDCConfiguration, getJWKS, healthCheck } from './controllers/oidcController';
@@ -120,32 +124,37 @@ app.get('/health', healthCheck);
 
 // OIDC Discovery endpoints (minimal rate limiting)
 app.get('/.well-known/openid-configuration', getOIDCConfiguration);
-app.get('/jwks.json', getJWKS);
+app.get('/.well-known/jwks.json', getJWKS);
 
 // Authentication endpoints
-app.post('/login', authRateLimit, validateLoginRequest, login);
-app.post('/logout', authenticateToken, logout);
-app.post('/token/refresh', tokenRefreshRateLimit, requireRefreshToken, validateTokenRefreshRequest, refreshToken);
-app.post('/revoke', validateTokenRevocationRequest, revokeToken);
-app.post('/introspect', validateTokenIntrospectionRequest, introspectToken);
+app.post('/auth/login', authRateLimit, validateLoginRequest, login);
+app.post('/auth/logout', authenticateToken, logout);
+app.post('/auth/refresh', tokenRefreshRateLimit, requireRefreshToken, validateTokenRefreshRequest, refreshToken);
 
 // MFA endpoints
-app.post('/mfa/challenge', mfaRateLimit, validateMFAChallengeRequest, initiateChallenge);
-app.post('/mfa/verify', mfaVerificationRateLimit, validateMFAVerifyRequest, verifyChallenge);
-app.get('/mfa/transaction/:transactionId', validateTransactionIdParam, getTransactionStatus);
+app.post('/auth/mfa/initiate', mfaRateLimit, validateMFAChallengeRequest, initiateChallenge);
+app.post('/auth/mfa/verify', mfaVerificationRateLimit, validateMFAVerifyRequest, verifyChallenge);
+app.get('/mfa/transaction/:transaction_id', validateTransactionIdParam, getTransactionStatus);
+
+// MFA push approval endpoint (mobile devices)
+app.post('/mfa/transaction/:transaction_id/approve', validateTransactionIdParam, validateMFAPushApprovalRequest, approvePushNotification);
 
 // Test-only endpoint for OTP retrieval
 if (process.env.NODE_ENV !== 'production') {
-  app.get('/mfa/transaction/:transactionId/otp', validateTransactionIdParam, getOTPForTestEndpoint);
+  app.get('/mfa/transaction/:transaction_id/otp', validateTransactionIdParam, getOTPForTestEndpoint);
 }
 
-// Session management endpoints
+// eSign endpoints
+app.get('/esign/document/:document_id', validateDocumentIdParam, getESignDocument);
+app.post('/esign/accept', validateESignAcceptRequest, acceptESign);
+
+// Device management endpoints
+app.post('/device/bind', bindDevice);
+
+// Session management endpoints (kept for backward compatibility - not in v2 spec)
 app.get('/session/verify', validateSessionVerifyRequest, verifySessionEndpoint);
 app.get('/sessions', sessionRateLimit, authenticateToken, listUserSessions);
 app.delete('/sessions/:sessionId', sessionRateLimit, authenticateToken, validateSessionIdParam, revokeSessionEndpoint);
-
-// User information endpoints
-app.get('/userinfo', authenticateToken, getUserInfo);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
@@ -169,20 +178,21 @@ const server = app.listen(PORT, () => {
 
   logger.info('Available endpoints:', {
     endpoints: [
-      'POST /login',
-      'POST /logout',
-      'POST /token/refresh',
-      'POST /revoke',
-      'POST /introspect',
-      'POST /mfa/challenge',
-      'POST /mfa/verify',
-      'GET /mfa/transaction/:transactionId',
+      'POST /auth/login',
+      'POST /auth/logout',
+      'POST /auth/refresh',
+      'POST /auth/mfa/initiate',
+      'POST /auth/mfa/verify',
+      'GET /mfa/transaction/:transaction_id',
+      'POST /mfa/transaction/:transaction_id/approve',
+      'GET /esign/document/:document_id',
+      'POST /esign/accept',
+      'POST /device/bind',
       'GET /session/verify',
       'GET /sessions',
       'DELETE /sessions/:sessionId',
-      'GET /userinfo',
       'GET /.well-known/openid-configuration',
-      'GET /jwks.json',
+      'GET /.well-known/jwks.json',
       'GET /health',
       'GET /api-docs'
     ]

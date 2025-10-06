@@ -5,18 +5,23 @@ import { createRefreshToken, validateRefreshToken, rotateRefreshToken, revokeAll
 import { generateAccessToken, generateIdToken, getRefreshTokenCookieOptions, verifyAccessToken, decodeToken } from '../utils/jwt';
 import { handleAuthError, handleInternalError, sendErrorResponse, createApiError } from '../utils/errors';
 import { logAuthEvent, logSecurityEvent } from '../utils/logger';
-import { LoginRequest, LoginResponse, AuthenticatedRequest, IntrospectionResponse } from '../types';
+import { LoginRequest, LoginSuccessResponse, MFARequiredResponse, ESignRequiredResponse, AuthenticatedRequest, IntrospectionResponse, ESignAcceptanceRequest, ESignAcceptResponse } from '../types';
+import { getESignDocumentById, needsESign, recordESignAcceptance } from '../services/esignService';
+import { getMFATransaction } from '../services/mfaService';
+import { isDeviceTrusted } from './deviceController';
 
 /**
  * User login endpoint
- * POST /login
+ * POST /auth/login
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username, password, drs_action_token }: LoginRequest = req.body;
+    const { username, password, app_id, app_version, drs_action_token }: LoginRequest = req.body;
 
     logAuthEvent('login_attempt', undefined, {
       username,
+      appId: app_id,
+      appVersion: app_version,
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       hasDrsToken: !!drs_action_token
@@ -39,7 +44,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           userAgent: req.get('User-Agent')
         }, 'medium');
 
-        handleAuthError(res, 'account_locked', { username });
+        sendErrorResponse(res, 423, createApiError(
+          'CIAM_E01_01_002',
+          'Account has been locked. Please contact support.'
+        ));
         return;
 
       case 'INVALID_CREDENTIALS':
@@ -55,7 +63,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           userAgent: req.get('User-Agent')
         }, 'low');
 
-        handleAuthError(res, 'invalid_credentials', { username });
+        sendErrorResponse(res, 401, createApiError(
+          'CIAM_E01_01_001',
+          'Invalid credentials'
+        ));
         return;
 
       case 'SUCCESS':
@@ -72,19 +83,93 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           req.get('User-Agent')
         );
 
-        logAuthEvent('login_success', scenario.user.id, {
+        const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        // Check device trust status
+        const deviceBound = await isDeviceTrusted(scenario.user.id, drs_action_token || '');
+
+        // If device is trusted, skip MFA
+        if (deviceBound) {
+          // Check if eSign is required
+          const esignCheck = await needsESign(scenario.user.id);
+
+          if (esignCheck.required && esignCheck.documentId) {
+            // Return eSign required response
+            const esignResponse: ESignRequiredResponse = {
+              responseTypeCode: 'ESIGN_REQUIRED',
+              session_id: session.sessionId,
+              transaction_id: transactionId,
+              esign_document_id: esignCheck.documentId,
+              esign_url: `/esign/document/${esignCheck.documentId}`,
+              is_mandatory: esignCheck.isMandatory || false
+            };
+
+            logAuthEvent('login_esign_required', scenario.user.id, {
+              username,
+              sessionId: session.sessionId,
+              transactionId,
+              documentId: esignCheck.documentId,
+              ip: req.ip
+            });
+
+            res.status(200).json(esignResponse);
+            return;
+          }
+
+          // Generate tokens directly
+          const accessToken = generateAccessToken(scenario.user.id, session.sessionId, scenario.user.roles);
+          const idToken = generateIdToken(scenario.user.id, session.sessionId, {
+            preferred_username: scenario.user.username,
+            email: scenario.user.email,
+            email_verified: true,
+            given_name: scenario.user.given_name,
+            family_name: scenario.user.family_name
+          });
+          const refreshToken = await createRefreshToken(scenario.user.id, session.sessionId);
+
+          logAuthEvent('login_success', scenario.user.id, {
+            username,
+            sessionId: session.sessionId,
+            deviceTrusted: true,
+            ip: req.ip
+          });
+
+          // Set refresh token cookie
+          res.cookie('refresh_token', refreshToken.token, getRefreshTokenCookieOptions());
+
+          const successResponse: LoginSuccessResponse = {
+            responseTypeCode: 'SUCCESS',
+            access_token: accessToken,
+            id_token: idToken,
+            refresh_token: refreshToken.token,
+            token_type: 'Bearer',
+            expires_in: 900, // 15 minutes
+            session_id: session.sessionId,
+            device_bound: true
+          };
+
+          res.status(201).json(successResponse);
+          return;
+        }
+
+        // MFA required - build MFA response
+        logAuthEvent('login_mfa_required', scenario.user.id, {
           username,
           sessionId: session.sessionId,
+          transactionId,
           ip: req.ip
         });
 
-        // For MFA_LOCKED scenario, we still allow login but will fail at MFA step
-        const response: LoginResponse = {
+        // Mock MFA methods - in production, fetch from user profile
+        const mfaResponse: MFARequiredResponse = {
           responseTypeCode: 'MFA_REQUIRED',
-          message: 'MFA is required for this login.',
-          sessionId: session.sessionId,
-          transactionId: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          deviceId: session.deviceId
+          otp_methods: [
+            { value: '1234', mfa_option_id: 1 },
+            { value: '5678', mfa_option_id: 2 }
+          ],
+          mobile_approve_status: 'ENABLED',
+          session_id: session.sessionId,
+          transaction_id: transactionId
         };
 
         // Store user ID and scenario type for MFA controller
@@ -94,7 +179,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           scenario: scenario.type
         };
 
-        res.json(response);
+        res.status(200).json(mfaResponse);
         return;
 
       default:
@@ -114,8 +199,138 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
+ * Get eSign document
+ * GET /esign/document/:document_id
+ */
+export const getESignDocument = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { document_id } = req.params;
+
+    const document = await getESignDocumentById(document_id);
+
+    if (!document) {
+      sendErrorResponse(res, 404, createApiError(
+        'CIAM_E01_01_001',
+        'Document not found'
+      ));
+      return;
+    }
+
+    res.json({
+      document_id: document.documentId,
+      title: document.title,
+      content: document.content,
+      version: document.version,
+      mandatory: document.mandatory
+    });
+  } catch (error) {
+    handleInternalError(res, error instanceof Error ? error : new Error('Failed to get eSign document'));
+  }
+};
+
+/**
+ * Accept eSign document
+ * POST /esign/accept
+ */
+export const acceptESign = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { transaction_id, document_id, acceptance_ip, acceptance_timestamp }: ESignAcceptanceRequest = req.body;
+
+    if (!transaction_id || !document_id) {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E01_01_001',
+        'transaction_id and document_id are required'
+      ));
+      return;
+    }
+
+    logAuthEvent('esign_accept_attempt', undefined, {
+      transactionId: transaction_id,
+      documentId: document_id,
+      ip: req.ip
+    });
+
+    // Get transaction to retrieve user info
+    const transaction = await getMFATransaction(transaction_id);
+
+    if (!transaction) {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E01_01_001',
+        'Invalid transaction or no pending eSign'
+      ));
+      return;
+    }
+
+    const userId = transaction.userId;
+    const user = await getUserById(userId);
+
+    if (!user) {
+      handleInternalError(res, new Error('User not found'));
+      return;
+    }
+
+    // Record acceptance
+    const acceptance = await recordESignAcceptance(
+      userId,
+      document_id,
+      acceptance_ip || req.ip,
+      acceptance_timestamp
+    );
+
+    // Generate tokens
+    const sessionId = transaction.sessionId || `sess-${Date.now()}`;
+    const accessToken = generateAccessToken(userId, sessionId, user.roles);
+    const idToken = generateIdToken(userId, sessionId, {
+      preferred_username: user.username,
+      email: user.email,
+      email_verified: true,
+      given_name: user.given_name,
+      family_name: user.family_name
+    });
+    const refreshToken = await createRefreshToken(userId, sessionId);
+
+    // Check device trust
+    const deviceBound = await isDeviceTrusted(userId, transaction_id);
+
+    logAuthEvent('esign_accepted', userId, {
+      transactionId: transaction_id,
+      documentId: document_id,
+      sessionId,
+      ip: req.ip
+    });
+
+    // Set refresh token cookie
+    res.cookie('refresh_token', refreshToken.token, getRefreshTokenCookieOptions());
+
+    const response: ESignAcceptResponse = {
+      responseTypeCode: 'SUCCESS',
+      access_token: accessToken,
+      id_token: idToken,
+      refresh_token: refreshToken.token,
+      token_type: 'Bearer',
+      expires_in: 900,
+      session_id: sessionId,
+      transaction_id: transaction_id,
+      esign_accepted: true,
+      esign_accepted_at: acceptance.acceptedAt.toISOString(),
+      device_bound: deviceBound
+    };
+
+    res.json(response);
+  } catch (error) {
+    logAuthEvent('esign_accept_failure', undefined, {
+      transactionId: req.body.transaction_id,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      ip: req.ip
+    });
+
+    handleInternalError(res, error instanceof Error ? error : new Error('eSign acceptance failed'));
+  }
+};
+
+/**
  * User logout endpoint
- * POST /logout
+ * POST /auth/logout
  */
 export const logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -151,7 +366,8 @@ export const logout = async (req: AuthenticatedRequest, res: Response): Promise<
     });
 
     res.json({
-      message: 'Logout successful.'
+      success: true,
+      message: 'Logout successful'
     });
   } catch (error) {
     logAuthEvent('logout_failure', req.user?.sub, {
@@ -166,7 +382,7 @@ export const logout = async (req: AuthenticatedRequest, res: Response): Promise<
 
 /**
  * Token refresh endpoint
- * POST /token/refresh
+ * POST /auth/refresh
  */
 export const refreshToken = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -180,9 +396,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
         ip: req.ip
       });
 
-      handleAuthError(res, 'unauthorized', {
-        reason: 'Refresh token required'
-      });
+      sendErrorResponse(res, 401, createApiError(
+        'CIAM_E01_02_001',
+        'Refresh token required'
+      ));
       return;
     }
 
@@ -206,9 +423,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
         error: validation.error
       }, 'medium');
 
-      handleAuthError(res, 'invalid_token', {
-        reason: validation.error
-      });
+      sendErrorResponse(res, 401, createApiError(
+        'CIAM_E01_02_002',
+        validation.error || 'Invalid or expired refresh token'
+      ));
       return;
     }
 
@@ -222,9 +440,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
         ip: req.ip
       });
 
-      handleAuthError(res, 'invalid_token', {
-        reason: 'User not found'
-      });
+      sendErrorResponse(res, 401, createApiError(
+        'CIAM_E01_02_002',
+        'User not found'
+      ));
       return;
     }
 
@@ -238,7 +457,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       await revokeAllUserRefreshTokens(userId);
       await revokeAllUserSessions(userId);
 
-      handleAuthError(res, 'account_locked');
+      sendErrorResponse(res, 401, createApiError(
+        'CIAM_E01_01_002',
+        'Account has been locked'
+      ));
       return;
     }
 
@@ -258,21 +480,15 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
         ip: req.ip
       }, 'high');
 
-      handleAuthError(res, 'invalid_token', {
-        reason: rotation.error
-      });
+      sendErrorResponse(res, 401, createApiError(
+        'CIAM_E01_02_002',
+        rotation.error || 'Token refresh failed'
+      ));
       return;
     }
 
-    // Generate new access and ID tokens
+    // Generate new access token
     const accessToken = generateAccessToken(userId, sessionId, user.roles);
-    const idToken = generateIdToken(userId, sessionId, {
-      preferred_username: user.username,
-      email: user.email,
-      email_verified: true,
-      given_name: user.given_name,
-      family_name: user.family_name
-    });
 
     logAuthEvent('token_refresh_success', userId, {
       sessionId,
@@ -283,9 +499,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
     res.cookie('refresh_token', rotation.newRefreshToken.token, getRefreshTokenCookieOptions());
 
     res.json({
-      id_token: idToken,
+      success: true,
       access_token: accessToken,
-      message: 'Tokens refreshed successfully.'
+      token_type: 'Bearer',
+      expires_in: 900
     });
   } catch (error) {
     logAuthEvent('token_refresh_failure', undefined, {

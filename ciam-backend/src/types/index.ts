@@ -1,66 +1,97 @@
-// Core API types matching the OpenAPI specification
+// Core API types matching the OpenAPI specification v2.0.0
 
 export interface LoginRequest {
   username: string;
   password: string;
+  app_id: string;
+  app_version: string;
   drs_action_token?: string;
 }
 
-export interface LoginResponse {
-  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS';
-  message?: string;
-  id_token?: string;
-  access_token?: string;
-  refresh_token?: string;
-  sessionId: string;
-  transactionId?: string;
-  deviceId?: string;
-  deviceFingerprint?: string;
-  mfa_skipped?: boolean;
-  mfa_required?: boolean;
-  available_methods?: ('otp' | 'push')[];
-  esign_document_id?: string;
-  esign_url?: string;
-  reason?: string;
-  trust_expired_at?: string;
+export interface LoginSuccessResponse {
+  responseTypeCode: 'SUCCESS';
+  access_token: string;
+  id_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  session_id: string;
+  device_bound: boolean;
 }
 
+export interface MFARequiredResponse {
+  responseTypeCode: 'MFA_REQUIRED';
+  otp_methods: Array<{
+    value: string;
+    mfa_option_id: number;
+  }>;
+  mobile_approve_status: 'NOT_REGISTERED' | 'ENABLED' | 'DISABLED';
+  session_id: string;
+  transaction_id: string;
+}
+
+export interface ESignRequiredResponse {
+  responseTypeCode: 'ESIGN_REQUIRED';
+  session_id: string;
+  transaction_id: string;
+  esign_document_id: string;
+  esign_url: string;
+  is_mandatory: boolean;
+}
+
+export type LoginResponse = LoginSuccessResponse | MFARequiredResponse | ESignRequiredResponse;
+
 export interface MFAChallengeRequest {
-  username?: string;
+  transaction_id: string;
   method: 'otp' | 'push';
-  sessionId?: string;
-  transactionId?: string;
+  mfa_option_id?: number;
 }
 
 export interface MFAChallengeResponse {
-  challengeId?: string;
-  transactionId: string;
-  challengeStatus: MFAChallengeStatus;
-  expiresAt: string;
-  message?: string;
+  success: boolean;
+  transaction_id: string;
+  challenge_status: MFAChallengeStatus;
+  expires_at: string;
+  display_number?: number;
 }
 
 export interface MFAVerifyRequest {
-  transactionId: string;
-  otp?: string;
-  pushResult?: 'APPROVED' | 'REJECTED';
+  transaction_id: string;
+  method: 'otp' | 'push';
+  code?: string;
 }
 
-export interface MFAVerifyResponse {
-  id_token: string;
+export interface MFAVerifySuccessResponse {
+  success: boolean;
   access_token: string;
-  refresh_token?: string;
-  sessionId: string;
-  transactionId: string;
-  message?: string;
+  id_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  session_id: string;
+  transaction_id: string;
+  device_bound: boolean;
 }
+
+export type MFAVerifyResponse = MFAVerifySuccessResponse | ESignRequiredResponse;
 
 export interface MFATransactionStatusResponse {
-  transactionId: string;
-  challengeStatus: MFAChallengeStatus;
-  updatedAt: string;
-  expiresAt: string;
-  message?: string;
+  transaction_id: string;
+  challenge_status: MFAChallengeStatus;
+  updated_at: string;
+  expires_at: string;
+  display_number?: number;
+  selected_number?: number;
+}
+
+export interface MFAApproveRequest {
+  selected_number: number;
+}
+
+export interface MFAApproveResponse {
+  success: boolean;
+  transaction_id: string;
+  challenge_status: 'APPROVED';
 }
 
 export type MFAChallengeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
@@ -75,10 +106,10 @@ export interface TokenRefreshRequest {
 }
 
 export interface TokenRefreshResponse {
-  id_token: string;
+  success: boolean;
   access_token: string;
-  refresh_token?: string;
-  message?: string;
+  token_type: string;
+  expires_in: number;
 }
 
 export interface SessionVerifyResponse {
@@ -124,9 +155,9 @@ export interface SessionInfo {
 }
 
 export interface ApiError {
-  code: string;
+  error_code: string;
   message: string;
-  timestamp: string;
+  timestamp?: string;
   details?: Record<string, unknown>;
 }
 
@@ -259,28 +290,24 @@ export interface ESignDocument {
 }
 
 export interface ESignAcceptanceRequest {
-  transactionId: string;
-  documentId: string;
-  acceptanceIp?: string;
-  acceptanceTimestamp?: string;
+  transaction_id: string;
+  document_id: string;
+  acceptance_ip?: string;
+  acceptance_timestamp?: string;
 }
 
-export interface ESignDeclineRequest {
-  transactionId: string;
-  documentId: string;
-  reason?: string;
-}
-
-export interface ESignResponse {
-  responseTypeCode: 'SUCCESS' | 'ESIGN_DECLINED';
-  message?: string;
-  access_token?: string;
-  id_token?: string;
-  sessionId?: string;
-  transactionId?: string;
-  esign_accepted?: boolean;
-  esign_accepted_at?: string;
-  can_retry?: boolean;
+export interface ESignAcceptResponse {
+  responseTypeCode: 'SUCCESS';
+  access_token: string;
+  id_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  session_id: string;
+  transaction_id: string;
+  esign_accepted: boolean;
+  esign_accepted_at: string;
+  device_bound: boolean;
 }
 
 export interface PostMFACheckResponse {

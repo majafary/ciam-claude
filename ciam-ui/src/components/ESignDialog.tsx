@@ -22,6 +22,7 @@ import { AuthService } from '../services/AuthService';
 
 interface ESignDialogProps extends ESignComponentProps {
   authService: AuthService;
+  onExited?: () => void;
 }
 
 export const ESignDialog: React.FC<ESignDialogProps> = ({
@@ -34,6 +35,7 @@ export const ESignDialog: React.FC<ESignDialogProps> = ({
   isLoading = false,
   error = null,
   authService,
+  onExited,
 }) => {
   const [documentContent, setDocumentContent] = useState<string | null>(null);
   const [documentTitle, setDocumentTitle] = useState<string>('');
@@ -119,10 +121,14 @@ export const ESignDialog: React.FC<ESignDialogProps> = ({
       maxWidth="md"
       fullWidth
       disableEscapeKeyDown={mandatory || isProcessing}
+      disableEnforceFocus={true}
       sx={{
         zIndex: 1400,
       }}
       onClose={mandatory ? undefined : () => {}}
+      TransitionProps={{
+        onExited: onExited,
+      }}
     >
       <DialogTitle>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

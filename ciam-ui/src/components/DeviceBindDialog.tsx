@@ -60,6 +60,7 @@ export const DeviceBindDialog: React.FC<DeviceBindDialogProps> = ({
       maxWidth="sm"
       fullWidth
       disableEscapeKeyDown={isBinding}
+      disableEnforceFocus={true}
     >
       <DialogTitle>
         <Box display="flex" alignItems="center" gap={1}>
