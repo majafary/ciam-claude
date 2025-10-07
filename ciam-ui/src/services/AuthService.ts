@@ -372,9 +372,10 @@ export class AuthService {
   async initiateMFAChallenge(
     transactionId: string,
     method: 'otp' | 'push',
-    mfaOptionId?: number
+    mfaOptionId?: number,
+    contextId?: string
   ): Promise<MFAChallengeResponse> {
-    console.log('🔍 AuthService.initiateMFAChallenge called with:', { transactionId, method, mfaOptionId });
+    console.log('🔍 AuthService.initiateMFAChallenge called with:', { transactionId, method, mfaOptionId, contextId });
 
     const requestBody: any = {
       transaction_id: transactionId,
@@ -384,6 +385,11 @@ export class AuthService {
     // Add mfa_option_id for OTP method
     if (method === 'otp' && mfaOptionId !== undefined) {
       requestBody.mfa_option_id = mfaOptionId;
+    }
+
+    // Add context_id if provided
+    if (contextId) {
+      requestBody.context_id = contextId;
     }
 
     console.log('🔍 AuthService MFA initiate request body:', JSON.stringify(requestBody, null, 2));
@@ -400,7 +406,8 @@ export class AuthService {
   async verifyMFAChallenge(
     transactionId: string,
     method: 'otp' | 'push',
-    otp?: string
+    otp?: string,
+    contextId?: string
   ): Promise<MFAVerifyResponse> {
     const requestBody: any = {
       transaction_id: transactionId,
@@ -410,6 +417,11 @@ export class AuthService {
     // Add OTP code if provided
     if (method === 'otp' && otp) {
       requestBody.code = otp;
+    }
+
+    // Add context_id if provided
+    if (contextId) {
+      requestBody.context_id = contextId;
     }
 
     const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/verify', {
@@ -492,16 +504,24 @@ export class AuthService {
   async acceptESign(
     transactionId: string,
     documentId: string,
-    acceptanceIp?: string
+    acceptanceIp?: string,
+    contextId?: string
   ): Promise<ESignResponse> {
+    const requestBody: any = {
+      transaction_id: transactionId,
+      document_id: documentId,
+      acceptance_ip: acceptanceIp,
+      acceptance_timestamp: new Date().toISOString(),
+    };
+
+    // Add context_id if provided
+    if (contextId) {
+      requestBody.context_id = contextId;
+    }
+
     const response = await this.apiCall<ESignResponse>('/esign/accept', {
       method: 'POST',
-      body: JSON.stringify({
-        transaction_id: transactionId,
-        document_id: documentId,
-        acceptance_ip: acceptanceIp,
-        acceptance_timestamp: new Date().toISOString(),
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     // Store access token if eSign acceptance was successful
@@ -518,15 +538,23 @@ export class AuthService {
   async declineESign(
     transactionId: string,
     documentId: string,
-    reason?: string
+    reason?: string,
+    contextId?: string
   ): Promise<void> {
+    const requestBody: any = {
+      transactionId,
+      documentId,
+      reason: reason || 'User declined',
+    };
+
+    // Add context_id if provided
+    if (contextId) {
+      requestBody.context_id = contextId;
+    }
+
     await this.apiCall<void>('/esign/decline', {
       method: 'POST',
-      body: JSON.stringify({
-        transaction_id: transactionId,
-        document_id: documentId,
-        reason: reason || 'User declined',
-      }),
+      body: JSON.stringify(requestBody),
     });
   }
 
@@ -534,12 +562,19 @@ export class AuthService {
    * Bind device (trust device for future logins) (v2 API)
    * Backend handles device fingerprint internally via transaction_id
    */
-  async bindDevice(transactionId: string): Promise<{ success: boolean; transaction_id: string; trusted_at: string; already_trusted: boolean }> {
+  async bindDevice(transactionId: string, contextId?: string): Promise<{ success: boolean; transaction_id: string; trusted_at: string; already_trusted: boolean }> {
+    const requestBody: any = {
+      transaction_id: transactionId,
+    };
+
+    // Add context_id if provided
+    if (contextId) {
+      requestBody.context_id = contextId;
+    }
+
     return this.apiCall<{ success: boolean; transaction_id: string; trusted_at: string; already_trusted: boolean }>('/device/bind', {
       method: 'POST',
-      body: JSON.stringify({
-        transaction_id: transactionId,
-      }),
+      body: JSON.stringify(requestBody),
     });
   }
 

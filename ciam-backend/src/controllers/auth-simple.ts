@@ -717,9 +717,9 @@ export const authController = {
    * POST /auth/mfa/initiate
    */
   initiateMfaChallenge: async (req: Request, res: Response) => {
-    const { method, transaction_id, mfa_option_id } = req.body;
+    const { method, transaction_id, mfa_option_id, context_id } = req.body;
 
-    console.log('🔍 MFA Challenge Request:', { method, transaction_id, mfa_option_id });
+    console.log('🔍 MFA Challenge Request:', { method, transaction_id, mfa_option_id, context_id });
 
     if (!transaction_id) {
       return res.status(400).json({
@@ -879,7 +879,9 @@ export const authController = {
    * POST /auth/mfa/verify
    */
   verifyMfa: async (req: Request, res: Response) => {
-    const { transaction_id, method, code } = req.body;
+    const { transaction_id, method, code, context_id } = req.body;
+
+    console.log('🔍 [MFA VERIFY] Request:', { transaction_id, method, context_id });
 
     if (!transaction_id) {
       return res.status(400).json({
@@ -1083,7 +1085,9 @@ export const authController = {
    * POST /esign/accept
    */
   acceptESign: async (req: Request, res: Response) => {
-    const { transaction_id, document_id, acceptance_ip, acceptance_timestamp } = req.body;
+    const { transaction_id, document_id, acceptance_ip, acceptance_timestamp, context_id } = req.body;
+
+    console.log('🔍 [ESIGN ACCEPT] Request:', { transaction_id, document_id, context_id });
 
     if (!transaction_id || !document_id) {
       return res.status(400).json({
@@ -1152,7 +1156,9 @@ export const authController = {
    * POST /esign/decline
    */
   declineESign: async (req: Request, res: Response) => {
-    const { transactionId, documentId, reason } = req.body;
+    const { transactionId, documentId, reason, context_id } = req.body;
+
+    console.log('🔍 [ESIGN DECLINE] Request:', { transactionId, documentId, context_id });
 
     if (!transactionId || !documentId) {
       return res.status(400).json({
@@ -1313,7 +1319,9 @@ export const authController = {
    * POST /device/bind
    */
   bindDevice: async (req: Request, res: Response) => {
-    const { transaction_id } = req.body;
+    const { transaction_id, context_id } = req.body;
+
+    console.log('🔍 [DEVICE BIND] Request:', { transaction_id, context_id });
 
     if (!transaction_id) {
       return res.status(400).json({

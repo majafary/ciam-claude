@@ -1,0 +1,1233 @@
+openapi: 3.0.3
+info:
+  title: CIAM Backend API
+  description: Customer Identity and Access Management (CIAM) Backend API with MFA, eSign, and device trust capabilities
+  version: 2.0.0
+  contact:
+    name: CIAM Team
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.example.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Authentication
+    description: User authentication and session management
+  - name: MFA
+    description: Multi-factor authentication endpoints
+  - name: eSign
+    description: Electronic signature endpoints
+  - name: User
+    description: User information endpoints
+  - name: Device
+    description: Device management and trust
+  - name: OIDC
+    description: OpenID Connect endpoints
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the API
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user with username and password. Returns tokens on success or MFA/eSign requirement.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+                - app_id
+                - app_version
+              properties:
+                username:
+                  type: string
+                  example: mfauser
+                password:
+                  type: string
+                  format: password
+                  example: password
+                app_id:
+                  type: string
+                  description: Client application identifier
+                app_version:
+                  type: string
+                  description: Client application version
+                context_id:
+                  type: string
+                  description: Optional context ID for resuming an existing authentication context
+                drs_action_token:
+                  type: string
+                  description: Device recognition token from DRS SDK
+      responses:
+        '200':
+          description: Additional authentication steps required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MFARequiredResponse'
+                  - $ref: '#/components/schemas/ESignRequiredResponse'
+                  - $ref: '#/components/schemas/DeviceBindRequiredResponse'
+        '201':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              description: Refresh token set as httpOnly cookie
+              schema:
+                type: string
+                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginSuccessResponse'
+        '401':
+          description: Invalid credentials or user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Login401Error'
+              example:
+                error_code: "CIAM_E01_01_001"
+        '403':
+          description: Access denied - IP on deny list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Login403Error'
+              example:
+                error_code: "CIAM_E01_01_010"
+        '423':
+          description: Account or MFA locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Login423Error'
+              example:
+                error_code: "CIAM_E01_01_002"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: Logout user and clear session
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Logout successful
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Refresh access token using refresh token cookie
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Token refreshed successfully
+          headers:
+            Set-Cookie:
+              description: New refresh token set as httpOnly cookie (refresh token rotation)
+              schema:
+                type: string
+                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: Bearer
+                  expires_in:
+                    type: integer
+                    example: 900
+                    description: Token lifetime in seconds
+        '401':
+          description: Invalid or missing refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refresh401Error'
+              example:
+                error_code: "CIAM_E04_00_002"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /auth/mfa/initiate:
+    post:
+      tags:
+        - MFA
+      summary: Initiate MFA challenge
+      description: Start MFA challenge for OTP or Push notification
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - context_id
+                - transaction_id
+                - method
+              properties:
+                context_id:
+                  type: string
+                  description: Context ID from login response
+                transaction_id:
+                  type: string
+                method:
+                  type: string
+                  enum: [sms, voice, push]
+                  example: sms
+                mfa_option_id:
+                  type: integer
+                  enum: [1, 2, 3, 4, 5, 6]
+                  description: Required when method is 'sms' or 'voice' to specify which phone number to use. Optional for 'push'.
+      responses:
+        '200':
+          description: MFA challenge initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAChallengeResponse'
+        '400':
+          description: Invalid MFA method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAInitiate400Error'
+              example:
+                error_code: "CIAM_E01_01_009"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /auth/mfa/otp/verify:
+    post:
+      tags:
+        - MFA
+      summary: Verify MFA OTP challenge
+      description: Verify OTP code
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - context_id
+                - transaction_id
+                - code
+              properties:
+                context_id:
+                  type: string
+                  description: Context ID from login response
+                transaction_id:
+                  type: string
+                code:
+                  type: string
+                  description: OTP code
+                  example: "1234"
+      responses:
+        '200':
+          description: Additional authentication steps required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ESignRequiredResponse'
+                  - $ref: '#/components/schemas/DeviceBindRequiredResponse'
+        '201':
+          description: MFA verification successful
+          headers:
+            Set-Cookie:
+              description: Refresh token set as httpOnly cookie
+              schema:
+                type: string
+                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAVerifySuccessResponse'
+        '400':
+          description: Invalid OTP or transaction not approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAVerify400Error'
+              example:
+                error_code: "CIAM_E01_01_017"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /mfa/transaction/{transaction_id}:
+    post:
+      tags:
+        - MFA
+      summary: Verify MFA push transaction
+      description: Verify push notification approval and retrieve tokens
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - context_id
+              properties:
+                context_id:
+                  type: string
+                  description: Context ID from login response
+      responses:
+        '200':
+          description: Additional authentication steps required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ESignRequiredResponse'
+                  - $ref: '#/components/schemas/DeviceBindRequiredResponse'
+        '201':
+          description: MFA verification successful
+          headers:
+            Set-Cookie:
+              description: Refresh token set as httpOnly cookie
+              schema:
+                type: string
+                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAVerifySuccessResponse'
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionGet404Error'
+              example:
+                error_code: "CIAM_E01_03_001"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /mfa/transaction/{transaction_id}/approve:
+    post:
+      tags:
+        - MFA
+      summary: Approve push notification (mobile device)
+      description: Mobile app approves push notification with number matching. Does not return tokens.
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - context_id
+                - selected_number
+              properties:
+                context_id:
+                  type: string
+                  description: Context ID from login response
+                selected_number:
+                  type: integer
+                  description: Number selected by user on mobile device for matching
+      responses:
+        '200':
+          description: Push notification approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MFAApproveResponse'
+        '400':
+          description: Invalid number or transaction already processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionApprove400Error'
+              example:
+                error_code: "CIAM_E01_03_003"
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionApprove404Error'
+              example:
+                error_code: "CIAM_E01_03_001"
+        '410':
+          description: Transaction expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionApprove410Error'
+              example:
+                error_code: "CIAM_E01_03_002"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /esign/document/{document_id}:
+    get:
+      tags:
+        - eSign
+      summary: Get eSign document
+      description: Retrieve electronic signature document by ID
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: terms-v1-2025
+      responses:
+        '200':
+          description: Document retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ESignDocument'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ESignGet404Error'
+              example:
+                error_code: "CIAM_E01_04_001"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /esign/accept:
+    post:
+      tags:
+        - eSign
+      summary: Accept eSign document
+      description: Accept electronic signature document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - context_id
+                - transaction_id
+                - document_id
+              properties:
+                context_id:
+                  type: string
+                  description: Context ID from login response
+                transaction_id:
+                  type: string
+                document_id:
+                  type: string
+                  example: terms-v1-2025
+                acceptance_ip:
+                  type: string
+                acceptance_timestamp:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Additional authentication steps required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceBindRequiredResponse'
+        '201':
+          description: Document accepted successfully
+          headers:
+            Set-Cookie:
+              description: Refresh token set as httpOnly cookie
+              schema:
+                type: string
+                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ESignAcceptResponse'
+        '400':
+          description: Invalid request or no pending eSign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ESignAccept400Error'
+              example:
+                error_code: "CIAM_E01_04_002"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /device/bind:
+    post:
+      tags:
+        - Device
+      summary: Bind/trust device
+      description: Trust a device for future logins (skip MFA)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - context_id
+                - transaction_id
+                - bind_device
+              properties:
+                context_id:
+                  type: string
+                  description: Context ID from login response
+                transaction_id:
+                  type: string
+                bind_device:
+                  type: boolean
+                  description: True to bind device, false to decline binding
+      responses:
+        '200':
+          description: Device bind decision processed, returns tokens
+          headers:
+            Set-Cookie:
+              description: Refresh token set as httpOnly cookie
+              schema:
+                type: string
+                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceBindResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceBind400Error'
+              example:
+                error_code: "CIAM_E01_05_001"
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceBind404Error'
+              example:
+                error_code: "CIAM_E01_03_001"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /.well-known/jwks.json:
+    get:
+      tags:
+        - OIDC
+      summary: JWKS endpoint
+      description: JSON Web Key Set for token verification
+      responses:
+        '200':
+          description: JWKS
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+
+  parameters:
+    CorrelationId:
+      name: x-correlation-id
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Client-provided correlation ID for distributed tracing and request tracking
+
+  schemas:
+    # Error Code Enums by Category
+    CredentialErrors:
+      type: string
+      enum:
+        - CIAM_E01_01_001
+        - CIAM_E01_01_016
+      description: |
+        Login credential errors:
+        * CIAM_E01_01_001 - User not found or invalid credentials
+        * CIAM_E01_01_016 - Username contains masked value
+
+    AnalyzeDenyErrors:
+      type: string
+      enum:
+        - CIAM_E01_01_010
+      description: |
+        IP/Access restriction errors:
+        * CIAM_E01_01_010 - Analyze deny - User IP on deny list
+
+    AccountLockedErrors:
+      type: string
+      enum:
+        - CIAM_E01_01_002
+        - CIAM_E01_01_003
+        - CIAM_E01_01_004
+        - CIAM_E01_01_005
+        - CIAM_E01_01_006
+        - CIAM_E01_01_008
+      description: |
+        Account locked state errors:
+        * CIAM_E01_01_002 - User password locked
+        * CIAM_E01_01_003 - User disabled
+        * CIAM_E01_01_004 - Enterprise credential block
+        * CIAM_E01_01_005 - MFA locked
+        * CIAM_E01_01_006 - User deceased
+        * CIAM_E01_01_008 - CAPI restriction blocked by bank or customer
+
+    TokenErrors:
+      type: string
+      enum:
+        - CIAM_E04_00_001
+        - CIAM_E04_00_002
+        - CIAM_E04_00_003
+        - CIAM_E04_00_004
+        - CIAM_E04_00_005
+        - CIAM_E04_00_006
+        - CIAM_E04_00_007
+        - CIAM_E04_00_008
+        - CIAM_E04_00_009
+      description: |
+        Token and session errors:
+        * CIAM_E04_00_001 - Refresh token not decryptable
+        * CIAM_E04_00_002 - Refresh token not valid or expired
+        * CIAM_E04_00_003 - Session not readable
+        * CIAM_E04_00_004 - Session not active
+        * CIAM_E04_00_005 - Session expired
+        * CIAM_E04_00_006 - Null access token
+        * CIAM_E04_00_007 - Access token not decryptable
+        * CIAM_E04_00_008 - Null refresh token
+        * CIAM_E04_00_009 - Username not matched
+
+    MFAMethodErrors:
+      type: string
+      enum:
+        - CIAM_E01_01_009
+      description: |
+        MFA method errors:
+        * CIAM_E01_01_009 - Invalid MFA method
+
+    MFAVerificationErrors:
+      type: string
+      enum:
+        - CIAM_E01_01_017
+        - CIAM_E01_01_018
+      description: |
+        MFA verification errors:
+        * CIAM_E01_01_017 - Invalid OTP code
+        * CIAM_E01_01_018 - Transaction not approved (push pending)
+
+    TransactionNotFoundErrors:
+      type: string
+      enum:
+        - CIAM_E01_03_001
+      description: |
+        Transaction not found error:
+        * CIAM_E01_03_001 - Transaction not found
+
+    TransactionExpiredErrors:
+      type: string
+      enum:
+        - CIAM_E01_03_002
+      description: |
+        Transaction expired error:
+        * CIAM_E01_03_002 - Transaction expired
+
+    TransactionProcessedErrors:
+      type: string
+      enum:
+        - CIAM_E01_03_003
+      description: |
+        Transaction already processed error:
+        * CIAM_E01_03_003 - Transaction already processed
+
+    DocumentNotFoundErrors:
+      type: string
+      enum:
+        - CIAM_E01_04_001
+      description: |
+        Document not found error:
+        * CIAM_E01_04_001 - Document not found
+
+    ESignNotRequiredErrors:
+      type: string
+      enum:
+        - CIAM_E01_04_002
+      description: |
+        eSign not required error:
+        * CIAM_E01_04_002 - No pending eSign required
+
+    ValidationErrors:
+      type: string
+      enum:
+        - CIAM_E01_05_001
+      description: |
+        Request validation error:
+        * CIAM_E01_05_001 - Invalid request parameters
+
+    ServerErrors:
+      type: string
+      enum:
+        - CIAM_E05_00_001
+        - CIAM_E05_00_002
+      description: |
+        Server errors:
+        * CIAM_E05_00_001 - Server error
+        * CIAM_E05_00_002 - Server info not available (e.g. CAPI communication failure)
+
+    # Endpoint-Specific Error Response Schemas
+    Login401Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/CredentialErrors'
+      description: Login authentication failure - invalid credentials
+
+    Login423Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/AccountLockedErrors'
+      description: Login blocked - account or MFA locked
+
+    Login403Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/AnalyzeDenyErrors'
+      description: Login forbidden - IP on deny list
+
+    Refresh401Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/TokenErrors'
+      description: Token refresh failed - invalid or expired token
+
+    MFAInitiate400Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/MFAMethodErrors'
+      description: MFA initiation failed - invalid method
+
+    MFAVerify400Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/MFAVerificationErrors'
+      description: MFA verification failed - invalid OTP or transaction not approved
+
+    TransactionGet404Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/TransactionNotFoundErrors'
+      description: Transaction not found
+
+    TransactionApprove400Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          oneOf:
+            - $ref: '#/components/schemas/TransactionProcessedErrors'
+            - $ref: '#/components/schemas/ValidationErrors'
+      description: Transaction approval failed - already processed or invalid parameters
+
+    TransactionApprove404Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/TransactionNotFoundErrors'
+      description: Transaction not found
+
+    TransactionApprove410Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/TransactionExpiredErrors'
+      description: Transaction expired
+
+    ESignGet404Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/DocumentNotFoundErrors'
+      description: eSign document not found
+
+    ESignAccept400Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          oneOf:
+            - $ref: '#/components/schemas/ESignNotRequiredErrors'
+            - $ref: '#/components/schemas/ValidationErrors'
+      description: eSign acceptance failed - no pending eSign or invalid request
+
+    DeviceBind400Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/ValidationErrors'
+      description: Device binding failed - invalid request parameters
+
+    DeviceBind404Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/TransactionNotFoundErrors'
+      description: Transaction not found for device binding
+
+    ServerError:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/ServerErrors'
+      description: Service unavailable - server error
+
+    LoginSuccessResponse:
+      type: object
+      required:
+        - response_type_code
+        - access_token
+        - id_token
+        - token_type
+        - expires_in
+        - context_id
+      properties:
+        response_type_code:
+          type: string
+          enum: [SUCCESS]
+        access_token:
+          type: string
+        id_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 900
+          description: Token lifetime in seconds
+        context_id:
+          type: string
+
+    MFARequiredResponse:
+      type: object
+      required:
+        - response_type_code
+        - otp_methods
+        - mobile_approve_status
+        - context_id
+        - transaction_id
+      properties:
+        response_type_code:
+          type: string
+          enum: [MFA_REQUIRED]
+        otp_methods:
+          type: array
+          description: Available phone numbers for OTP delivery
+          items:
+            type: object
+            required:
+              - value
+              - mfa_option_id
+            properties:
+              value:
+                type: string
+                description: Last 4 digits of phone number
+                pattern: '^\d{4}$'
+                example: "1234"
+              mfa_option_id:
+                type: integer
+                enum: [1, 2, 3, 4, 5, 6]
+                description: Option identifier to use when initiating OTP challenge
+        mobile_approve_status:
+          type: string
+          enum: [NOT_REGISTERED, ENABLED, DISABLED]
+          description: Push notification availability (NOT_REGISTERED, ENABLED, or DISABLED)
+        context_id:
+          type: string
+        transaction_id:
+          type: string
+
+    ESignRequiredResponse:
+      type: object
+      required:
+        - response_type_code
+        - context_id
+        - transaction_id
+        - esign_document_id
+        - esign_url
+      properties:
+        response_type_code:
+          type: string
+          enum: [ESIGN_REQUIRED]
+        context_id:
+          type: string
+        transaction_id:
+          type: string
+        esign_document_id:
+          type: string
+        esign_url:
+          type: string
+
+    DeviceBindRequiredResponse:
+      type: object
+      required:
+        - response_type_code
+        - context_id
+        - transaction_id
+      properties:
+        response_type_code:
+          type: string
+          enum: [DEVICE_BIND_REQUIRED]
+        context_id:
+          type: string
+        transaction_id:
+          type: string
+
+    DeviceBindResponse:
+      type: object
+      required:
+        - response_type_code
+        - access_token
+        - id_token
+        - token_type
+        - expires_in
+        - context_id
+        - device_bound
+      properties:
+        response_type_code:
+          type: string
+          enum: [SUCCESS]
+        access_token:
+          type: string
+        id_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 900
+          description: Token lifetime in seconds
+        context_id:
+          type: string
+        device_bound:
+          type: boolean
+          description: True if device was bound, false if user denied binding
+
+    MFAChallengeResponse:
+      type: object
+      required:
+        - success
+        - transaction_id
+        - expires_at
+      properties:
+        success:
+          type: boolean
+        transaction_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        display_number:
+          type: integer
+          description: Number to display for push challenge
+
+    MFAVerifySuccessResponse:
+      type: object
+      required:
+        - response_type_code
+        - access_token
+        - id_token
+        - token_type
+        - expires_in
+        - context_id
+        - transaction_id
+      properties:
+        response_type_code:
+          type: string
+          enum: [SUCCESS]
+        access_token:
+          type: string
+        id_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+        context_id:
+          type: string
+        transaction_id:
+          type: string
+
+    MFATransactionStatusResponse:
+      type: object
+      required:
+        - transaction_id
+        - challenge_status
+        - updated_at
+        - expires_at
+      properties:
+        transaction_id:
+          type: string
+        challenge_status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+          description: Current status of the MFA challenge
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        display_number:
+          type: integer
+          description: Number displayed to user for matching
+        selected_number:
+          type: integer
+          description: Number selected by user on mobile device
+
+    MFAApproveResponse:
+      type: object
+      required:
+        - success
+        - transaction_id
+      properties:
+        success:
+          type: boolean
+        transaction_id:
+          type: string
+
+    ESignDocument:
+      type: object
+      required:
+        - document_id
+        - title
+        - content
+        - version
+        - mandatory
+      properties:
+        document_id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        version:
+          type: string
+        mandatory:
+          type: boolean
+
+    ESignAcceptResponse:
+      type: object
+      required:
+        - response_type_code
+        - access_token
+        - id_token
+        - token_type
+        - expires_in
+        - context_id
+        - transaction_id
+        - esign_accepted
+        - esign_accepted_at
+      properties:
+        response_type_code:
+          type: string
+          enum: [SUCCESS]
+        access_token:
+          type: string
+        id_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+        context_id:
+          type: string
+        transaction_id:
+          type: string
+        esign_accepted:
+          type: boolean
+        esign_accepted_at:
+          type: string
+          format: date-time
+
