@@ -1,0 +1,235 @@
+# **Software Requirements Specification (SRS)**
+
+## **Project: Account Servicing & CIAM Integration**
+
+---
+
+## **1. Introduction**
+
+### 1.1 Purpose
+
+This SRS specifies the requirements for building the Account Servicing Web Application, Storefront Web Application, and CIAM (Customer Identity and Access Management) suite (`ciam-ui`, `ciam-backend`). It integrates tightly with the provided **CIAM REST API (OpenAPI 3.0.3)** for authentication, MFA, token management, and OIDC compliance.
+
+### 1.2 Scope
+
+* **Phase 1**: Web-only delivery using **React + TypeScript**.
+* **Future phases**: Mobile (iOS/Android) via **React Native**.
+* Supports secure login, logout, MFA, session verification, and account servicing views.
+* AWS infrastructure provisioned with **Terraform**.
+* **Self-contained GitLab repos** for each application.
+
+---
+
+## **2. Architecture Requirements**
+
+### 2.1 Applications
+
+* **Storefront Web App**: Public entry point. Non-secure route.
+* **Account-Servicing Web App**: SPA for logged-in users. Snapshot page (secure).
+* **CIAM UI SDK**: Encapsulates CIAM functionality for easy integration. Provides login/logout, session checks, MFA flows.
+* **CIAM Backend**: Proxies and orchestrates calls to **ciam-rest-api** defined in OpenAPI spec.
+
+### 2.2 Key Characteristics
+
+* Parallel login supported across devices.
+* Multi-tab sessions reuse the same session.
+* **Access/ID tokens in-memory only**.
+* **Refresh tokens stored in HttpOnly cookies** (per spec defaults: `HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=1209600`).
+* Extensible to React Native mobile clients.
+
+---
+
+## **3. Functional Requirements**
+
+### 3.1 Storefront Web Application
+
+* **Storefront page**:
+
+  * Non-secure route.
+  * Displays mocked logo and `ciam-login-component` in nav bar.
+  * Behavior:
+
+    * If logged in → Show user info in login component.
+    * If not logged in → Show username/password form.
+
+* **Integration with CIAM UI SDK**:
+
+  * On page load → Call `/session/verify` to check session.
+  * If invalid session → Remain on storefront with login form.
+
+---
+
+### 3.2 Account-Servicing Web Application
+
+* **Snapshot page**:
+
+  * Secure route.
+  * Displays static account balances and `ciam-login-component`.
+  * Access restricted:
+
+    * If logged in → Page loads.
+    * If not logged in → Redirect to CIAM Login Page.
+
+* **Integration with CIAM UI SDK**:
+
+  * Auto session check (`/session/verify`).
+  * Refresh tokens handled via `/token/refresh`.
+
+---
+
+### 3.3 CIAM UI SDK
+
+* Provides:
+
+  * `ciam-login-component` (username/password OR logged-in info + logout).
+  * Session management, navigation, MFA flows.
+
+* Handles:
+
+  * **Login** → `/login`
+  * **Logout** → `/logout`
+  * **MFA Challenge** → `/mfa/challenge`
+  * **MFA Verify** → `/mfa/verify`
+  * **Polling for Push MFA** → `/mfa/transaction/{transactionId}`
+  * **OTP Fetch for testing** → `/mfa/transaction/{transactionId}/otp`
+  * **Token Refresh** → `/token/refresh`
+  * **Session Verify** → `/session/verify`
+  * **User Info** → `/userinfo`
+
+* Behavior:
+
+  * Automatically checks session on every page load.
+  * Redirect rules:
+
+    * Storefront: Stay on page with login form if unauthenticated.
+    * Snapshot: Redirect to CIAM Login if unauthenticated.
+    * CIAM Login Page: If already logged in, redirect to Snapshot.
+  * After login or MFA, session tokens stored in-memory, refresh cookie managed by backend.
+
+---
+
+### 3.4 CIAM Backend
+
+* Proxies and validates communication with **ciam-rest-api**.
+* Implements business rules:
+
+  * Refresh token rotation (detect reuse → revoke sessions).
+  * Token revocation (`/revoke`).
+  * Session list/revoke (`/sessions`, `/sessions/{sessionId}`).
+* Exposes integration points for UI SDK.
+
+---
+
+### 3.5 CIAM Login Page
+
+* **Behavior**:
+
+  * Checks login state (`/session/verify`).
+  * If already logged in → Redirect to Snapshot.
+  * If not logged in → Show login form via `ciam-login-component`.
+
+---
+
+### 3.6 Authentication & MFA Flow
+
+1. User submits credentials → `POST /login`.
+
+   * If **SUCCESS**: ID/access tokens returned; refresh cookie set.
+   * If **MFA\_REQUIRED**: Transaction ID returned.
+
+2. If MFA required →
+
+   * Start challenge: `POST /mfa/challenge`.
+   * Verify OTP/Push: `POST /mfa/verify`.
+   * For push, SDK polls `/mfa/transaction/{transactionId}` until approved/rejected/expired.
+
+3. On success → ID/access tokens returned; refresh cookie set.
+
+4. Refresh tokens → `POST /token/refresh` (rotation applied).
+
+5. Logout → `POST /logout` clears refresh cookie, revokes session.
+
+---
+
+## **4. Non-Functional Requirements**
+
+* **Security**: Follows OIDC/JWKS, refresh token rotation, HttpOnly cookies, session verification.
+* **Performance**: Low-latency session verification and refresh.
+* **Extensibility**: React Native compatibility.
+* **Maintainability**: Decoupled GitLab repos, no code sharing.
+
+---
+
+## **5. Project Structure Requirements**
+
+| Repository                  | Ownership              | Purpose                |
+| --------------------------- | ---------------------- | ---------------------- |
+| `storefront-web-app`        | Storefront team        | Storefront page        |
+| `account-servicing-web-app` | Account servicing team | Snapshot page          |
+| `ciam-ui`                   | CIAM UI team           | SDK & components       |
+| `ciam-backend`              | CIAM backend team      | Proxy/backend services |
+
+* Each repo must be **self-contained**.
+* CI/CD pipelines in GitLab.
+
+---
+
+## **6. Infrastructure**
+
+* AWS managed via **Terraform**.
+* Secure cookie domains configured per environment.
+
+---
+
+## **7. Codegen Requirements**
+
+Claude AI Codegen must:
+
+* Generate working code for all repos.
+* Implement OpenAPI endpoints for UI/backend integration.
+* Mock Transmit DRS and MFA push/OTP for local testing.
+* Provide **unit tests with Jest** covering:
+
+  * Login (no MFA).
+  * Login (OTP MFA).
+  * Login (Push MFA).
+  * Logout.
+* Achieve **100% code coverage**.
+* Provide developer documentation (README, API usage, flow diagrams).
+
+---
+
+## **8. Sequence Diagram**
+
+```
+User → Storefront/Snapshot → ciam-ui-sdk 
+ → /login (ciam-backend → ciam-rest-api)
+ → If MFA_REQUIRED: /mfa/challenge → /mfa/verify (or poll transaction)
+ → On success: tokens returned, refresh cookie set
+ → SDK fetches /userinfo
+ → Application loads Snapshot/Storefront with session
+```
+
+---
+
+## **9. Alignment with CIAM REST API**
+
+* **/login** → Initial authentication & MFA requirement check.
+* **/logout** → Invalidate session, clear cookie.
+* **/mfa/challenge**, **/mfa/verify**, **/mfa/transaction** → Complete MFA flows.
+* **/token/refresh** → Refresh tokens (rotation).
+* **/session/verify** → Validate session.
+* **/sessions**, **/sessions/{sessionId}** → Manage multiple active sessions.
+* **/userinfo** → Populate login component with user claims.
+* **/.well-known/openid-configuration**, **/jwks.json** → Standards-based OIDC discovery and key rotation.
+* **/revoke**, **/introspect** → Support token revocation & introspection.
+
+---
+
+## **10. Glossary**
+
+* **OIDC**: OpenID Connect.
+* **MFA**: Multi-Factor Authentication.
+* **DRS**: Dynamic Risk Service.
+* **JWT**: JSON Web Token.
+* **JWKS**: JSON Web Key Set.

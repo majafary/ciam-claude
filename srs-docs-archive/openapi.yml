@@ -1,0 +1,591 @@
+openapi: 3.0.3
+info:
+  title: Customer Authentication API
+  description: >
+    API for user authentication and multi-factor authentication (MFA) using
+    OIDC and OpenAPI standards. This spec supports returning tokens in JSON
+    and setting a refresh token as an HttpOnly Secure session cookie.
+  version: 1.0.0
+
+paths:
+  /login:
+    post:
+      summary: Authenticate user
+      description: >
+        Authenticates a user and determines if MFA is required. Accepts an
+        optional drs_action_token from the Transmit DRS UI SDK to evaluate device risk.
+        On successful authentication (no MFA required), tokens are returned and a
+        refresh token is set in an HttpOnly Secure cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Successful login or MFA required
+          headers:
+            Set-Cookie:
+              description: >
+                Refresh token is set in an HttpOnly, Secure cookie. Example:
+                refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=1209600
+              schema:
+                type: string
+                example: "refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=1209600"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Authentication failed (invalid credentials)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "400":
+          description: Bad request (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /logout:
+    post:
+      summary: Logout user
+      description: >
+        Logs out the user and invalidates the session and tokens. Supports logout
+        via Authorization (Bearer access token) or via the refresh token cookie.
+      security:
+        - oidc: []
+        - refresh_token_cookie: []
+      responses:
+        "200":
+          description: Logout successful
+          headers:
+            Set-Cookie:
+              description: >
+                Clears the refresh token cookie (example shown). The backend should also
+                invalidate tokens server-side.
+              schema:
+                type: string
+                example: "refresh_token=deleted; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logout successful."
+        "401":
+          description: Unauthorized (invalid or missing access token / cookie)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /mfa/challenge:
+    post:
+      summary: Initiate MFA challenge
+      description: >
+        Initiates an MFA challenge using the specified method (otp or push). If a prior
+        login created a session or transaction, include sessionId or transactionId to tie the
+        challenge to the login flow. Returns transactionId to be used for verification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MFAChallengeRequest"
+      responses:
+        "200":
+          description: MFA challenge initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MFAChallengeResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized (if required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /mfa/verify:
+    post:
+      summary: Verify MFA challenge
+      description: >
+        Verifies the MFA challenge using the provided transactionId and OTP/push result.
+        On success, issues id_token and access_token in the response body and sets a
+        refresh token cookie (HttpOnly Secure).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MFAVerifyRequest"
+      responses:
+        "200":
+          description: MFA verified; tokens issued
+          headers:
+            Set-Cookie:
+              description: >
+                Refresh token is set in an HttpOnly, Secure cookie.
+              schema:
+                type: string
+                example: "refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=1209600"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MFAVerifyResponse"
+        "401":
+          description: OTP mismatch or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: OTP expired or challenge rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: MFA transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /mfa/transaction/{transactionId}/otp:
+    get:
+      summary: Fetch OTP for transaction (testing / mock only)
+      description: >
+        Retrieves the OTP for a specific MFA transaction. Intended for internal testing
+        or mocked environments only. Not recommended for production.
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The transaction ID for which to fetch the OTP.
+      responses:
+        "200":
+          description: OTP retrieved (mock/testing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OTPResponse"
+        "404":
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /token/refresh:
+    post:
+      summary: Refresh access token
+      description: >
+        Refreshes the access token using the refresh token. The refresh token can be supplied
+        in an HttpOnly cookie (recommended) or in the request body. When the refresh is successful,
+        new tokens are returned and a new refresh token cookie is set.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRefreshRequest"
+      responses:
+        "200":
+          description: New tokens issued
+          headers:
+            Set-Cookie:
+              description: >
+                New refresh token is set in an HttpOnly Secure cookie.
+              schema:
+                type: string
+                example: "refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=1209600"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenRefreshResponse"
+        "401":
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /session/verify:
+    get:
+      summary: Verify session
+      description: >
+        Verifies whether the provided sessionId is valid. Session validation can be done
+        by passing the sessionId as a query parameter or by presenting a valid access token.
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The session identifier to verify.
+      responses:
+        "200":
+          description: Session is valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionVerifyResponse"
+        "401":
+          description: Invalid session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /userinfo:
+    get:
+      summary: Retrieve user information (OIDC standard)
+      description: >
+        Returns user claims associated with the access token. This endpoint is OIDC-compatible
+        and is used by front-end components to display user profile information (e.g., firstName, lastName).
+      security:
+        - oidc: []
+      responses:
+        "200":
+          description: User info returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoResponse"
+        "401":
+          description: Unauthorized (missing or invalid access token)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: "https://example.com/.well-known/openid-configuration"
+    refresh_token_cookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: >
+        Refresh token provided in an HttpOnly cookie named 'refresh_token'. Use this
+        scheme for token refresh or logout when clients rely on cookie-based refresh tokens.
+
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: User's username.
+        password:
+          type: string
+          description: User's password.
+        drs_action_token:
+          type: string
+          description: >
+            Optional action token obtained from Transmit Security DRS UI SDK to allow
+            the backend to evaluate device risk and recommend/require MFA.
+      example:
+        username: "jane.doe@example.com"
+        password: "P@ssw0rd!"
+        drs_action_token: "drs_act_token_example"
+
+    LoginResponse:
+      type: object
+      properties:
+        responseTypeCode:
+          type: string
+          description: Indicates the result of the login attempt.
+          enum: [SUCCESS, MFA_REQUIRED]
+        message:
+          type: string
+        id_token:
+          type: string
+          description: ID token (JWT). Present when authentication finished (no MFA required or after MFA).
+        access_token:
+          type: string
+          description: Access token (JWT). Present when authentication finished.
+        refresh_token:
+          type: string
+          description: Refresh token (also set via Set-Cookie). Clients should prefer cookie storage.
+        sessionId:
+          type: string
+          description: Session identifier for the user.
+        transactionId:
+          type: string
+          description: Transaction identifier for tracking MFA flow (if MFA_REQUIRED).
+      example:
+        responseTypeCode: "MFA_REQUIRED"
+        message: "MFA is required for this login."
+        sessionId: "sess-12345"
+        transactionId: "tx-67890"
+
+    MFAChallengeRequest:
+      type: object
+      required:
+        - method
+      properties:
+        method:
+          type: string
+          enum: [otp, push]
+          description: The MFA method to use for the challenge.
+        sessionId:
+          type: string
+          description: Optional sessionId to associate the challenge with an existing login session.
+        transactionId:
+          type: string
+          description: Optional transactionId if continuing a previously created transaction.
+      example:
+        method: "otp"
+
+    MFAChallengeResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        transactionId:
+          type: string
+        message:
+          type: string
+          example: "MFA challenge sent."
+      example:
+        sessionId: "sess-12345"
+        transactionId: "tx-67890"
+        message: "MFA challenge sent via otp."
+
+    MFAVerifyRequest:
+      type: object
+      required:
+        - transactionId
+        - otp
+      properties:
+        transactionId:
+          type: string
+          description: Transaction identifier for the MFA flow.
+        otp:
+          type: string
+          description: One-time passcode provided by the user.
+      example:
+        transactionId: "tx-67890"
+        otp: "123456"
+
+    MFAVerifyResponse:
+      type: object
+      properties:
+        id_token:
+          type: string
+          description: ID token (JWT).
+        access_token:
+          type: string
+          description: Access token (JWT).
+        refresh_token:
+          type: string
+          description: Refresh token (also set via Set-Cookie).
+        sessionId:
+          type: string
+        transactionId:
+          type: string
+        message:
+          type: string
+          example: "MFA verified successfully."
+      example:
+        id_token: "eyJhbGciOi..."
+        access_token: "eyJhbGciOi..."
+        refresh_token: "eyJhbGciOi..."
+        sessionId: "sess-12345"
+        transactionId: "tx-67890"
+        message: "MFA verified successfully."
+
+    OTPResponse:
+      type: object
+      properties:
+        otp:
+          type: string
+          description: One-time password for testing/mocking environments.
+        message:
+          type: string
+      example:
+        otp: "123456"
+        message: "OTP retrieved successfully."
+
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+          description: >
+            Optional. If clients do not use cookies, they may present the refresh token in the body.
+            If a cookie is present, the server SHOULD prefer the cookie value.
+      example:
+        refresh_token: "eyJhbGciOi..."
+
+    TokenRefreshResponse:
+      type: object
+      properties:
+        id_token:
+          type: string
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        message:
+          type: string
+          example: "Tokens refreshed successfully."
+      example:
+        id_token: "eyJhbGciOi..."
+        access_token: "eyJhbGciOi..."
+        refresh_token: "eyJhbGciOi..."
+        message: "Tokens refreshed successfully."
+
+    SessionVerifyResponse:
+      type: object
+      properties:
+        isValid:
+          type: boolean
+        message:
+          type: string
+          example: "Session is valid."
+        expiresAt:
+          type: string
+          format: date-time
+          description: Expiration timestamp of the session, if available.
+      example:
+        isValid: true
+        message: "Session is valid."
+        expiresAt: "2025-10-01T12:00:00Z"
+
+    UserInfoResponse:
+      type: object
+      properties:
+        sub:
+          type: string
+          description: Subject - unique user identifier.
+        preferred_username:
+          type: string
+        email:
+          type: string
+        email_verified:
+          type: boolean
+        given_name:
+          type: string
+        family_name:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        iat:
+          type: integer
+          description: Issued-at (epoch seconds)
+        exp:
+          type: integer
+          description: Expiration (epoch seconds)
+      example:
+        sub: "user-123"
+        preferred_username: "jane.doe"
+        email: "jane.doe@example.com"
+        email_verified: true
+        given_name: "Jane"
+        family_name: "Doe"
+        roles: ["customer"]
+        iat: 1695552000
+        exp: 1695555600
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable description of the error.
+        timestamp:
+          type: string
+          format: date-time
+          description: Server timestamp when the error occurred (ISO 8601).
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional map with additional error details.
+      example:
+        code: "INVALID_CREDENTIALS"
+        message: "Username or password incorrect."
+        timestamp: "2025-09-24T14:35:22Z"
+
+security:
+  - oidc: []

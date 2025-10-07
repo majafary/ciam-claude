@@ -1,0 +1,280 @@
+# Software Requirements Specification (SRS) — CIAM Solution
+
+**Project Name:** Customer Identity & Access Management (CIAM)
+**Version:** 1.0
+**Date:** \[2025-09-24]
+
+---
+
+## 1. Introduction
+
+### 1.1 Purpose
+
+This document defines the functional and non-functional requirements for a CIAM solution. The CIAM system will support authentication, session management, MFA (OTP + Push), secure integration with client web applications, and token flows in compliance with OIDC and best practices.
+
+### 1.2 Scope
+
+* **Initial scope**: Web-only support (React + TypeScript)
+* **Future scope**: Mobile (iOS, Android)
+* Key components:
+
+  1. **Account-servicing web application**
+  2. **CIAM system**, consisting of:
+
+     * ciam-ui SDK (frontend library)
+     * ciam-backend
+     * ciam-rest-api (OpenAPI-based)
+
+### 1.3 Definitions & Abbreviations
+
+| Term           | Definition                                          |
+| -------------- | --------------------------------------------------- |
+| CIAM           | Customer Identity & Access Management               |
+| SDK            | Software Development Kit (ciam-ui SDK)              |
+| MFA            | Multi-Factor Authentication                         |
+| OTP            | One Time Passcode                                   |
+| Push           | Push notification-based MFA                         |
+| DRS            | Device Risk Service (Transmit Security)             |
+| JWT            | JSON Web Token                                      |
+| ID Token       | OIDC-compliant JWT carrying user claims             |
+| Access Token   | Token for resource access (short-lived)             |
+| Refresh Token  | Token for obtaining new access token (longer-lived) |
+| Session ID     | Internal session identifier                         |
+| Transaction ID | Identifier for MFA challenge/response flow          |
+
+---
+
+## 2. System Overview
+
+This CIAM solution enables:
+
+* Login and logout flows
+* MFA via OTP or Push
+* Refresh token rotation
+* Session & device management (parallel logins, tab/session reuse)
+* OIDC-compatible endpoints (userinfo, revocation, introspection)
+* Secure token storage (in-memory and cookie-based)
+* SDK integration so client apps require minimal code
+
+The architecture is modular and decoupled: the account-servicing app depends on ciam-ui SDK, which in turn calls the ciam-backend APIs.
+
+---
+
+## 3. Architecture Requirements
+
+* Primary architecture: **account-servicing web app** + **CIAM system**
+* **Account-servicing web app** (React + TypeScript):
+
+  * Contains **Storefront** and **Snapshot** pages
+  * Integrates with ciam-ui SDK for authentication flows
+* **CIAM system**:
+
+  * **ciam-ui SDK**: plug-and-play React library exposed as dependency
+  * **ciam-backend / ciam-rest-api**: server-side endpoints implementing the OpenAPI spec
+* Session & token handling:
+
+  * Access token & user identity: stored in **memory** on client
+  * Refresh token: stored as **HttpOnly Secure cookie** (same-site = Strict)
+* Parallel login: sessions may exist on multiple devices concurrently
+* Tab reuse: token / session reuse across browser tabs/windows on same device should be seamless (via refresh + SDK logic)
+
+---
+
+## 4. Functional Requirements
+
+### 4.1 Pages & Navigation
+
+#### Storefront Page (Public Route)
+
+* Accessible by unauthenticated users
+* Shows:
+
+  * `ciam-login-component` in top-right nav
+  * Mocked company logo in page body
+* Behavior:
+
+  * If user is logged in → show logged-in state in `ciam-login-component` (e.g. “Hi, FirstName”)
+  * If not logged in → show login form
+
+#### Snapshot Page (Secure Route)
+
+* Accessible only after successful login
+* Shows:
+
+  * `ciam-login-component` in top-right nav (logout / profile state)
+  * Customer account balances (static mock data)
+* Behavior:
+
+  * If user tries to access when not authenticated → redirect to CIAM Login page
+
+#### CIAM Login Page
+
+* Public entry point for login flows (OTP, Push)
+* Behavior:
+
+  * If user already logged in → redirect to Snapshot page with logged-in experience
+  * If not logged in → display login form (`username`, `password`)
+  * After entering credentials, triggers `/login` endpoint
+
+### 4.2 ciam-ui SDK
+
+* Provides `ciam-login-component` to all pages (Storefront, Snapshot, CIAM Login)
+
+* Handles:
+
+  1. Detecting and verifying login state (initial check on page load)
+  2. Redirection and navigation logic depending on login state + target route
+  3. Calling endpoints (`/login`, `/mfa/challenge`, `/mfa/verify`, `/token/refresh`, `/logout`, `/userinfo`, `/session/verify`)
+  4. Polling for push MFA status
+  5. Handling token refresh automatically on user actions
+  6. Emitting logout events across tabs (via BroadcastChannel or similar)
+
+* `ciam-login-component` UI states:
+
+  * **Logged-out**: username input, password input, login button
+  * **Logged-in**: greeting (FirstName LastName), logout button
+
+* Navigation logic in SDK:
+
+  * On loading a page, SDK checks if user is authenticated (via access token / session verify / refresh).
+  * If unauthenticated and page is Snapshot → redirect to CIAM Login.
+  * If authenticated and page is Storefront → optionally redirect to Snapshot (or remain but show logged-in state).
+  * On logout, clear in-memory tokens and trigger redirect as needed.
+
+### 4.3 Authentication & MFA
+
+#### /login (POST)
+
+* Input: `username`, `password`, optional `drs_action_token`
+* Output:
+
+  * `responseTypeCode = SUCCESS` → return `id_token`, `access_token`, (rotated) `refresh_token` cookie, `sessionId`, optional `deviceId`
+  * `responseTypeCode = MFA_REQUIRED` → return `transactionId`, `sessionId`, and instruct client to call MFA flow
+
+#### /mfa/challenge (POST)
+
+* Input: `method = otp | push`
+* Output:
+
+  * For OTP: `challengeId`, `transactionId`, delivery metadata, `challengeStatus = PENDING`
+  * For Push: `transactionId`, `challengeStatus = PENDING`, `expiresAt`
+
+#### /mfa/verify (POST)
+
+* Input: `transactionId`, plus either `otp` (for OTP) or optional `pushResult` (APPROVED / REJECTED)
+* Output (on success): `id_token`, `access_token`, rotated `refresh_token` cookie, `sessionId`
+
+#### /mfa/transaction/{transactionId} (GET)
+
+* Poll push status: returns `challengeStatus` (PENDING / APPROVED / REJECTED / EXPIRED) and timestamps
+
+#### /token/refresh (POST)
+
+* Input: refresh token either via cookie or request body
+* Output: new `id_token`, `access_token`, rotated `refresh_token` cookie
+
+#### /logout (POST)
+
+* Invalidates session and tokens (revocation), clears refresh token cookie
+
+#### /revoke (POST)
+
+* Revoke a given token (access or refresh)
+* If refresh is revoked, also invalidate session, clear cookie
+
+#### /introspect (POST)
+
+* For resource servers to validate tokens
+* Returns active/inactive and claims
+
+#### /session/verify (GET)
+
+* Verifies session validity (by `sessionId` or via access token)
+
+#### /sessions (GET)
+
+* Lists active sessions/devices for logged-in user
+
+#### /sessions/{sessionId} (DELETE)
+
+* Revoke specific session/device
+
+#### /userinfo (GET)
+
+* Returns user claims (given\_name, family\_name, email, roles)
+
+#### OIDC Discovery & JWKS
+
+* `/.well-known/openid-configuration`
+* `/jwks.json`
+
+---
+
+## 5. Non-Functional Requirements
+
+### 5.1 Security & Token Management
+
+* Use **RS256** for JWT signing; publish public JWKS
+* Rotate signing keys periodically
+* Refresh token rotation with reuse detection (if reused, revoke all sessions)
+* Access tokens short-lived (e.g., 15 min), refresh token life sliding window (e.g. 14 days)
+* Cookies: `HttpOnly; Secure; SameSite=Strict; Path=/; Domain=[domain]`
+* Use CSRF mitigation for endpoints accepting cookie-based refresh (double-submit or same-site enforcement)
+* Rate-limiting & brute force protection: e.g. 5 failed logins per 15 minutes
+* Logging / audit: every auth call records `sessionId`, `transactionId`, `userId`, IP, userAgent, correlationId
+
+### 5.2 Performance
+
+* Login latency < 1s under normal load
+* Token refresh latency < 300ms
+* Polling API for push status should respond quickly (< 200ms)
+* SDK overhead minimal (should not add noticeable delay)
+
+### 5.3 Maintainability & Modularity
+
+* Separate codebases (GitLab): account-servicing app, ciam-ui SDK, ciam-backend, ciam-rest-api
+* Modular architecture to allow independent deployment and versioning
+
+### 5.4 Usability & Developer Experience
+
+* Integration must be minimal: consume ciam-ui SDK, no deep changes in account-servicing code
+* Clear technical documentation including flow diagrams, SDK usage, API error codes
+
+### 5.5 Scalability & Availability
+
+* CIAM backend must scale horizontally
+* Use caching for introspection and revocations
+* High availability (multi-AZ)
+
+---
+
+## 6. Testing & Quality
+
+* **Unit tests**: For SDK and backend logic (targeting at least 90% frontend, 80–90% backend)
+* **Integration tests**: Full sequence flows (login → MFA → refresh → revoke) using mocked Transmit DRS and push
+* **E2E tests**: Simulate user navigation across Storefront, Snapshot, and login page, including tab sync and logout
+* **Security testing**: Token replay, CSRF, XSS, session fixation
+* **Load testing**: Simulate concurrent login, token refresh traffic
+
+---
+
+## 7. Appendices & Clarifications
+
+### 7.1 Decision Checklist (must finalize before implementation)
+
+* Access / refresh token lifetimes
+* Refresh rotation / reuse policy
+* Cookie domain, SameSite, and CSRF approach
+* Maximum concurrent sessions (unbounded or limit)
+* OTP length, expiry, resend limits
+* Push timeout period and polling interval
+* Lockout thresholds and rate limits
+* Claims included in `id_token` / `userinfo`
+* JWT key-rotation cadence
+* Logging / retention / auditing policy
+
+### 7.2 Mocking Push & DRS in Development
+
+* In dev/test, push provider responses should be mocked (approve, reject, expire)
+* `/mfa/transaction/{transactionId}` should support that mocking
+* DRS `drs_action_token` handling should accept predefined responses

@@ -1,0 +1,68 @@
+Architecture Requirements
+• The project will be developed for web-only at this time, however, additional channels such as mobile ios and andriod may be added in a subsequent phase.
+• The overall architecture consists of account-servicing web application and the cam application
+• The account-servicing web application is a single-page-application (SPA) front-end application that allows users to securely service their accounts online
+• The account-servicing web application is built using react and typescript.
+• The scope of our project for Phase-1 is web-only however, the application will be extended to Mobile IOS and Andriod platform in subsequent phases. We will prefer to use an implementation that is compatible with react-native for future extensibility.
+• The cam application consists of ciam-ui and ciam-backend
+• The ciam-ui and ciam-backend applications implement the features and user navigations that are supported by the ciam-rest-api open api spec (provided below)
+• The ciam application supports parallel login on different devices at the same time
+• The cam application supports multi-tab session. It reuses the session across multiple tabs and browser windows of the same device and browser.
+• The cam application stores user identity information and access token in-memory and not localstorage. This is because when page is refreshed or the user navigates to other parts of the secure login experience, we expect the application to refresh the access token and rehydrate application state.
+• The ciam application stores refresh token in a browser cookie
+• The store-front web application consists of a Storefront page managed by the storefront team o The account-servicing web application consists of the Snapshot page managed by the snapshot team
+• The ciam-ui will facilitate integration of the store-front web application and the account-servicing web application using the ciam-ui-sdk
+• The ciam-ui-sdk will facilitate the communication between the ciam-ui and ciam-backend.
+• The ciam-ui-sdk integrates with CIAM backend to enable features like login, logout, token refresh, mfa (push and otp).
+• The ciam-ui-sdk provides the ciam-login-component
+• The Storefront page that is part of the storefront web application is a non-secure route that can be accessed by a non-logged-in user. This page acts as the front-door of the account-servicing web application.
+• The Storefront page displays the ciam-login-component in the upper right section of the navigation bar and a mocked company logo in the page body
+• The Snapshot page is a secure route and can only be accessed by a logged-in user. This page displays customer account information and provides entry points to additional account servicing routes.
+• The Snapshot page displays the ciam-login-component in the upper right section of the navigation bar and the user's account balances in the page body. The user's account balances for the purpose of this project can be static
+content.
+
+• Requirements for ciam-ui-sdk
+• The ciam-ui-sdk should simplify integration of CIAM functionalities into existing applications by providing pre-built components and functions.
+• The ciam-ui-sdk can be used with react based front-end applications such as the store-front web application and the account-servicing web application to add cam functionality
+• The ciam-ui-sdk's aim is to maximize encapsulation by providing necessary ui components, handing navigation and page transitions, handling user interactions, session management, for cam functionality
+• The ciam-ui-sdk makes the entire login flow including MFA implementation seamless for the account-servicing web application
+• The ciam-ui-sdk enables seamless session verification and token refresh for user actions on the website
+• If user accesses the url of the Storefront page of the store-front web application, the integrated ciam-ui-sdk automatically checks if the user is logged-in
+• If user accesses the url of the Snapshot page of the account-servicing web application, the integrated ciam-ui-sdk automatically checks if the user is logged-in
+• If the ciam-ui-sdk determines that the user is not logged-in and the user was accessing the url of the Storefront page, the user is taken to the Storefront page with the ciam-login-component displaying the non-logged-in experience
+• If the ciam-ui-sdk determines that the user is not logged-in and the user was accessing the url of the Snapshot page, the user is taken to the CIAM Login page with the ciam-login-component displaying the non- logged-in experience
+• If the ciam-ui-sak determines that the user is already logged-in, and the user was accessing the url of the Storefront page, the user is redirected to the Storefront page with the ciam-login-component displaying the non-logged-in experience
+• The ciam-ui-sdk makes the ciam-login-component available to the Storefront page, Snapshot page and the CIAM Login page
+• The ciam-login-component displays the username, password fields and the submit button for a non-logged-in experience
+• The ciam-login-component displays the user's first name and last name and the logout button for the logged-in experience
+° When the user enters their username and password, and clicks on the submit button the cam backend application performs user authentication.
+• When the user clicks on the logout button, the cam backend application logs out the user and issued token are invalidated
+
+• Requirements for the CIAM Login page
+• If user accesses the url of the CIAM Login page, the integrated ciam-ui-sdk automatically checks if the user is logged-in first.
+• If the ciam-ui-sdk determines that the user is not logged-in and the user was accessing the url of the CIAM Login page, the user is taken to the CIAM Login page
+• If the ciam-ui-sdk determines that the user is already logged in and the user was accessing the url of the ClAM Login page, the user is taken to the Snapshot page with the ciam-login-component displaying the logged-in experience
+
+• Requirements for Login and Navigation
+• The user login process includes credential verification and may include MA using OTP or Push Notification.
+• A Transmit API DRS response determines if MFA is required.
+• The ciam-ui-sdk integrates with Transmit Security DRS UI SDK to get the action token. The ciam-ui-sdk sends this action token to the ciam-rest-api. This action token is used by the ciam-rest-api to get the device fingerprint and recommendation from Transmit DRS API to determine if the user requires MFA. If MFA is required, the UI takes the user through the MFA experience, otherwise, the user is logged-in. For this project, we can mock the responses for Transmit DRS UI and Transmit DRS Backend as well as the ciam-rest-api. This is since our focus for this codegen task is on the UI side. I want to reinforce that all code has to be generated so that all applications can run and be tested on local machine.
+• The user session and token is refreshed when the user interacts with other areas of the logged-in experience.
+
+• Project Structure Requirements
+• The Storefront page is owned by the store-front web application team and will have its own gitlab project repository
+• The Snapshot page is owned by the account-servicing web application team and will have its own gitlab project repository
+• The ciam-ui is owned by the cam ui team and will have its own gitlab project repository
+• The ciam-backend is owned by the cam backend team and will have its own gitlab project repository
+• All gitlab repositories should be self contained. No component sharing between the repos. These separated project repositories will ensure decoupled development and easier maintenance by their respective development teams.
+• gitlab will be used for code repository
+• The cam application is suite of decoupled and individually managed project repositories that separate code of the web applications from cam related code
+• The cam application is to be built as a service that is available for integration by clients such as the storefront web application and the account-servicing web application
+• The ciam-ui's architecture should aim to be decoupled and work as plug-and-play requiring minimal work and code for the store-front web application and the account-servicing web application team to implement cam functionality
+• Infrastructure As Code Requirements
+• The project will use Terraform for creating infrastructure on AWS
+
+• Codegen Requirements
+• Claude should make sure it will generate working code across all repositories and all services are compatible. All variations and unit test cases should be generated to include the login process with mfa push, with mfa otp, without mfa, and logout
+• Claude should create techincal documentation to help developers understand the code
+• Claude should meet 100% code coverage requirement using Jest

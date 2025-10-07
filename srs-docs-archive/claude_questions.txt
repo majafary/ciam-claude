@@ -1,0 +1,29 @@
+  Architecture & Integration
+
+  - How do you envision handling session state synchronization across multiple browser tabs? BroadcastChannel API or localStorage events?
+  - For the modular codebase separation (4 repos), what's your strategy for managing shared TypeScript types and API contracts?
+  - Should the ciam-ui SDK be framework-agnostic or React-specific? This affects your future mobile strategy.
+
+  Security & Risk Profile
+
+  - What's your threat model priority: credential stuffing, session hijacking, or token theft? This impacts MFA flow design.
+  - For refresh token rotation, should failed rotation attempts trigger partial session revocation or full user logout?
+  - How should the system handle concurrent login attempts during active MFA challenges?
+
+  User Experience & Flows
+
+  - During push MFA polling, what's the UX for users who never receive/approve the push? Fallback to OTP?
+  - For parallel sessions, should users see other active sessions and have remote logout capability?
+  - What happens when a user closes the browser during MFA challenge - should the transaction persist?
+
+  Implementation Decisions
+
+  - Token storage strategy: Why in-memory access tokens vs localStorage? Recovery after page refresh?
+  - CIAM Login Page: Standalone route or modal overlay? Affects deep-linking and navigation flow.
+  - Error boundaries: How should the SDK handle backend connectivity issues during auth flows?
+
+  🤔 Key Clarifications Needed
+
+  1. MVP vs Full Feature Set: Which Phase 1 features are absolutely critical vs nice-to-have?
+  2. Backend Technology Stack: Any constraints or preferences for CIAM backend implementation?
+  3. Integration Timeline: Do you need backward compatibility with existing auth systems?
