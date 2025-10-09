@@ -10,7 +10,7 @@ interface MFATransaction {
   transaction_id: string;
   username: string;
   createdAt: number;
-  method?: 'otp' | 'push';
+  method?: 'sms' | 'voice' | 'push';
 }
 
 // Push Challenge Storage
@@ -251,7 +251,7 @@ const USER_SCENARIOS: Record<string, {
   riskLevel?: 'low' | 'high';
   isFirstLogin?: boolean;
   adminReset?: boolean;
-  availableMethods?: ('otp' | 'push')[];
+  availableMethods?: ('sms' | 'voice' | 'push')[];
 }> = {
   // A1: Trusted Device - Instant Login
   'trusteduser': {
@@ -324,12 +324,12 @@ const USER_SCENARIOS: Record<string, {
     esignBehavior: 'compliance'
   },
 
-  // F1: OTP-only MFA User
+  // F1: SMS-only MFA User (v3.0.0)
   'otponlyuser': {
     password: 'password',
     scenario: 'mfa_required',
     mfaBehavior: 'normal',
-    availableMethods: ['otp']
+    availableMethods: ['sms']
   },
 
   // F2: Push-only MFA User
@@ -367,7 +367,7 @@ export const authController = {
       });
     }
 
-    const session_id = 'session-' + Date.now();
+    const context_id = 'session-' + Date.now();
     const transaction_id = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
     // Process device fingerprint if provided
@@ -437,13 +437,13 @@ export const authController = {
       });
 
       return res.status(201).json({
-        responseTypeCode: 'SUCCESS',
+        response_type_code: 'SUCCESS',
         access_token: accessToken,
         id_token: idToken,
         refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
-        session_id: session_id,
+        context_id: context_id,
         device_bound: true
       });
     }
@@ -461,8 +461,8 @@ export const authController = {
       });
 
       return res.status(200).json({
-        responseTypeCode: 'ESIGN_REQUIRED',
-        session_id: session_id,
+        response_type_code: 'ESIGN_REQUIRED',
+        context_id: context_id,
         transaction_id: transaction_id,
         esign_document_id: 'terms-v1-2025',
         esign_url: '/esign/document/terms-v1-2025',
@@ -500,8 +500,8 @@ export const authController = {
         if (userScenario.esignBehavior === 'compliance' && !hasAcceptedDocument(username, 'terms-v1-2025')) {
           addPendingESign(username, 'terms-v1-2025', true, 'compliance');
           return res.status(200).json({
-            responseTypeCode: 'ESIGN_REQUIRED',
-            session_id: session_id,
+            response_type_code: 'ESIGN_REQUIRED',
+            context_id: context_id,
             transaction_id: transaction_id,
             esign_document_id: 'terms-v1-2025',
             esign_url: '/esign/document/terms-v1-2025',
@@ -510,13 +510,13 @@ export const authController = {
         }
 
         return res.status(201).json({
-          responseTypeCode: 'SUCCESS',
+          response_type_code: 'SUCCESS',
           access_token: accessToken,
           id_token: idToken,
           refresh_token: refreshToken,
           token_type: 'Bearer',
           expires_in: 900,
-          session_id: session_id,
+          context_id: context_id,
           device_bound: true
         });
       }
@@ -533,11 +533,11 @@ export const authController = {
         console.log('📝 [LOGIN] Pending eSign set:', pendingESigns.get(username));
       }
 
-      // Determine available MFA methods based on user scenario
-      const availableMethods = userScenario.availableMethods || ['otp', 'push'];
+      // Determine available MFA methods based on user scenario (v3.0.0)
+      const availableMethods = userScenario.availableMethods || ['sms', 'push'];
 
-      // Build otp_methods array (simulate multiple phone numbers)
-      const otp_methods = availableMethods.includes('otp') ? [
+      // Build otp_methods array (simulate multiple phone numbers) - v3.0.0: includes both sms and voice
+      const otp_methods = (availableMethods.includes('sms') || availableMethods.includes('voice')) ? [
         { value: '1234', mfa_option_id: 1 },
         { value: '5678', mfa_option_id: 2 }
       ] : [];
@@ -562,10 +562,10 @@ export const authController = {
 
       // Standard MFA required
       return res.status(200).json({
-        responseTypeCode: 'MFA_REQUIRED',
+        response_type_code: 'MFA_REQUIRED',
         otp_methods: otp_methods,
         mobile_approve_status: mobile_approve_status,
-        session_id: session_id,
+        context_id: context_id,
         transaction_id: transaction_id
       });
     }
@@ -590,8 +590,8 @@ export const authController = {
       if (userScenario.esignBehavior === 'compliance' && !hasAcceptedDocument(username, 'terms-v1-2025')) {
         addPendingESign(username, 'terms-v1-2025', true, 'compliance');
         return res.status(200).json({
-          responseTypeCode: 'ESIGN_REQUIRED',
-          session_id: session_id,
+          response_type_code: 'ESIGN_REQUIRED',
+          context_id: context_id,
           transaction_id: transaction_id,
           esign_document_id: 'terms-v1-2025',
           esign_url: '/esign/document/terms-v1-2025',
@@ -600,13 +600,13 @@ export const authController = {
       }
 
       return res.status(201).json({
-        responseTypeCode: 'SUCCESS',
+        response_type_code: 'SUCCESS',
         access_token: accessToken,
         id_token: idToken,
         refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
-        session_id: session_id,
+        context_id: context_id,
         device_bound: deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false
       });
     }
@@ -728,17 +728,19 @@ export const authController = {
       });
     }
 
-    if (!method || !['otp', 'push'].includes(method)) {
+    // v3.0.0: Accept 'sms', 'voice', or 'push' methods
+    if (!method || !['sms', 'voice', 'push'].includes(method)) {
       return res.status(400).json({
         error_code: 'INVALID_MFA_METHOD',
-        message: 'Valid MFA method (otp or push) is required'
+        message: 'Valid MFA method (sms, voice, or push) is required'
       });
     }
 
-    if (method === 'otp' && !mfa_option_id) {
+    // v3.0.0: mfa_option_id is required for OTP methods (sms/voice)
+    if ((method === 'sms' || method === 'voice') && !mfa_option_id) {
       return res.status(400).json({
         error_code: 'MISSING_MFA_OPTION_ID',
-        message: 'mfa_option_id is required when method is otp'
+        message: 'mfa_option_id is required when method is sms or voice'
       });
     }
 
@@ -757,7 +759,8 @@ export const authController = {
 
     const expires_at = new Date(Date.now() + 10 * 1000).toISOString();
 
-    if (method === 'otp') {
+    // v3.0.0: Handle OTP methods (sms/voice) - both work the same way
+    if (method === 'sms' || method === 'voice') {
       return res.json({
         success: true,
         transaction_id: transaction_id,
@@ -911,11 +914,12 @@ export const authController = {
     console.log('✅ [OTP VERIFY] Retrieved username from transaction:', { transaction_id, username });
     const userScenario = USER_SCENARIOS[username];
 
-    if (method === 'otp') {
+    // v3.0.0: Handle OTP methods (sms/voice)
+    if (method === 'sms' || method === 'voice') {
       if (!code) {
         return res.status(400).json({
           error_code: 'MISSING_CODE',
-          message: 'code is required when method is otp'
+          message: 'code is required when method is sms or voice'
         });
       }
 
@@ -940,8 +944,8 @@ export const authController = {
         console.log('🔍 [OTP VERIFY] Pending eSign result:', pendingESign);
         if (pendingESign) {
           return res.status(200).json({
-            responseTypeCode: 'ESIGN_REQUIRED',
-            session_id: `session-${Date.now()}`,
+            response_type_code: 'ESIGN_REQUIRED',
+            context_id: context_id,
             transaction_id: transaction_id,
             esign_document_id: pendingESign.documentId,
             esign_url: `/esign/document/${pendingESign.documentId}`,
@@ -949,14 +953,14 @@ export const authController = {
           });
         }
 
-        return res.status(200).json({
-          success: true,
+        return res.status(201).json({
+          response_type_code: 'SUCCESS',
           access_token: accessToken,
           id_token: idToken,
           refresh_token: refreshToken,
           token_type: 'Bearer',
           expires_in: 900,
-          session_id: `session-${Date.now()}`,
+          context_id: context_id,
           transaction_id: transaction_id,
           device_bound: false
         });
@@ -1027,8 +1031,8 @@ export const authController = {
       const pendingESign = getPendingESign(username);
       if (pendingESign) {
         return res.status(200).json({
-          responseTypeCode: 'ESIGN_REQUIRED',
-          session_id: `session-${Date.now()}`,
+          response_type_code: 'ESIGN_REQUIRED',
+          context_id: context_id,
           transaction_id: transaction_id,
           esign_document_id: pendingESign.documentId,
           esign_url: `/esign/document/${pendingESign.documentId}`,
@@ -1036,14 +1040,14 @@ export const authController = {
         });
       }
 
-      return res.status(200).json({
-        success: true,
+      return res.status(201).json({
+        response_type_code: 'SUCCESS',
         access_token: accessToken,
         id_token: idToken,
         refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
-        session_id: `session-${Date.now()}`,
+        context_id: context_id,
         transaction_id: transaction_id,
         device_bound: false
       });
@@ -1117,6 +1121,25 @@ export const authController = {
     // Mark as accepted
     completeESign(username, document_id, acceptance_ip);
 
+    // v3.0.0: Check if device binding is needed (extract deviceFingerprint from context)
+    const deviceFingerprint = req.body.drs_action_token
+      ? convertActionTokenToFingerprint(req.body.drs_action_token)
+      : undefined;
+    const device_bound = deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false;
+
+    // v3.0.0: If device is not bound, return DEVICE_BIND_REQUIRED
+    if (!device_bound) {
+      console.log('📱 [ESIGN ACCEPT] Device not bound, returning DEVICE_BIND_REQUIRED:', { username, deviceFingerprint });
+      return res.status(200).json({
+        response_type_code: 'DEVICE_BIND_REQUIRED',
+        context_id: context_id,
+        transaction_id: transaction_id
+      });
+    }
+
+    // v3.0.0: Device already bound, return SUCCESS with tokens
+    console.log('✅ [ESIGN ACCEPT] Device already bound, returning tokens:', { username, deviceFingerprint });
+
     // Generate tokens
     const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
     const accessToken = generateAccessToken(user);
@@ -1130,24 +1153,16 @@ export const authController = {
       sameSite: 'strict'
     });
 
-    // Check if device binding is needed (extract deviceFingerprint from context)
-    const deviceFingerprint = req.body.drs_action_token
-      ? convertActionTokenToFingerprint(req.body.drs_action_token)
-      : undefined;
-    const device_bound = deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false;
-
-    return res.status(200).json({
-      responseTypeCode: 'SUCCESS',
+    return res.status(201).json({
+      response_type_code: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,
       refresh_token: refreshToken,
       token_type: 'Bearer',
       expires_in: 900,
-      session_id: `session-${Date.now()}`,
+      context_id: context_id,
       transaction_id: transaction_id,
-      esign_accepted: true,
-      esign_accepted_at: new Date().toISOString(),
-      device_bound: device_bound
+      device_bound: true
     });
   },
 
@@ -1185,10 +1200,10 @@ export const authController = {
     }
 
     return res.status(400).json({
-      responseTypeCode: 'ESIGN_DECLINED',
+      response_type_code: 'ESIGN_DECLINED',
       message: 'Authentication failed. Terms and conditions must be accepted to proceed.',
-      sessionId: '',
-      transactionId,
+      context_id: '',
+      transaction_id: transactionId,
       can_retry: true
     });
   },
@@ -1212,7 +1227,7 @@ export const authController = {
 
     if (pendingESign) {
       return res.json({
-        responseTypeCode: 'ESIGN_REQUIRED',
+        response_type_code: 'ESIGN_REQUIRED',
         message: pendingESign.reason === 'first_login'
           ? 'Welcome! Please review and accept our terms of service.'
           : 'Please review and accept the updated terms and conditions.',
@@ -1222,7 +1237,7 @@ export const authController = {
     }
 
     return res.json({
-      responseTypeCode: 'SUCCESS',
+      response_type_code: 'SUCCESS',
       message: 'No additional actions required'
     });
   },
@@ -1246,7 +1261,7 @@ export const authController = {
 
     if (userScenario?.esignBehavior === 'compliance' && !hasAcceptedDocument(username, 'terms-v1-2025')) {
       return res.json({
-        responseTypeCode: 'ESIGN_REQUIRED',
+        response_type_code: 'ESIGN_REQUIRED',
         message: 'Updated terms and conditions require your acceptance',
         esign_document_id: 'terms-v1-2025',
         is_mandatory: true,
@@ -1256,7 +1271,7 @@ export const authController = {
     }
 
     return res.json({
-      responseTypeCode: 'SUCCESS',
+      response_type_code: 'SUCCESS',
       message: 'No compliance actions required'
     });
   },
@@ -1315,18 +1330,19 @@ export const authController = {
   },
 
   /**
-   * Bind device (trust device)
+   * Bind device (trust device) - v3.0.0
    * POST /device/bind
    */
   bindDevice: async (req: Request, res: Response) => {
-    const { transaction_id, context_id } = req.body;
+    const { transaction_id, context_id, bind_device } = req.body;
 
-    console.log('🔍 [DEVICE BIND] Request:', { transaction_id, context_id });
+    console.log('🔍 [DEVICE BIND] Request:', { transaction_id, context_id, bind_device });
 
-    if (!transaction_id) {
+    // v3.0.0: bind_device is required
+    if (!transaction_id || bind_device === undefined) {
       return res.status(400).json({
-        error_code: 'MISSING_TRANSACTION_ID',
-        message: 'transaction_id is required'
+        error_code: 'MISSING_REQUIRED_FIELDS',
+        message: 'transaction_id and bind_device are required'
       });
     }
 
@@ -1357,27 +1373,42 @@ export const authController = {
       ? convertActionTokenToFingerprint(req.body.drs_action_token)
       : `device_${username}_${Date.now()}`;
 
-    // Check if device is already trusted
-    const already_trusted = isDeviceTrusted(deviceFingerprint, username);
-
-    let trusted_at = new Date().toISOString();
-    if (!already_trusted) {
-      // Trust the device
+    // v3.0.0: Handle bind_device parameter
+    let device_bound = false;
+    if (bind_device === true) {
+      // User chose to trust the device
       trustDevice(deviceFingerprint, username);
+      device_bound = true;
       console.log('🔐 Device bound via /device/bind:', { username, deviceFingerprint });
     } else {
-      // Get existing trust timestamp
-      const trust = deviceTrusts.get(deviceFingerprint);
-      if (trust) {
-        trusted_at = new Date(trust.trustedAt).toISOString();
-      }
+      // User declined to trust the device
+      console.log('⏭️ Device binding skipped by user:', { username, deviceFingerprint });
     }
 
+    // v3.0.0: Generate and return tokens
+    const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
+    updateLoginTime(username);
+
+    const accessToken = generateAccessToken(user);
+    const idToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: 'strict'
+    });
+
     return res.status(200).json({
-      success: true,
-      transaction_id: transaction_id,
-      trusted_at: trusted_at,
-      already_trusted: already_trusted
+      response_type_code: 'SUCCESS',
+      access_token: accessToken,
+      id_token: idToken,
+      refresh_token: refreshToken,
+      token_type: 'Bearer',
+      expires_in: 900,
+      context_id: context_id,
+      device_bound: device_bound
     });
   }
 };

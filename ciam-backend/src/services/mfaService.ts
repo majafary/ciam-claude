@@ -8,40 +8,71 @@ import { MFATransaction, MFAChallengeStatus } from '../types';
 const mockTransactions: Map<string, MFATransaction> = new Map();
 
 /**
- * Create MFA transaction
+ * Invalidate all pending transactions for a given context
+ * Critical for v3: When user starts new MFA attempt, previous attempts must be invalidated
+ */
+export const invalidatePendingTransactions = async (contextId: string): Promise<number> => {
+  let invalidatedCount = 0;
+
+  for (const [txId, tx] of mockTransactions.entries()) {
+    if (tx.contextId === contextId && tx.status === 'PENDING') {
+      tx.status = 'EXPIRED';
+      tx.updatedAt = new Date();
+      invalidatedCount++;
+      console.log(`Invalidated transaction ${txId} for context ${contextId}`);
+    }
+  }
+
+  return invalidatedCount;
+};
+
+/**
+ * Create MFA transaction (v3 with context_id support)
  */
 export const createMFATransaction = async (
+  contextId: string,
   userId: string,
-  method: 'otp' | 'push',
+  method: 'sms' | 'voice' | 'push',
   sessionId?: string,
   mfaOptionId?: number
 ): Promise<MFATransaction & { displayNumber?: number }> => {
-  const transactionId = `tx-${uuidv4()}`;
+  // V3 CRITICAL: Invalidate all pending transactions for this context before creating new one
+  await invalidatePendingTransactions(contextId);
+
+  const transactionId = `mfa-${method}-${userId}-${Date.now()}`;
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes
+  const expiresAt = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes (v3 spec)
+
+  const isOTPMethod = method === 'sms' || method === 'voice';
 
   const transaction: MFATransaction = {
     transactionId,
+    contextId, // V3: Link to context
     userId,
     sessionId,
     method,
     status: 'PENDING',
-    challengeId: method === 'otp' ? `ch-${uuidv4()}` : undefined,
-    otp: method === 'otp' ? generateOTP() : undefined,
+    challengeId: isOTPMethod ? `ch-${uuidv4()}` : undefined,
+    otp: isOTPMethod ? '1234' : undefined, // Mock OTP for testing
     createdAt: now,
     expiresAt,
     updatedAt: now
   };
 
   // For push notifications, generate a display number for matching
-  const displayNumber = method === 'push' ? Math.floor(10 + Math.random() * 90) : undefined;
+  const displayNumber = method === 'push' ? Math.floor(1 + Math.random() * 9) : undefined;
+  if (displayNumber) {
+    transaction.displayNumber = displayNumber;
+  }
 
   // TODO: Store in database in production
   mockTransactions.set(transactionId, transaction);
 
-  // For push notifications, simulate automatic approval after delay
+  console.log(`Created ${method} transaction ${transactionId} for context ${contextId}`);
+
+  // For push notifications, simulate automatic approval/rejection based on user type
   if (method === 'push') {
-    simulatePushResponse(transactionId);
+    simulatePushResponse(transactionId, userId);
   }
 
   return { ...transaction, displayNumber };
@@ -133,7 +164,7 @@ export const verifyOTP = async (transactionId: string, providedOTP: string): Pro
 };
 
 /**
- * Verify push notification result
+ * Verify push notification result (deprecated in v3 - replaced by POST /mfa/transaction/:id)
  */
 export const verifyPushResult = async (
   transactionId: string,
@@ -158,6 +189,15 @@ export const verifyPushResult = async (
       success: false,
       transaction,
       error: 'Transaction is not a push transaction'
+    };
+  }
+
+  // V3: Check if transaction was invalidated
+  if (transaction.status === 'EXPIRED') {
+    return {
+      success: false,
+      transaction,
+      error: 'Transaction was invalidated (new attempt started)'
     };
   }
 
@@ -195,7 +235,12 @@ export const getOTPForTesting = async (transactionId: string): Promise<string | 
   // TODO: Remove this function in production - it's only for testing
   const transaction = await getMFATransaction(transactionId);
 
-  if (!transaction || transaction.method !== 'otp') {
+  if (!transaction) {
+    return null;
+  }
+
+  const isOTPMethod = transaction.method === 'sms' || transaction.method === 'voice';
+  if (!isOTPMethod) {
     return null;
   }
 
@@ -264,7 +309,7 @@ export const getMFAStats = async (): Promise<{
     approvedTransactions: transactions.filter(t => t.status === 'APPROVED').length,
     rejectedTransactions: transactions.filter(t => t.status === 'REJECTED').length,
     expiredTransactions: transactions.filter(t => t.status === 'EXPIRED').length,
-    otpTransactions: transactions.filter(t => t.method === 'otp').length,
+    otpTransactions: transactions.filter(t => t.method === 'sms' || t.method === 'voice').length,
     pushTransactions: transactions.filter(t => t.method === 'push').length
   };
 };
@@ -277,19 +322,41 @@ const generateOTP = (): string => {
 };
 
 /**
- * Simulate push notification response for demo purposes
+ * Simulate push notification response for demo purposes (v3 with user-based behavior)
  */
-const simulatePushResponse = (transactionId: string): void => {
-  // Simulate push approval after 3-5 seconds
-  const delay = 3000 + Math.random() * 2000; // 3-5 seconds
+const simulatePushResponse = (transactionId: string, userId: string): void => {
+  // Determine behavior based on test user
+  let delay: number;
+  let shouldApprove: boolean;
+
+  if (userId.includes('pushfail')) {
+    // pushfail: auto-reject after 7s (wrong number selected)
+    delay = 7000;
+    shouldApprove = false;
+  } else if (userId.includes('pushexpired')) {
+    // pushexpired: never resolves (stays PENDING)
+    return; // Don't set timeout - leave pending forever
+  } else {
+    // mfauser: auto-approve after 5s (correct number selected)
+    delay = 5000;
+    shouldApprove = true;
+  }
 
   setTimeout(async () => {
     const transaction = mockTransactions.get(transactionId);
     if (transaction && transaction.status === 'PENDING') {
-      // 90% approval rate for demo
-      const approved = Math.random() > 0.1;
-      transaction.status = approved ? 'APPROVED' : 'REJECTED';
+      if (shouldApprove) {
+        transaction.status = 'APPROVED';
+        transaction.selectedNumber = transaction.displayNumber; // Correct match
+      } else {
+        transaction.status = 'REJECTED';
+        // Wrong number selected
+        transaction.selectedNumber = transaction.displayNumber ?
+          (transaction.displayNumber === 9 ? 1 : transaction.displayNumber + 1) :
+          3;
+      }
       transaction.updatedAt = new Date();
+      console.log(`Push ${shouldApprove ? 'approved' : 'rejected'} for transaction ${transactionId}`);
     }
   }, delay);
 };

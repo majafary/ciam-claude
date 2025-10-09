@@ -97,7 +97,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             // Return eSign required response
             const esignResponse: ESignRequiredResponse = {
               responseTypeCode: 'ESIGN_REQUIRED',
-              session_id: session.sessionId,
+              context_id: session.sessionId,
               transaction_id: transactionId,
               esign_document_id: esignCheck.documentId,
               esign_url: `/esign/document/${esignCheck.documentId}`,
@@ -141,14 +141,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             responseTypeCode: 'SUCCESS',
             access_token: accessToken,
             id_token: idToken,
-            refresh_token: refreshToken.token,
             token_type: 'Bearer',
             expires_in: 900, // 15 minutes
-            session_id: session.sessionId,
+            context_id: session.sessionId,
             device_bound: true
           };
 
-          res.status(201).json(successResponse);
+          res.status(200).json(successResponse);
           return;
         }
 
@@ -168,7 +167,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             { value: '5678', mfa_option_id: 2 }
           ],
           mobile_approve_status: 'ENABLED',
-          session_id: session.sessionId,
+          context_id: session.sessionId,
           transaction_id: transactionId
         };
 
@@ -234,7 +233,16 @@ export const getESignDocument = async (req: Request, res: Response): Promise<voi
  */
 export const acceptESign = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { transaction_id, document_id, acceptance_ip, acceptance_timestamp }: ESignAcceptanceRequest = req.body;
+    const { context_id, transaction_id, document_id, acceptance_ip, acceptance_timestamp }: ESignAcceptanceRequest = req.body;
+
+    // V3: Validate context_id
+    if (!context_id) {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E04_00_010',
+        'context_id is required'
+      ));
+      return;
+    }
 
     if (!transaction_id || !document_id) {
       sendErrorResponse(res, 400, createApiError(
@@ -306,14 +314,12 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
       responseTypeCode: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,
-      refresh_token: refreshToken.token,
       token_type: 'Bearer',
       expires_in: 900,
-      session_id: sessionId,
+      context_id: context_id,
       transaction_id: transaction_id,
       esign_accepted: true,
-      esign_accepted_at: acceptance.acceptedAt.toISOString(),
-      device_bound: deviceBound
+      esign_accepted_at: acceptance.acceptedAt.toISOString()
     };
 
     res.json(response);

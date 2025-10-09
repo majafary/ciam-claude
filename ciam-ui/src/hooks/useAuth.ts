@@ -22,6 +22,7 @@ export const useAuth = (): UseAuthReturn => {
     mfaError: context.mfaError,
     mfaUsername: context.mfaUsername,
     mfaTransactionId: context.mfaTransactionId,
+    mfaContextId: context.mfaContextId,
     mfaDeviceFingerprint: context.mfaDeviceFingerprint,
     // Services
     authService: context.authService,

@@ -16,11 +16,12 @@ interface CiamContextValue {
   error: string | null;
   // MFA state - centralized to avoid timing conflicts
   mfaRequired: boolean;
-  mfaAvailableMethods: ('otp' | 'push')[];
+  mfaAvailableMethods: ('sms' | 'voice' | 'push')[];
   mfaOtpMethods: Array<{ value: string; mfa_option_id: number }> | null; // OTP method options from login response
   mfaError: string | null;
   mfaUsername: string | null; // Store username when MFA is required
   mfaTransactionId: string | null; // Store transaction_id from login response for MFA operations
+  mfaContextId: string | null; // Store context_id from login response for MFA operations
   mfaDeviceFingerprint: string | null; // Store device fingerprint for device binding during MFA
   // Authentication actions
   login: (username: string, password: string) => Promise<LoginResponse>;
@@ -118,11 +119,12 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     error: null as string | null,
     // MFA state
     mfaRequired: false,
-    mfaAvailableMethods: [] as ('otp' | 'push')[],
+    mfaAvailableMethods: [] as ('sms' | 'voice' | 'push')[],
     mfaOtpMethods: null as Array<{ value: string; mfa_option_id: number }> | null,
     mfaError: null as string | null,
     mfaUsername: null as string | null, // Store username when MFA is required
     mfaTransactionId: null as string | null, // Store transaction_id for MFA operations
+    mfaContextId: null as string | null, // Store context_id for MFA operations
     mfaDeviceFingerprint: null as string | null, // Store device fingerprint for device binding
   });
 
@@ -309,7 +311,10 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
 
       const response = await authService.login(username, password);
 
-      if (response.responseTypeCode === 'SUCCESS') {
+      // v3.0.0: Use response_type_code with fallback to responseTypeCode
+      const responseTypeCode = response.response_type_code || response.responseTypeCode;
+
+      if (responseTypeCode === 'SUCCESS') {
         // Full login successful
         const userInfo = await authService.getUserInfo();
 
@@ -334,36 +339,48 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
           mfaError: null,
           mfaUsername: null,
           mfaTransactionId: null,
+          mfaContextId: null,
           mfaDeviceFingerprint: null,
         });
 
         onLoginSuccess?.(user);
-      } else if (response.responseTypeCode === 'MFA_REQUIRED') {
+      } else if (responseTypeCode === 'MFA_REQUIRED') {
         // MFA required - set MFA state to trigger dialog
         console.log('🟢 Provider: Setting MFA state');
+        console.log('🔍 Provider: Full MFA_REQUIRED response:', JSON.stringify(response, null, 2));
         console.log('🔍 Provider: Storing username for MFA:', username);
+        console.log('🔍 Provider: context_id from response:', response.context_id);
+        console.log('🔍 Provider: transaction_id from response:', response.transaction_id);
 
         // Extract available MFA methods from otp_methods and mobile_approve_status
-        const availableMethods: ('otp' | 'push')[] = [];
+        const availableMethods: ('sms' | 'voice' | 'push')[] = [];
         if (response.otp_methods && response.otp_methods.length > 0) {
-          availableMethods.push('otp');
+          availableMethods.push('sms'); // v3: Use sms for OTP methods
         }
         if (response.mobile_approve_status === 'ENABLED') {
           availableMethods.push('push');
         }
 
+        console.log('🔍 Provider: Setting state with:', {
+          mfaContextId: response.context_id,
+          mfaTransactionId: response.transaction_id,
+          availableMethods,
+          mfaOtpMethods: response.otp_methods,
+        });
+
         setAuthState(prev => ({
           ...prev,
           isLoading: false,
           mfaRequired: true,
-          mfaAvailableMethods: availableMethods.length > 0 ? availableMethods : ['otp', 'push'], // Fallback to both if none specified
+          mfaAvailableMethods: availableMethods.length > 0 ? availableMethods : ['sms', 'push'], // Fallback to both if none specified
           mfaOtpMethods: response.otp_methods || null, // Store OTP method options with their IDs
           mfaError: null,
           mfaUsername: username, // Store username for later MFA use
           mfaTransactionId: response.transaction_id || null, // Store transaction_id for MFA operations
-          mfaDeviceFingerprint: null, // deviceFingerprint removed from v2.0.0 API
+          mfaContextId: response.context_id, // Store context_id for MFA operations (always present)
+          mfaDeviceFingerprint: null, // deviceFingerprint removed from v3.0.0 API
         }));
-      } else if (response.responseTypeCode === 'ESIGN_REQUIRED') {
+      } else if (responseTypeCode === 'ESIGN_REQUIRED') {
         // eSign required - CiamLoginComponent will handle showing the dialog
         console.log('📝 Provider: eSign required, CiamLoginComponent will handle dialog');
         setAuthState(prev => ({
@@ -373,7 +390,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         }));
       } else {
         // Handle all error cases: MFA_LOCKED, ACCOUNT_LOCKED, INVALID_CREDENTIALS, MISSING_CREDENTIALS
-        console.log("MARKER_ERROR_HANDLING:", response.responseTypeCode, response.message);
+        console.log("MARKER_ERROR_HANDLING:", responseTypeCode, response.message);
         const errorMessage = response.message || 'Authentication failed';
         setAuthState(prev => ({
           ...prev,
@@ -383,7 +400,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         console.log("MARKER_ERROR_SET:", errorMessage);
 
         const apiError: ApiError = {
-          code: response.responseTypeCode,
+          code: responseTypeCode,
           message: errorMessage,
           timestamp: new Date().toISOString(),
         };
@@ -453,6 +470,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         mfaError: null,
         mfaUsername: null,
         mfaTransactionId: null,
+        mfaContextId: null,
         mfaDeviceFingerprint: null,
       });
 
@@ -470,6 +488,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         mfaError: null,
         mfaUsername: null,
         mfaTransactionId: null,
+        mfaContextId: null,
         mfaDeviceFingerprint: null,
       });
 
@@ -561,6 +580,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
         mfaError: null,
         mfaUsername: null,
         mfaTransactionId: null,
+        mfaContextId: null,
         mfaDeviceFingerprint: null,
       });
 
@@ -630,10 +650,41 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     try {
       console.log('🔐 Provider: Trusting device with transaction_id:', deviceBindState.deviceFingerprint);
       // deviceFingerprint field actually contains transaction_id (backend handles fingerprint internally)
-      await authService.bindDevice(deviceBindState.deviceFingerprint);
-      console.log('✅ Provider: Device trusted successfully');
+      // v3.0.0: Pass bind_device: true and handle token response
+      const response = await authService.bindDevice(authState.mfaContextId || '', deviceBindState.deviceFingerprint, true);
+      console.log('✅ Provider: Device trusted successfully', response);
+
+      // v3.0.0: Set authentication state with tokens from device bind response
+      const userInfo = await authService.getUserInfo();
+      const user: User = {
+        sub: userInfo.sub,
+        preferred_username: userInfo.preferred_username,
+        email: userInfo.email,
+        email_verified: userInfo.email_verified,
+        given_name: userInfo.given_name,
+        family_name: userInfo.family_name,
+        roles: userInfo.roles,
+      };
+
+      setAuthState({
+        isAuthenticated: true,
+        isLoading: false,
+        user,
+        error: null,
+        mfaRequired: false,
+        mfaAvailableMethods: [],
+        mfaOtpMethods: null,
+        mfaError: null,
+        mfaUsername: null,
+        mfaTransactionId: null,
+        mfaContextId: null,
+        mfaDeviceFingerprint: null,
+      });
 
       setDeviceBindState({ open: false, username: '', deviceFingerprint: '', onComplete: null });
+
+      // Complete login
+      onLoginSuccess?.(user);
 
       // Call completion callback if provided
       if (deviceBindState.onComplete) {
@@ -645,13 +696,52 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     }
   };
 
-  const handleDeviceBindCancel = () => {
-    console.log('⏭️ Provider: Device binding skipped');
-    setDeviceBindState({ open: false, username: '', deviceFingerprint: '', onComplete: null });
+  const handleDeviceBindCancel = async () => {
+    try {
+      console.log('⏭️ Provider: Device binding skipped');
+      // v3.0.0: Pass bind_device: false and handle token response
+      const response = await authService.bindDevice(authState.mfaContextId || '', deviceBindState.deviceFingerprint, false);
+      console.log('✅ Provider: Device binding declined, tokens received', response);
 
-    // Call completion callback if provided
-    if (deviceBindState.onComplete) {
-      deviceBindState.onComplete();
+      // v3.0.0: Set authentication state with tokens from device bind response
+      const userInfo = await authService.getUserInfo();
+      const user: User = {
+        sub: userInfo.sub,
+        preferred_username: userInfo.preferred_username,
+        email: userInfo.email,
+        email_verified: userInfo.email_verified,
+        given_name: userInfo.given_name,
+        family_name: userInfo.family_name,
+        roles: userInfo.roles,
+      };
+
+      setAuthState({
+        isAuthenticated: true,
+        isLoading: false,
+        user,
+        error: null,
+        mfaRequired: false,
+        mfaAvailableMethods: [],
+        mfaOtpMethods: null,
+        mfaError: null,
+        mfaUsername: null,
+        mfaTransactionId: null,
+        mfaContextId: null,
+        mfaDeviceFingerprint: null,
+      });
+
+      setDeviceBindState({ open: false, username: '', deviceFingerprint: '', onComplete: null });
+
+      // Complete login
+      onLoginSuccess?.(user);
+
+      // Call completion callback if provided
+      if (deviceBindState.onComplete) {
+        deviceBindState.onComplete();
+      }
+    } catch (err: any) {
+      console.error('❌ Provider: Failed to skip device binding:', err);
+      // Error is handled within dialog
     }
   };
 
@@ -684,53 +774,66 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
 
       // Accept eSign
       const response = await authService.acceptESign(
+        authState.mfaContextId || '', // context_id for v3
         esignState.transactionId,
         esignState.documentId,
         undefined // acceptanceIp - let backend handle it
       );
       console.log('✅ Provider: eSign accepted successfully', response);
 
-      // Set authentication state
-      const userInfo = await authService.getUserInfo();
-      const user: User = {
-        sub: userInfo.sub,
-        preferred_username: userInfo.preferred_username,
-        email: userInfo.email,
-        email_verified: userInfo.email_verified,
-        given_name: userInfo.given_name,
-        family_name: userInfo.family_name,
-        roles: userInfo.roles,
-      };
+      // v3.0.0: Check response_type_code (with fallback to legacy responseTypeCode)
+      const responseTypeCode = response.response_type_code || response.responseTypeCode;
 
-      setAuthState({
-        isAuthenticated: true,
-        isLoading: false,
-        user,
-        error: null,
-        mfaRequired: false,
-        mfaAvailableMethods: [],
-        mfaOtpMethods: null,
-        mfaError: null,
-        mfaUsername: null,
-        mfaTransactionId: null,
-        mfaDeviceFingerprint: null,
-      });
-
-      // Close eSign dialog first
-      setEsignState({ open: false, documentId: '', transactionId: '', mandatory: false, username: '', saveUsername: false, deviceFingerprint: '', onComplete: null });
-
-      // Check if device binding is required
-      if (response.device_bound === false && esignState.transactionId) {
-        console.log('🔒 Provider: Device not bound, setting pending device bind');
-        // Set pending state - will open device bind dialog after eSign dialog fully exits
+      // v3.0.0: If device binding is required, show device bind dialog
+      if (responseTypeCode === 'DEVICE_BIND_REQUIRED') {
+        console.log('📱 Provider: DEVICE_BIND_REQUIRED response, will show device bind dialog after eSign closes');
+        // Set pending device bind to open after eSign dialog exit animation
         setPendingDeviceBind({
           shouldOpen: true,
           username: esignState.username,
-          transactionId: esignState.transactionId,
-          onComplete: esignState.onComplete || null,
+          transactionId: response.transaction_id || esignState.transactionId,
+          onComplete: () => {
+            // onLoginSuccess will be called after device binding completes
+            if (esignState.onComplete) {
+              esignState.onComplete();
+            }
+          },
         });
+
+        // Close eSign dialog - device bind will open after transition
+        setEsignState({ open: false, documentId: '', transactionId: '', mandatory: false, username: '', saveUsername: false, deviceFingerprint: '', onComplete: null });
       } else {
-        // Device already bound or no transaction, complete login
+        // v3.0.0: Device already bound or SUCCESS response - set authentication state
+        const userInfo = await authService.getUserInfo();
+        const user: User = {
+          sub: userInfo.sub,
+          preferred_username: userInfo.preferred_username,
+          email: userInfo.email,
+          email_verified: userInfo.email_verified,
+          given_name: userInfo.given_name,
+          family_name: userInfo.family_name,
+          roles: userInfo.roles,
+        };
+
+        setAuthState({
+          isAuthenticated: true,
+          isLoading: false,
+          user,
+          error: null,
+          mfaRequired: false,
+          mfaAvailableMethods: [],
+          mfaOtpMethods: null,
+          mfaError: null,
+          mfaUsername: null,
+          mfaTransactionId: null,
+          mfaContextId: null,
+          mfaDeviceFingerprint: null,
+        });
+
+        // Close eSign dialog
+        setEsignState({ open: false, documentId: '', transactionId: '', mandatory: false, username: '', saveUsername: false, deviceFingerprint: '', onComplete: null });
+
+        // Complete login - device already bound
         onLoginSuccess?.(user);
 
         if (esignState.onComplete) {
@@ -750,7 +853,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
   const handleESignDecline = async () => {
     console.log('⏭️ Provider: eSign declined');
     try {
-      await authService.declineESign(esignState.transactionId, esignState.documentId, 'User declined');
+      await authService.declineESign(authState.mfaContextId || '', esignState.transactionId, esignState.documentId, 'User declined');
     } catch (err) {
       console.error('❌ Provider: Failed to decline eSign:', err);
     }
@@ -793,6 +896,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     mfaError: authState.mfaError,
     mfaUsername: authState.mfaUsername,
     mfaTransactionId: authState.mfaTransactionId,
+    mfaContextId: authState.mfaContextId,
     mfaDeviceFingerprint: authState.mfaDeviceFingerprint,
     // Authentication actions
     login,

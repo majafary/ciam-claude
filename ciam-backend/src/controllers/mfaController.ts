@@ -9,35 +9,46 @@ import { MFAChallengeRequest, MFAChallengeResponse, MFAVerifyRequest, MFAVerifyS
 import { isDeviceTrusted } from './deviceController';
 
 /**
- * Initiate MFA challenge
+ * Initiate MFA challenge (v3 with context_id support)
  * POST /auth/mfa/initiate
  */
 export const initiateChallenge = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { transaction_id, method, mfa_option_id }: MFAChallengeRequest = req.body;
+    const { context_id, transaction_id, method, mfa_option_id }: MFAChallengeRequest = req.body;
 
-    // Validate mfa_option_id for OTP method
-    if (method === 'otp' && !mfa_option_id) {
+    // V3: Validate context_id
+    if (!context_id) {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E04_00_010',
+        'context_id is required'
+      ));
+      return;
+    }
+
+    // Validate mfa_option_id for OTP methods (sms/voice)
+    const isOTPMethod = method === 'sms' || method === 'voice';
+    if (isOTPMethod && !mfa_option_id) {
       sendErrorResponse(res, 400, createApiError(
         'CIAM_E01_01_001',
-        'mfa_option_id is required when method is otp'
+        'mfa_option_id is required when method is sms or voice'
       ));
       return;
     }
 
     logAuthEvent('mfa_challenge', undefined, {
       method,
+      contextId: context_id,
       transactionId: transaction_id,
       mfaOptionId: mfa_option_id,
       ip: req.ip
     });
 
-    // Get the transaction to retrieve user info
+    // Get the existing transaction to retrieve user info
     const existingTransaction = await getMFATransaction(transaction_id);
 
     if (!existingTransaction) {
       sendErrorResponse(res, 404, createApiError(
-        'CIAM_E01_01_001',
+        'CIAM_E01_03_001',
         'Transaction not found'
       ));
       return;
@@ -61,11 +72,12 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Create MFA transaction
-    const transaction = await createMFATransaction(userId, method, existingTransaction.sessionId, mfa_option_id);
+    // V3: Create MFA transaction with context_id (invalidates previous pending transactions)
+    const transaction = await createMFATransaction(context_id, userId, method, existingTransaction.sessionId, mfa_option_id);
 
     logAuthEvent('mfa_challenge_created', userId, {
       transactionId: transaction.transactionId,
+      contextId: context_id,
       method,
       sessionId: existingTransaction.sessionId,
       ip: req.ip
@@ -73,9 +85,9 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
 
     const response: MFAChallengeResponse = {
       success: true,
-      transaction_id: transaction.transactionId,
+      transaction_id: transaction.transactionId, // V3: Returns NEW transaction_id
       challenge_status: transaction.status,
-      expires_at: transaction.expiresAt.toISOString()
+      expires_at: transaction.expiresAt.toISOString() // V3: Backend-controlled timer
     };
 
     if (transaction.displayNumber) {
@@ -95,16 +107,25 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
 };
 
 /**
- * Verify MFA challenge
- * POST /auth/mfa/verify
+ * Verify MFA OTP challenge (v3 - OTP specific)
+ * POST /auth/mfa/otp/verify
  */
-export const verifyChallenge = async (req: Request, res: Response): Promise<void> => {
+export const verifyOTPChallenge = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { transaction_id, method, code }: MFAVerifyRequest = req.body;
+    const { context_id, transaction_id, code }: MFAVerifyRequest = req.body;
 
-    logAuthEvent('mfa_verify', undefined, {
+    // V3: Validate context_id
+    if (!context_id) {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E04_00_010',
+        'context_id is required'
+      ));
+      return;
+    }
+
+    logAuthEvent('mfa_verify_otp', undefined, {
+      contextId: context_id,
       transactionId: transaction_id,
-      method,
       hasCode: !!code,
       ip: req.ip
     });
@@ -156,32 +177,16 @@ export const verifyChallenge = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    let verificationResult;
-
-    // Verify based on method
-    if (method === 'otp' && code) {
-      verificationResult = await verifyOTP(transaction_id, code);
-    } else if (method === 'push') {
-      // For push, check if transaction is already approved
-      const updatedTransaction = await getMFATransaction(transaction_id);
-      if (updatedTransaction?.status === 'APPROVED') {
-        verificationResult = { success: true, transaction: updatedTransaction };
-      } else if (updatedTransaction?.status === 'REJECTED') {
-        verificationResult = { success: false, transaction: updatedTransaction, error: 'Push rejected' };
-      } else {
-        sendErrorResponse(res, 400, createApiError(
-          'CIAM_E01_01_001',
-          'Push notification not yet approved'
-        ));
-        return;
-      }
-    } else {
+    // V3: OTP verification only - code is required
+    if (!code) {
       sendErrorResponse(res, 400, createApiError(
         'CIAM_E01_01_001',
-        method === 'otp' ? 'code is required for OTP method' : 'Invalid method'
+        'code is required for OTP verification'
       ));
       return;
     }
+
+    const verificationResult = await verifyOTP(transaction_id, code);
 
     if (!verificationResult.success || !verificationResult.transaction) {
       logAuthEvent('mfa_failure', transaction.userId, {
@@ -245,26 +250,175 @@ export const verifyChallenge = async (req: Request, res: Response): Promise<void
     res.cookie('refresh_token', refreshToken.token, getRefreshTokenCookieOptions());
 
     const response: MFAVerifySuccessResponse = {
-      success: true,
+      response_type_code: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,
-      refresh_token: refreshToken.token,
       token_type: 'Bearer',
       expires_in: 900, // 15 minutes
-      session_id: sessionId,
-      transaction_id: transaction_id,
-      device_bound: deviceBound
+      context_id: context_id,
+      transaction_id: transaction_id
     };
 
     res.json(response);
   } catch (error) {
-    logAuthEvent('mfa_verify_failure', undefined, {
+    logAuthEvent('mfa_verify_otp_failure', undefined, {
+      contextId: req.body.context_id,
       transactionId: req.body.transaction_id,
       error: error instanceof Error ? error.message : 'Unknown error',
       ip: req.ip
     });
 
-    handleInternalError(res, error instanceof Error ? error : new Error('MFA verification failed'));
+    handleInternalError(res, error instanceof Error ? error : new Error('MFA OTP verification failed'));
+  }
+};
+
+/**
+ * Verify MFA Push challenge (v3 - Push specific)
+ * POST /mfa/transaction/:transaction_id
+ */
+export const verifyPushChallenge = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { transaction_id } = req.params;
+    const { context_id } = req.body;
+
+    // V3: Validate context_id
+    if (!context_id) {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E04_00_010',
+        'context_id is required'
+      ));
+      return;
+    }
+
+    logAuthEvent('mfa_verify_push', undefined, {
+      contextId: context_id,
+      transactionId: transaction_id,
+      ip: req.ip
+    });
+
+    // Get MFA transaction
+    const transaction = await getMFATransaction(transaction_id);
+
+    if (!transaction) {
+      logAuthEvent('mfa_failure', undefined, {
+        reason: 'transaction_not_found',
+        transactionId: transaction_id,
+        ip: req.ip
+      });
+
+      sendErrorResponse(res, 404, createApiError(
+        'CIAM_E01_01_001',
+        'Transaction not found'
+      ));
+      return;
+    }
+
+    // V3: Validate this is a push transaction
+    if (transaction.method !== 'push') {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E01_01_001',
+        'Transaction is not a push transaction'
+      ));
+      return;
+    }
+
+    // V3: Check transaction status
+    if (transaction.status === 'PENDING') {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E01_01_018',
+        'Push notification not yet approved'
+      ));
+      return;
+    }
+
+    if (transaction.status === 'REJECTED') {
+      logAuthEvent('mfa_failure', transaction.userId, {
+        reason: 'push_rejected',
+        transactionId: transaction_id,
+        ip: req.ip
+      });
+
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E01_01_001',
+        'Push notification was rejected'
+      ));
+      return;
+    }
+
+    if (transaction.status === 'EXPIRED') {
+      logAuthEvent('mfa_failure', transaction.userId, {
+        reason: 'transaction_expired',
+        transactionId: transaction_id,
+        ip: req.ip
+      });
+
+      sendErrorResponse(res, 410, createApiError(
+        'CIAM_E01_01_001',
+        'Transaction has expired or been rejected'
+      ));
+      return;
+    }
+
+    // Transaction must be APPROVED to reach here
+    if (transaction.status !== 'APPROVED') {
+      sendErrorResponse(res, 400, createApiError(
+        'CIAM_E01_01_001',
+        'Invalid transaction status'
+      ));
+      return;
+    }
+
+    // MFA verification successful - generate tokens
+    const user = await getUserById(transaction.userId);
+    if (!user) {
+      handleInternalError(res, new Error('User not found after successful MFA'));
+      return;
+    }
+
+    // Generate tokens
+    const sessionId = transaction.sessionId || `sess-${Date.now()}`;
+    const accessToken = generateAccessToken(user.id, sessionId, user.roles);
+    const idToken = generateIdToken(user.id, sessionId, {
+      preferred_username: user.username,
+      email: user.email,
+      email_verified: true,
+      given_name: user.given_name,
+      family_name: user.family_name
+    });
+
+    // Create refresh token
+    const refreshToken = await createRefreshToken(user.id, sessionId);
+
+    logAuthEvent('mfa_success', user.id, {
+      transactionId: transaction_id,
+      sessionId,
+      method: 'push',
+      ip: req.ip
+    });
+
+    // Set refresh token cookie
+    res.cookie('refresh_token', refreshToken.token, getRefreshTokenCookieOptions());
+
+    const response: MFAVerifySuccessResponse = {
+      response_type_code: 'SUCCESS',
+      access_token: accessToken,
+      id_token: idToken,
+      token_type: 'Bearer',
+      expires_in: 900, // 15 minutes
+      context_id: context_id,
+      transaction_id: transaction_id
+    };
+
+    res.json(response);
+  } catch (error) {
+    logAuthEvent('mfa_verify_push_failure', undefined, {
+      contextId: req.body.context_id,
+      transactionId: req.params.transaction_id,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      ip: req.ip
+    });
+
+    handleInternalError(res, error instanceof Error ? error : new Error('MFA push verification failed'));
   }
 };
 

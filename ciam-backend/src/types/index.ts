@@ -1,4 +1,4 @@
-// Core API types matching the OpenAPI specification v2.0.0
+// Core API types matching the OpenAPI specification v3.0.0
 
 export interface LoginRequest {
   username: string;
@@ -12,11 +12,10 @@ export interface LoginSuccessResponse {
   responseTypeCode: 'SUCCESS';
   access_token: string;
   id_token: string;
-  refresh_token: string;
   token_type: string;
   expires_in: number;
-  session_id: string;
-  device_bound: boolean;
+  context_id: string;
+  device_bound?: boolean;
 }
 
 export interface MFARequiredResponse {
@@ -26,24 +25,41 @@ export interface MFARequiredResponse {
     mfa_option_id: number;
   }>;
   mobile_approve_status: 'NOT_REGISTERED' | 'ENABLED' | 'DISABLED';
-  session_id: string;
+  context_id: string;
   transaction_id: string;
 }
 
 export interface ESignRequiredResponse {
   responseTypeCode: 'ESIGN_REQUIRED';
-  session_id: string;
+  context_id: string;
   transaction_id: string;
   esign_document_id: string;
   esign_url: string;
-  is_mandatory: boolean;
+  is_mandatory?: boolean;
 }
 
-export type LoginResponse = LoginSuccessResponse | MFARequiredResponse | ESignRequiredResponse;
+export interface DeviceBindRequiredResponse {
+  responseTypeCode: 'DEVICE_BIND_REQUIRED';
+  context_id: string;
+  transaction_id: string;
+}
+
+export interface DeviceBindResponse {
+  responseTypeCode: 'SUCCESS';
+  access_token: string;
+  id_token: string;
+  token_type: string;
+  expires_in: number;
+  context_id: string;
+  device_bound: boolean;
+}
+
+export type LoginResponse = LoginSuccessResponse | MFARequiredResponse | ESignRequiredResponse | DeviceBindRequiredResponse;
 
 export interface MFAChallengeRequest {
+  context_id: string;
   transaction_id: string;
-  method: 'otp' | 'push';
+  method: 'sms' | 'voice' | 'push';
   mfa_option_id?: number;
 }
 
@@ -56,24 +72,22 @@ export interface MFAChallengeResponse {
 }
 
 export interface MFAVerifyRequest {
+  context_id: string;
   transaction_id: string;
-  method: 'otp' | 'push';
   code?: string;
 }
 
 export interface MFAVerifySuccessResponse {
-  success: boolean;
+  response_type_code: 'SUCCESS';
   access_token: string;
   id_token: string;
-  refresh_token: string;
   token_type: string;
   expires_in: number;
-  session_id: string;
+  context_id: string;
   transaction_id: string;
-  device_bound: boolean;
 }
 
-export type MFAVerifyResponse = MFAVerifySuccessResponse | ESignRequiredResponse;
+export type MFAVerifyResponse = MFAVerifySuccessResponse | ESignRequiredResponse | DeviceBindRequiredResponse;
 
 export interface MFATransactionStatusResponse {
   transaction_id: string;
@@ -85,6 +99,7 @@ export interface MFATransactionStatusResponse {
 }
 
 export interface MFAApproveRequest {
+  context_id: string;
   selected_number: number;
 }
 
@@ -190,12 +205,15 @@ export interface Session {
 
 export interface MFATransaction {
   transactionId: string;
+  contextId: string;
   userId: string;
   sessionId?: string;
-  method: 'otp' | 'push';
+  method: 'sms' | 'voice' | 'push';
   status: MFAChallengeStatus;
   challengeId?: string;
   otp?: string;
+  displayNumber?: number;
+  selectedNumber?: number;
   createdAt: Date;
   expiresAt: Date;
   updatedAt: Date;
@@ -290,6 +308,7 @@ export interface ESignDocument {
 }
 
 export interface ESignAcceptanceRequest {
+  context_id: string;
   transaction_id: string;
   document_id: string;
   acceptance_ip?: string;
@@ -300,14 +319,12 @@ export interface ESignAcceptResponse {
   responseTypeCode: 'SUCCESS';
   access_token: string;
   id_token: string;
-  refresh_token: string;
   token_type: string;
   expires_in: number;
-  session_id: string;
+  context_id: string;
   transaction_id: string;
   esign_accepted: boolean;
   esign_accepted_at: string;
-  device_bound: boolean;
 }
 
 export interface PostMFACheckResponse {

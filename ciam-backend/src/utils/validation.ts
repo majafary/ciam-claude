@@ -78,6 +78,11 @@ export const validateLoginRequest = [
  * MFA challenge request validation
  */
 export const validateMFAChallengeRequest = [
+  body('context_id')
+    .isString()
+    .notEmpty()
+    .withMessage('context_id is required'),
+
   body('transaction_id')
     .isString()
     .notEmpty()
@@ -86,8 +91,8 @@ export const validateMFAChallengeRequest = [
 
   body('method')
     .isString()
-    .isIn(['otp', 'push'])
-    .withMessage('Method must be either "otp" or "push"'),
+    .isIn(['sms', 'voice', 'push'])
+    .withMessage('Method must be "sms", "voice", or "push"'),
 
   body('mfa_option_id')
     .optional()
@@ -98,23 +103,23 @@ export const validateMFAChallengeRequest = [
 ];
 
 /**
- * MFA verify request validation
+ * MFA OTP verify request validation (v3 - OTP specific)
  */
 export const validateMFAVerifyRequest = [
+  body('context_id')
+    .isString()
+    .notEmpty()
+    .withMessage('context_id is required'),
+
   body('transaction_id')
     .isString()
     .notEmpty()
-    .matches(/^tx-[a-zA-Z0-9-]+$/)
+    .matches(/^mfa-[a-zA-Z0-9-]+$/)
     .withMessage('Valid transaction_id is required'),
 
-  body('method')
-    .isString()
-    .isIn(['otp', 'push'])
-    .withMessage('Method must be either "otp" or "push"'),
-
   body('code')
-    .optional()
     .isString()
+    .notEmpty()
     .isLength({ min: 4, max: 10 })
     .isNumeric()
     .withMessage('code must be a 4-10 digit number'),
@@ -291,6 +296,11 @@ export const isValidTransactionId = (transactionId: string): boolean => {
  * MFA push approval request validation
  */
 export const validateMFAPushApprovalRequest = [
+  body('context_id')
+    .isString()
+    .notEmpty()
+    .withMessage('context_id is required'),
+
   body('selected_number')
     .isInt()
     .notEmpty()
@@ -315,6 +325,11 @@ export const validateDocumentIdParam = [
  * eSign acceptance request validation
  */
 export const validateESignAcceptRequest = [
+  body('context_id')
+    .isString()
+    .notEmpty()
+    .withMessage('context_id is required'),
+
   body('transaction_id')
     .isString()
     .notEmpty()
@@ -335,6 +350,45 @@ export const validateESignAcceptRequest = [
     .optional()
     .isISO8601()
     .withMessage('acceptance_timestamp must be a valid ISO 8601 date'),
+
+  handleValidationErrors
+];
+
+/**
+ * Device bind request validation (v3)
+ */
+export const validateDeviceBindRequest = [
+  body('context_id')
+    .isString()
+    .notEmpty()
+    .withMessage('context_id is required'),
+
+  body('transaction_id')
+    .isString()
+    .notEmpty()
+    .matches(/^tx-[a-zA-Z0-9-]+$/)
+    .withMessage('Valid transaction_id is required'),
+
+  body('bind_device')
+    .isBoolean()
+    .withMessage('bind_device must be a boolean'),
+
+  handleValidationErrors
+];
+
+/**
+ * MFA push verification request validation (v3 - POST /mfa/transaction/:id)
+ */
+export const validatePushVerificationRequest = [
+  param('transaction_id')
+    .isString()
+    .matches(/^mfa-[a-zA-Z0-9-]+$/)
+    .withMessage('Valid transaction ID is required'),
+
+  body('context_id')
+    .isString()
+    .notEmpty()
+    .withMessage('context_id is required'),
 
   handleValidationErrors
 ];

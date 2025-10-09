@@ -28,12 +28,13 @@ import {
   validateTokenIntrospectionRequest,
   validateMFAPushApprovalRequest,
   validateDocumentIdParam,
-  validateESignAcceptRequest
+  validateESignAcceptRequest,
+  validatePushVerificationRequest
 } from './utils/validation';
 
 // Import controllers
 import { login, logout, refreshToken, getESignDocument, acceptESign } from './controllers/authController';
-import { initiateChallenge, verifyChallenge, getTransactionStatus, approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
+import { initiateChallenge, verifyOTPChallenge, verifyPushChallenge, getTransactionStatus, approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
 import { bindDevice } from './controllers/deviceController';
 import { verifySessionEndpoint, listUserSessions, revokeSessionEndpoint } from './controllers/sessionController';
 import { getUserInfo } from './controllers/userController';
@@ -131,12 +132,12 @@ app.post('/auth/login', authRateLimit, validateLoginRequest, login);
 app.post('/auth/logout', authenticateToken, logout);
 app.post('/auth/refresh', tokenRefreshRateLimit, requireRefreshToken, validateTokenRefreshRequest, refreshToken);
 
-// MFA endpoints
+// MFA endpoints (v3)
 app.post('/auth/mfa/initiate', mfaRateLimit, validateMFAChallengeRequest, initiateChallenge);
-app.post('/auth/mfa/verify', mfaVerificationRateLimit, validateMFAVerifyRequest, verifyChallenge);
-app.get('/mfa/transaction/:transaction_id', validateTransactionIdParam, getTransactionStatus);
+app.post('/auth/mfa/otp/verify', mfaVerificationRateLimit, validateMFAVerifyRequest, verifyOTPChallenge);
+app.post('/mfa/transaction/:transaction_id', mfaVerificationRateLimit, validatePushVerificationRequest, verifyPushChallenge);
 
-// MFA push approval endpoint (mobile devices)
+// MFA push approval endpoint (mobile devices - v3)
 app.post('/mfa/transaction/:transaction_id/approve', validateTransactionIdParam, validateMFAPushApprovalRequest, approvePushNotification);
 
 // Test-only endpoint for OTP retrieval
@@ -182,8 +183,8 @@ const server = app.listen(PORT, () => {
       'POST /auth/logout',
       'POST /auth/refresh',
       'POST /auth/mfa/initiate',
-      'POST /auth/mfa/verify',
-      'GET /mfa/transaction/:transaction_id',
+      'POST /auth/mfa/otp/verify',
+      'POST /mfa/transaction/:transaction_id',
       'POST /mfa/transaction/:transaction_id/approve',
       'GET /esign/document/:document_id',
       'POST /esign/accept',

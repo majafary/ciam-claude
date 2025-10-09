@@ -1,11 +1,10 @@
-// API Response Types (matching backend v2.0.0)
+// API Response Types (matching backend v3.0.0)
 export interface LoginResponse {
-  responseTypeCode: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
+  response_type_code: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
   message?: string;
   id_token?: string;
   access_token?: string;
-  refresh_token?: string;
-  session_id: string;
+  context_id: string; // v3.0.0 - always present in all responses
   transaction_id?: string;
   device_bound?: boolean;
   // MFA Required specific fields (200 response)
@@ -15,6 +14,8 @@ export interface LoginResponse {
   esign_document_id?: string;
   esign_url?: string;
   is_mandatory?: boolean;
+  // Legacy support
+  responseTypeCode?: 'SUCCESS' | 'MFA_REQUIRED' | 'ESIGN_REQUIRED' | 'ACCOUNT_LOCKED' | 'MFA_LOCKED' | 'INVALID_CREDENTIALS' | 'MISSING_CREDENTIALS';
 }
 
 export interface MFAChallengeResponse {
@@ -26,12 +27,10 @@ export interface MFAChallengeResponse {
 }
 
 export interface MFAVerifyResponse {
-  success?: boolean;
-  responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
+  response_type_code: 'SUCCESS' | 'ESIGN_REQUIRED';
   id_token?: string;
   access_token?: string;
-  refresh_token?: string;
-  session_id?: string;
+  context_id?: string;
   transaction_id: string;
   device_bound?: boolean;
   esign_document_id?: string;
@@ -39,6 +38,8 @@ export interface MFAVerifyResponse {
   error?: string;
   attempts?: number;
   canRetry?: boolean;
+  // Legacy support
+  responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
 }
 
 export interface MFATransactionStatusResponse {
@@ -51,9 +52,8 @@ export interface MFATransactionStatusResponse {
 }
 
 export interface TokenRefreshResponse {
-  id_token: string;
+  id_token?: string;
   access_token: string;
-  refresh_token?: string;
   message?: string;
 }
 
@@ -96,6 +96,7 @@ export interface ESignDocument {
 }
 
 export interface ESignAcceptanceRequest {
+  context_id: string;
   transaction_id: string;
   document_id: string;
   acceptance_ip?: string;
@@ -109,32 +110,49 @@ export interface ESignDeclineRequest {
 }
 
 export interface ESignResponse {
-  responseTypeCode: 'SUCCESS' | 'ESIGN_DECLINED';
+  response_type_code: 'SUCCESS' | 'ESIGN_DECLINED' | 'DEVICE_BIND_REQUIRED';
   message?: string;
   access_token?: string;
   id_token?: string;
-  refresh_token?: string;
-  session_id?: string;
+  context_id?: string;
   transaction_id?: string;
+  device_bound?: boolean;
   esign_accepted?: boolean;
   esign_accepted_at?: string;
   can_retry?: boolean;
-  device_bound?: boolean; // Whether device is already trusted (true) or needs binding (false)
+  // Legacy support
+  responseTypeCode?: 'SUCCESS' | 'ESIGN_DECLINED' | 'DEVICE_BIND_REQUIRED';
 }
 
 export interface PostMFACheckResponse {
-  responseTypeCode: 'SUCCESS' | 'ESIGN_REQUIRED';
+  response_type_code: 'SUCCESS' | 'ESIGN_REQUIRED';
   message?: string;
   esign_document_id?: string;
   is_mandatory?: boolean;
+  // Legacy support
+  responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
 }
 
 export interface PostLoginCheckResponse {
-  responseTypeCode: 'SUCCESS' | 'ESIGN_REQUIRED';
+  response_type_code: 'SUCCESS' | 'ESIGN_REQUIRED';
   message?: string;
   esign_document_id?: string;
   is_mandatory?: boolean;
   force_logout_if_declined?: boolean;
+  // Legacy support
+  responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
+}
+
+// v3.0.0: Device Bind Response
+export interface DeviceBindResponse {
+  response_type_code: 'SUCCESS';
+  access_token: string;
+  id_token: string;
+  refresh_token?: string;
+  token_type: string;
+  expires_in: number;
+  context_id: string;
+  device_bound: boolean;
 }
 
 export type MFAChallengeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
@@ -156,13 +174,13 @@ export interface AuthState {
   isLoading: boolean;
   user: User | null;
   accessToken: string | null;
-  sessionId: string | null;
+  contextId: string | null;
   error: string | null;
 }
 
 export interface MFATransaction {
   transaction_id: string;
-  method: 'otp' | 'push';
+  method: 'sms' | 'voice' | 'push';
   status: MFAChallengeStatus;
   expires_at: string;
   created_at: string;
@@ -193,8 +211,8 @@ export interface CiamLoginComponentProps {
 
 export interface MfaMethodSelectionProps {
   open: boolean;
-  availableMethods: ('otp' | 'push')[];
-  onMethodSelected: (method: 'otp' | 'push') => Promise<void>;
+  availableMethods: ('sms' | 'voice' | 'push')[];
+  onMethodSelected: (method: 'sms' | 'voice' | 'push') => Promise<void>;
   onCancel: () => void;
   isLoading?: boolean;
   error?: string | null;
@@ -276,11 +294,12 @@ export interface UseAuthReturn {
   error: string | null;
   // MFA state - centralized to avoid timing conflicts
   mfaRequired: boolean;
-  mfaAvailableMethods: ('otp' | 'push')[];
+  mfaAvailableMethods: ('sms' | 'voice' | 'push')[];
   mfaOtpMethods: Array<{ value: string; mfa_option_id: number }> | null; // OTP method options from login response
   mfaError: string | null;
   mfaUsername: string | null; // Store username when MFA is required
   mfaTransactionId: string | null; // Store transaction_id for MFA operations
+  mfaContextId: string | null; // Store context_id for MFA operations
   mfaDeviceFingerprint: string | null; // Store device fingerprint for device binding
 
   // Services
@@ -305,9 +324,9 @@ export interface UseMfaReturn {
   error: string | null;
 
   // Actions
-  initiateChallenge: (method: 'otp' | 'push', transactionId: string, mfaOptionId?: number) => Promise<MFAChallengeResponse>;
-  verifyOtp: (transactionId: string, otp: string) => Promise<MFAVerifyResponse>;
-  verifyPush: (transactionId: string, pushResult?: 'APPROVED' | 'REJECTED', selectedNumber?: number) => Promise<MFAVerifyResponse>;
+  initiateChallenge: (method: 'sms' | 'voice' | 'push', contextId: string, transactionId: string, mfaOptionId?: number) => Promise<MFAChallengeResponse>;
+  verifyOtp: (contextId: string, transactionId: string, otp: string) => Promise<MFAVerifyResponse>;
+  verifyPush: (contextId: string, transactionId: string) => Promise<MFAVerifyResponse>;
   checkStatus: (transactionId: string) => Promise<MFATransactionStatusResponse>;
   cancelTransaction: () => void;
 }

@@ -10,7 +10,8 @@ import {
   ESignDocument,
   ESignResponse,
   PostMFACheckResponse,
-  PostLoginCheckResponse
+  PostLoginCheckResponse,
+  DeviceBindResponse
 } from '../types';
 
 export class AuthService {
@@ -68,11 +69,13 @@ export class AuthService {
         if (!response.ok) {
           // Special handling for all non-success responseTypeCodes
           // These should be returned normally instead of throwing errors
-          const responseTypeCode = responseData?.responseTypeCode;
+          // v3.0.0: Check both response_type_code (snake_case) and responseTypeCode (camelCase)
+          const responseTypeCode = responseData?.response_type_code || responseData?.responseTypeCode;
           if (responseTypeCode && [
             'MFA_REQUIRED', 'MFA_LOCKED', 'ACCOUNT_LOCKED',
             'INVALID_CREDENTIALS', 'MISSING_CREDENTIALS',
-            'ESIGN_REQUIRED', 'ESIGN_DECLINED'
+            'ESIGN_REQUIRED', 'ESIGN_DECLINED',
+            'DEVICE_BIND_REQUIRED' // v3.0.0: Added for device binding flow
           ].includes(responseTypeCode)) {
             return responseData;
           }
@@ -203,9 +206,9 @@ export class AuthService {
   }
 
   /**
-   * User login (v2 API)
+   * User login (v3 API)
    */
-  async login(username: string, password: string, drsActionToken?: string, appId: string = 'ciam-ui-sdk', appVersion: string = '2.0.0'): Promise<LoginResponse> {
+  async login(username: string, password: string, drsActionToken?: string, appId: string = 'ciam-ui-sdk', appVersion: string = '3.0.0'): Promise<LoginResponse> {
     try {
       // Generate actionToken for device fingerprinting if not provided
       const actionToken = drsActionToken || this.generateActionToken();
@@ -221,18 +224,20 @@ export class AuthService {
         }),
       });
 
-      // Handle all error response types
-      if (response.responseTypeCode && response.responseTypeCode !== 'SUCCESS') {
+      // Handle all error response types (v3.0.0: check response_type_code with fallback to responseTypeCode)
+      const responseTypeCode = response.response_type_code || response.responseTypeCode;
+      if (responseTypeCode && responseTypeCode !== 'SUCCESS') {
         return {
-          responseTypeCode: response.responseTypeCode,
-          message: response.message || this.getDefaultErrorMessage(response.responseTypeCode),
-          session_id: response.session_id || '',
+          response_type_code: responseTypeCode,
+          message: response.message || this.getDefaultErrorMessage(responseTypeCode),
+          context_id: response.context_id || '',
           transaction_id: response.transaction_id || '',
           otp_methods: response.otp_methods,
           mobile_approve_status: response.mobile_approve_status,
           esign_document_id: response.esign_document_id,
           esign_url: response.esign_url,
           is_mandatory: response.is_mandatory,
+          responseTypeCode: responseTypeCode, // Legacy support
         };
       }
 
@@ -243,14 +248,14 @@ export class AuthService {
 
       // For successful login (201), convert to expected LoginResponse format
       return {
-        responseTypeCode: 'SUCCESS',
+        response_type_code: 'SUCCESS',
         message: response.message,
         id_token: response.id_token,
         access_token: response.access_token,
-        refresh_token: response.refresh_token,
-        session_id: response.session_id || '',
+        context_id: response.context_id || '',
         transaction_id: response.transaction_id,
         device_bound: response.device_bound,
+        responseTypeCode: 'SUCCESS', // Legacy support
       };
     } catch (error) {
       // Handle regular error cases
@@ -262,20 +267,22 @@ export class AuthService {
           if (errorData.code === 'MFA_REQUIRED') {
             // Return as successful MFA response instead of throwing error
             return {
-              responseTypeCode: 'MFA_REQUIRED',
+              response_type_code: 'MFA_REQUIRED',
               message: errorData.message || 'Multi-factor authentication required',
-              session_id: '', // Backend doesn't provide session_id for MFA case
+              context_id: '', // Backend doesn't provide context_id for MFA case
               otp_methods: [], // Provide default empty array
               mobile_approve_status: 'NOT_REGISTERED',
+              responseTypeCode: 'MFA_REQUIRED', // Legacy support
             };
           }
 
           // Check if this is actually an MFA_LOCKED response that came through error path
           if (errorData.code === 'MFA_LOCKED') {
             return {
-              responseTypeCode: 'MFA_LOCKED',
+              response_type_code: 'MFA_LOCKED',
               message: errorData.message || 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.',
-              session_id: '',
+              context_id: '',
+              responseTypeCode: 'MFA_LOCKED', // Legacy support
             };
           }
         } catch {
@@ -367,29 +374,25 @@ export class AuthService {
   }
 
   /**
-   * Initiate MFA challenge (v2 API)
+   * Initiate MFA challenge (v3 API)
    */
   async initiateMFAChallenge(
+    contextId: string,
     transactionId: string,
-    method: 'otp' | 'push',
-    mfaOptionId?: number,
-    contextId?: string
+    method: 'sms' | 'voice' | 'push',
+    mfaOptionId?: number
   ): Promise<MFAChallengeResponse> {
-    console.log('🔍 AuthService.initiateMFAChallenge called with:', { transactionId, method, mfaOptionId, contextId });
+    console.log('🔍 AuthService.initiateMFAChallenge called with:', { contextId, transactionId, method, mfaOptionId });
 
     const requestBody: any = {
+      context_id: contextId,
       transaction_id: transactionId,
       method,
     };
 
-    // Add mfa_option_id for OTP method
-    if (method === 'otp' && mfaOptionId !== undefined) {
+    // Add mfa_option_id for OTP methods (sms/voice)
+    if ((method === 'sms' || method === 'voice') && mfaOptionId !== undefined) {
       requestBody.mfa_option_id = mfaOptionId;
-    }
-
-    // Add context_id if provided
-    if (contextId) {
-      requestBody.context_id = contextId;
     }
 
     console.log('🔍 AuthService MFA initiate request body:', JSON.stringify(requestBody, null, 2));
@@ -401,28 +404,19 @@ export class AuthService {
   }
 
   /**
-   * Verify MFA challenge (v2 API)
+   * Verify MFA OTP challenge (v3 API - OTP specific)
    */
-  async verifyMFAChallenge(
+  async verifyOTPChallenge(
+    contextId: string,
     transactionId: string,
-    method: 'otp' | 'push',
-    otp?: string,
-    contextId?: string
+    otp: string
   ): Promise<MFAVerifyResponse> {
     const requestBody: any = {
+      context_id: contextId,
       transaction_id: transactionId,
-      method,
+      method: 'sms', // v3.0.0: method is required for verification
+      code: otp,
     };
-
-    // Add OTP code if provided
-    if (method === 'otp' && otp) {
-      requestBody.code = otp;
-    }
-
-    // Add context_id if provided
-    if (contextId) {
-      requestBody.context_id = contextId;
-    }
 
     const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/verify', {
       method: 'POST',
@@ -438,12 +432,39 @@ export class AuthService {
   }
 
   /**
-   * Approve push MFA transaction (mobile app) (v2 API)
+   * Verify MFA Push challenge (v3 API - Push specific)
    */
-  async approvePushMFA(transactionId: string, selectedNumber: number): Promise<{ success: boolean; transaction_id: string; challenge_status: string }> {
+  async verifyPushChallenge(
+    contextId: string,
+    transactionId: string
+  ): Promise<MFAVerifyResponse> {
+    const requestBody: any = {
+      context_id: contextId,
+      transaction_id: transactionId,
+      method: 'push', // v3.0.0: method is required for verification
+    };
+
+    const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+
+    // Store access token if MFA was successful
+    if (response.access_token) {
+      this.setStoredAccessToken(response.access_token);
+    }
+
+    return response;
+  }
+
+  /**
+   * Approve push MFA transaction (mobile app) (v3 API)
+   */
+  async approvePushMFA(contextId: string, transactionId: string, selectedNumber: number): Promise<{ success: boolean; transaction_id: string; challenge_status: string }> {
     return this.apiCall(`/mfa/transaction/${encodeURIComponent(transactionId)}/approve`, {
       method: 'POST',
       body: JSON.stringify({
+        context_id: contextId,
         selected_number: selectedNumber,
       }),
     });
@@ -492,32 +513,28 @@ export class AuthService {
   }
 
   /**
-   * Get eSign document by ID (v2 API)
+   * Get eSign document by ID (v3 API)
    */
   async getESignDocument(documentId: string): Promise<ESignDocument> {
     return this.apiCall<ESignDocument>(`/esign/document/${encodeURIComponent(documentId)}`);
   }
 
   /**
-   * Accept eSign document (v2 API)
+   * Accept eSign document (v3 API)
    */
   async acceptESign(
+    contextId: string,
     transactionId: string,
     documentId: string,
-    acceptanceIp?: string,
-    contextId?: string
+    acceptanceIp?: string
   ): Promise<ESignResponse> {
     const requestBody: any = {
+      context_id: contextId,
       transaction_id: transactionId,
       document_id: documentId,
       acceptance_ip: acceptanceIp,
       acceptance_timestamp: new Date().toISOString(),
     };
-
-    // Add context_id if provided
-    if (contextId) {
-      requestBody.context_id = contextId;
-    }
 
     const response = await this.apiCall<ESignResponse>('/esign/accept', {
       method: 'POST',
@@ -533,24 +550,20 @@ export class AuthService {
   }
 
   /**
-   * Decline eSign document (v2 API)
+   * Decline eSign document (v3 API)
    */
   async declineESign(
+    contextId: string,
     transactionId: string,
     documentId: string,
-    reason?: string,
-    contextId?: string
+    reason?: string
   ): Promise<void> {
     const requestBody: any = {
+      context_id: contextId,
       transactionId,
       documentId,
       reason: reason || 'User declined',
     };
-
-    // Add context_id if provided
-    if (contextId) {
-      requestBody.context_id = contextId;
-    }
 
     await this.apiCall<void>('/esign/decline', {
       method: 'POST',
@@ -559,23 +572,28 @@ export class AuthService {
   }
 
   /**
-   * Bind device (trust device for future logins) (v2 API)
+   * Bind device (trust device for future logins) - v3.0.0
    * Backend handles device fingerprint internally via transaction_id
+   * @param bindDevice - true to bind device, false to skip binding
    */
-  async bindDevice(transactionId: string, contextId?: string): Promise<{ success: boolean; transaction_id: string; trusted_at: string; already_trusted: boolean }> {
+  async bindDevice(contextId: string, transactionId: string, bindDevice: boolean): Promise<DeviceBindResponse> {
     const requestBody: any = {
+      context_id: contextId,
       transaction_id: transactionId,
+      bind_device: bindDevice,
     };
 
-    // Add context_id if provided
-    if (contextId) {
-      requestBody.context_id = contextId;
-    }
-
-    return this.apiCall<{ success: boolean; transaction_id: string; trusted_at: string; already_trusted: boolean }>('/device/bind', {
+    const response = await this.apiCall<DeviceBindResponse>('/device/bind', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
+
+    // Store access token if device binding was successful
+    if (response.access_token) {
+      this.setStoredAccessToken(response.access_token);
+    }
+
+    return response;
   }
 
 }

@@ -19,16 +19,17 @@ export const useMfa = (): UseMfaReturn => {
   });
 
   const initiateChallenge = useCallback(async (
-    method: 'otp' | 'push',
+    method: 'sms' | 'voice' | 'push',
+    contextId: string,
     transactionId: string,
     mfaOptionId?: number
   ): Promise<MFAChallengeResponse> => {
     try {
-      console.log('🔍 useMfa.initiateChallenge called with:', { method, transactionId, mfaOptionId });
+      console.log('🔍 useMfa.initiateChallenge called with:', { method, contextId, transactionId, mfaOptionId });
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      // For v2.0.0, we use transaction_id from login response
-      const response = await authService.initiateMFAChallenge(transactionId, method, mfaOptionId);
+      // For v3.0.0, we use context_id and transaction_id from login response
+      const response = await authService.initiateMFAChallenge(contextId, transactionId, method, mfaOptionId);
 
       const transaction: MFATransaction = {
         transaction_id: response.transaction_id,
@@ -60,13 +61,14 @@ export const useMfa = (): UseMfaReturn => {
   }, [authService]);
 
   const verifyOtp = useCallback(async (
+    contextId: string,
     transactionId: string,
     otp: string
   ): Promise<MFAVerifyResponse> => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await authService.verifyMFAChallenge(transactionId, 'otp', otp);
+      const response = await authService.verifyOTPChallenge(contextId, transactionId, otp);
 
       // Update transaction status
       setState(prev => ({
@@ -93,14 +95,13 @@ export const useMfa = (): UseMfaReturn => {
   }, [authService]);
 
   const verifyPush = useCallback(async (
-    transactionId: string,
-    pushResult?: 'APPROVED' | 'REJECTED',
-    selectedNumber?: number
+    contextId: string,
+    transactionId: string
   ): Promise<MFAVerifyResponse> => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await authService.verifyMFAChallenge(transactionId, 'push');
+      const response = await authService.verifyPushChallenge(contextId, transactionId);
 
       // Update transaction status
       setState(prev => ({

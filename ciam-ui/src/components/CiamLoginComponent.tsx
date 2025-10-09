@@ -46,7 +46,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 }) => {
   const {
     isAuthenticated, isLoading, user, error, login, logout, clearError,
-    mfaRequired, mfaAvailableMethods, mfaOtpMethods, mfaError, mfaUsername, mfaTransactionId, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
+    mfaRequired, mfaAvailableMethods, mfaOtpMethods, mfaError, mfaUsername, mfaTransactionId, mfaContextId, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
 
@@ -172,7 +172,10 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     try {
       const result = await login(formData.username, formData.password);
 
-      if (result.responseTypeCode === 'SUCCESS') {
+      // v3.0.0: Check response_type_code with fallback to responseTypeCode
+      const responseTypeCode = result.response_type_code || result.responseTypeCode;
+
+      if (responseTypeCode === 'SUCCESS') {
         console.log('✅ Direct login success - completing authentication');
 
         // eSign requirement now comes directly in login response as ESIGN_REQUIRED
@@ -197,7 +200,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
           username: saveUsername ? formData.username : '',
           password: '',
         });
-      } else if (result.responseTypeCode === 'ESIGN_REQUIRED') {
+      } else if (responseTypeCode === 'ESIGN_REQUIRED') {
         console.log('📝 eSign required after login - calling Provider');
         // Preserve login data for eSign completion
         setOriginalLoginData({
@@ -208,7 +211,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         // Use Provider's showESignDialog to manage state persistently
         showESignDialog(
           result.esign_document_id || '',
-          result.transaction_id || result.session_id || '',
+          result.transaction_id || result.context_id || '',
           true, // Login-level eSign is always mandatory
           currentUsername,
           saveUsername,
@@ -301,8 +304,9 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     try {
       console.log('🟢 MFA Success - processing response:', mfaResponse);
 
-      // Check for eSign requirement directly in MFA response
-      if (mfaResponse.responseTypeCode === 'ESIGN_REQUIRED') {
+      // Check for eSign requirement directly in MFA response (v3.0.0: check response_type_code with fallback)
+      const responseTypeCode = mfaResponse.response_type_code || mfaResponse.responseTypeCode;
+      if (responseTypeCode === 'ESIGN_REQUIRED') {
         console.log('📝 eSign required after MFA - calling Provider');
 
         // Use preserved original login data
@@ -450,27 +454,42 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     clearMfa();
   };
 
-  const handleMethodSelected = async (method: 'otp' | 'push') => {
+  const handleMethodSelected = async (method: 'sms' | 'voice' | 'push') => {
     try {
-      // Use stored transaction_id from context (required for v2.0.0)
-      if (!mfaTransactionId) {
-        console.error('❌ Missing transaction_id for MFA initiate');
-        throw new Error('Missing transaction_id for MFA challenge');
+      console.log('🔍 handleMethodSelected - checking values:', {
+        method,
+        mfaContextId,
+        mfaTransactionId,
+        mfaContextIdType: typeof mfaContextId,
+        mfaTransactionIdType: typeof mfaTransactionId,
+        mfaRequired,
+        mfaAvailableMethods,
+        mfaOtpMethods
+      });
+
+      // Use stored context_id and transaction_id from context (required for v3.0.0)
+      if (!mfaContextId || !mfaTransactionId) {
+        console.error('❌ Missing context_id or transaction_id for MFA initiate', {
+          mfaContextId,
+          mfaTransactionId
+        });
+        throw new Error('Missing context_id or transaction_id for MFA challenge');
       }
 
-      // For OTP method, we need to pass the mfa_option_id from the first available OTP method
+      // For OTP methods (sms/voice), we need to pass the mfa_option_id from the first available OTP method
       let mfaOptionId: number | undefined;
-      if (method === 'otp' && mfaOtpMethods && mfaOtpMethods.length > 0) {
+      if ((method === 'sms' || method === 'voice') && mfaOtpMethods && mfaOtpMethods.length > 0) {
         mfaOptionId = mfaOtpMethods[0].mfa_option_id;
       }
 
       console.log('🔍 handleMethodSelected called with:', {
         method,
+        mfaContextId,
         mfaTransactionId,
         mfaOptionId,
       });
 
-      await initiateChallenge(method as 'otp' | 'push', mfaTransactionId, mfaOptionId);
+      await initiateChallenge(method, mfaContextId, mfaTransactionId, mfaOptionId);
       // MFA state transition is handled by the MFA hook
     } catch (error: any) {
       console.error('Failed to initiate MFA challenge:', error);
@@ -478,10 +497,10 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   };
 
   const handleOtpVerify = async (otp: string) => {
-    if (!transaction) return;
+    if (!transaction || !mfaContextId) return;
 
     try {
-      const response = await verifyOtp(transaction.transaction_id, otp);
+      const response = await verifyOtp(mfaContextId, transaction.transaction_id, otp);
       await handleMfaSuccess(response);
     } catch (error) {
       throw error; // Let the dialog handle the error display
@@ -489,10 +508,10 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   };
 
   const handlePushVerify = async (pushResult: 'APPROVED' | 'REJECTED' = 'APPROVED', selectedNumber?: number) => {
-    if (!transaction) return;
+    if (!transaction || !mfaContextId) return;
 
     try {
-      const response = await verifyPush(transaction.transaction_id, pushResult, selectedNumber);
+      const response = await verifyPush(mfaContextId, transaction.transaction_id);
       await handleMfaSuccess(response);
     } catch (error) {
       throw error; // Let the dialog handle the error display

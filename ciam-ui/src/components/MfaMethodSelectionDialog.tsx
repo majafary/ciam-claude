@@ -27,8 +27,8 @@ import { MFATransaction } from '../types';
 
 export interface MfaMethodSelectionProps {
   open: boolean;
-  availableMethods: ('otp' | 'push')[];
-  onMethodSelected: (method: 'otp' | 'push') => Promise<void>;
+  availableMethods: ('sms' | 'voice' | 'push')[];
+  onMethodSelected: (method: 'sms' | 'voice' | 'push') => Promise<void>;
   onCancel: () => void;
   isLoading?: boolean;
   error?: string | null;
@@ -55,7 +55,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   onCheckStatus,
   username,
 }) => {
-  const [selectedMethod, setSelectedMethod] = useState<'otp' | 'push' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'sms' | 'voice' | 'push' | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // OTP entry state
@@ -74,12 +74,12 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
   // Determine current dialog state
   const isMethodSelection = !transaction;
-  const isOtpEntry = transaction?.method === 'otp';
+  const isOtpEntry = transaction?.method === 'sms' || transaction?.method === 'voice';
   const isPushWaiting = transaction?.method === 'push';
 
   // Timer effect for OTP (not used for Push since backend polling handles Push timing)
   useEffect(() => {
-    if (transaction?.method === 'otp' && timeLeft > 0 && !isExpired) {
+    if ((transaction?.method === 'sms' || transaction?.method === 'voice') && timeLeft > 0 && !isExpired) {
       const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
       return () => clearTimeout(timer);
     } else if (timeLeft === 0 && !isExpired) {
@@ -222,7 +222,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     isExpired
   });
 
-  const handleMethodSelect = (method: 'otp' | 'push') => {
+  const handleMethodSelect = (method: 'sms' | 'voice' | 'push') => {
     if (submitting) return;
     setSelectedMethod(method);
   };
@@ -276,13 +276,20 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
     }
   };
 
-  const getMethodInfo = (method: 'otp' | 'push') => {
+  const getMethodInfo = (method: 'sms' | 'voice' | 'push') => {
     switch (method) {
-      case 'otp':
+      case 'sms':
         return {
           icon: <SecurityIcon />,
-          title: 'Text Message (OTP)',
+          title: 'Text Message (SMS)',
           description: 'Receive a 4-digit verification code via SMS',
+          testHint: 'Use code 1234 for testing'
+        };
+      case 'voice':
+        return {
+          icon: <SecurityIcon />,
+          title: 'Voice Call',
+          description: 'Receive a 4-digit verification code via voice call',
           testHint: 'Use code 1234 for testing'
         };
       case 'push':
@@ -445,7 +452,7 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                 variant="outlined"
                 onClick={async () => {
                   // Reset expired state and switch to Push method
-                  console.log('🔄 Switching from expired OTP to Push - resetting states');
+                  console.log('🔄 Switching from expired SMS/Voice to Push - resetting states');
                   setIsExpired(false);
                   setTimeLeft(10);
                   setBackendTimeLeft(10);
@@ -596,17 +603,17 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                     size="small"
                     variant="outlined"
                     onClick={async () => {
-                      // Switch to OTP method
+                      // Switch to SMS method
                       if (onMethodSelected) {
                         try {
-                          await onMethodSelected('otp');
+                          await onMethodSelected('sms');
                         } catch (error) {
-                          console.error('Failed to switch to OTP:', error);
+                          console.error('Failed to switch to SMS:', error);
                         }
                       }
                     }}
                   >
-                    Use OTP Instead
+                    Use SMS Instead
                   </Button>
                 </Box>
               )}
@@ -651,22 +658,22 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   size="small"
                   variant="outlined"
                   onClick={async () => {
-                    // Switch to OTP method - reset all states
-                    console.log('🔄 Switching from rejected Push to OTP');
+                    // Switch to SMS method - reset all states
+                    console.log('🔄 Switching from rejected Push to SMS');
                     setPushStatus(null);
                     setIsExpired(false);
                     setTimeLeft(10);
                     setBackendTimeLeft(10);
                     if (onMethodSelected) {
                       try {
-                        await onMethodSelected('otp');
+                        await onMethodSelected('sms');
                       } catch (error) {
-                        console.error('Failed to switch to OTP:', error);
+                        console.error('Failed to switch to SMS:', error);
                       }
                     }
                   }}
                 >
-                  Use OTP Instead
+                  Use SMS Instead
                 </Button>
               </Box>
             </Alert>
@@ -710,22 +717,22 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
                   size="small"
                   variant="outlined"
                   onClick={async () => {
-                    // Switch to OTP method - reset all states
-                    console.log('🔄 Switching from expired Push to OTP');
+                    // Switch to SMS method - reset all states
+                    console.log('🔄 Switching from expired Push to SMS');
                     setIsExpired(false);
                     setTimeLeft(10);
                     setBackendTimeLeft(10);
                     setPushStatus(null);
                     if (onMethodSelected) {
                       try {
-                        await onMethodSelected('otp');
+                        await onMethodSelected('sms');
                       } catch (error) {
-                        console.error('Failed to switch to OTP:', error);
+                        console.error('Failed to switch to SMS:', error);
                       }
                     }
                   }}
                 >
-                  Use OTP Instead
+                  Use SMS Instead
                 </Button>
               </Box>
             </Alert>
