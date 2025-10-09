@@ -841,139 +841,184 @@ components:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/CredentialErrors'
+        context_id:
+          type: string
       description: Login authentication failure - invalid credentials
 
     Login423Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/AccountLockedErrors'
+        context_id:
+          type: string
       description: Login blocked - account or MFA locked
 
     Login403Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/AnalyzeDenyErrors'
+        context_id:
+          type: string
       description: Login forbidden - IP on deny list
 
     Refresh401Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/TokenErrors'
+        context_id:
+          type: string
       description: Token refresh failed - invalid or expired token
 
     MFAInitiate400Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/MFAMethodErrors'
+        context_id:
+          type: string
       description: MFA initiation failed - invalid method
 
     MFAVerify400Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/MFAVerificationErrors'
+        context_id:
+          type: string
       description: MFA verification failed - invalid OTP or transaction not approved
 
     TransactionGet404Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/TransactionNotFoundErrors'
+        context_id:
+          type: string
       description: Transaction not found
 
     TransactionApprove400Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           oneOf:
             - $ref: '#/components/schemas/TransactionProcessedErrors'
             - $ref: '#/components/schemas/ValidationErrors'
+        context_id:
+          type: string
       description: Transaction approval failed - already processed or invalid parameters
 
     TransactionApprove404Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/TransactionNotFoundErrors'
+        context_id:
+          type: string
       description: Transaction not found
 
     TransactionApprove410Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/TransactionExpiredErrors'
+        context_id:
+          type: string
       description: Transaction expired
 
     ESignGet404Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/DocumentNotFoundErrors'
+        context_id:
+          type: string
       description: eSign document not found
 
     ESignAccept400Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           oneOf:
             - $ref: '#/components/schemas/ESignNotRequiredErrors'
             - $ref: '#/components/schemas/ValidationErrors'
+        context_id:
+          type: string
       description: eSign acceptance failed - no pending eSign or invalid request
 
     DeviceBind400Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/ValidationErrors'
+        context_id:
+          type: string
       description: Device binding failed - invalid request parameters
 
     DeviceBind404Error:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/TransactionNotFoundErrors'
+        context_id:
+          type: string
       description: Transaction not found for device binding
 
     ServerError:
       type: object
       required:
         - error_code
+        - context_id
       properties:
         error_code:
           $ref: '#/components/schemas/ServerErrors'
+        context_id:
+          type: string
       description: Service unavailable - server error
 
     LoginSuccessResponse:
@@ -1170,9 +1215,6 @@ components:
           type: string
         context_id:
           type: string
-        message:
-          type: string
-          example: "Awaiting mobile device approval"
         expires_at:
           type: string
           format: date-time

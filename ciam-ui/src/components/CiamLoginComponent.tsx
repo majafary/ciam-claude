@@ -502,7 +502,20 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     try {
       const response = await verifyOtp(mfaContextId, transaction.transaction_id, otp);
       await handleMfaSuccess(response);
-    } catch (error) {
+    } catch (error: any) {
+      // Check if this is an invalid OTP error - invalidates session
+      if (error.code === 'INVALID_MFA_CODE') {
+        // Let error display for 2 seconds, then force login restart
+        setTimeout(() => {
+          console.log('🔴 Invalid OTP - returning to login');
+          clearMfa();
+          cancelTransaction();
+          setFormData({
+            username: saveUsername ? formData.username : '',
+            password: ''
+          });
+        }, 2000);
+      }
       throw error; // Let the dialog handle the error display
     }
   };
@@ -519,9 +532,19 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
   };
 
   const handleMethodSelectionCancel = () => {
-    console.log('🔴 handleMethodSelectionCancel called - clearing MFA state');
+    console.log('🔴 handleMethodSelectionCancel called - clearing MFA state and resetting form');
     clearMfa();
     cancelTransaction(); // Clear transaction state to close dialog immediately
+    // Reset form fields (clear password, optionally keep username if saved)
+    setFormData({
+      username: saveUsername ? formData.username : '',
+      password: ''
+    });
+  };
+
+  const handleBackToMethodSelection = () => {
+    console.log('🔙 User returning to MFA method selection');
+    cancelTransaction(); // Clears transaction state → dialog shows method selection
   };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -1137,6 +1160,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         onPollPushStatus={pollPushStatus}
         mfaContextId={mfaContextId}
         username={formData.username}
+        onBackToMethodSelection={handleBackToMethodSelection}
       />
     </>
   );

@@ -353,21 +353,21 @@ export const authController = {
   login: async (req: Request, res: Response) => {
     const { username, password, drs_action_token, app_id, app_version } = req.body;
 
+    const context_id = 'session-' + Date.now();
+
     if (!username || !password) {
       return res.status(400).json({
         error_code: 'MISSING_CREDENTIALS',
-        message: 'Username and password are required'
+        context_id: context_id
       });
     }
 
     if (!app_id || !app_version) {
       return res.status(400).json({
         error_code: 'MISSING_APP_INFO',
-        message: 'app_id and app_version are required'
+        context_id: context_id
       });
     }
-
-    const context_id = 'session-' + Date.now();
     const transaction_id = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
     // Process device fingerprint if provided
@@ -384,7 +384,7 @@ export const authController = {
     if (!userScenario || userScenario.password !== password) {
       return res.status(401).json({
         error_code: 'CIAM_E01_01_001',
-        message: 'Invalid username or password'
+        context_id: context_id
       });
     }
 
@@ -400,14 +400,14 @@ export const authController = {
     if (userScenario.scenario === 'locked') {
       return res.status(423).json({
         error_code: 'CIAM_E01_01_002',
-        message: 'Account is temporarily locked'
+        context_id: context_id
       });
     }
 
     if (userScenario.scenario === 'mfa_locked') {
       return res.status(423).json({
         error_code: 'CIAM_E01_01_005',
-        message: 'Your MFA has been locked due to too many failed attempts. Please call our call center at 1-800-SUPPORT to reset your MFA setup.'
+        context_id: context_id
       });
     }
 
@@ -614,7 +614,7 @@ export const authController = {
     // Fallback - should not reach here
     return res.status(503).json({
       error_code: 'CIAM_E05_00_001',
-      message: 'Unexpected error occurred'
+      context_id: context_id
     });
   },
 
@@ -636,11 +636,12 @@ export const authController = {
    */
   refresh: async (req: Request, res: Response) => {
     const refreshToken = req.cookies?.refresh_token;
+    const context_id = 'refresh-' + Date.now();
 
     if (!refreshToken) {
       return res.status(401).json({
         error_code: 'CIAM_E01_02_001',
-        message: 'Refresh token is required'
+        context_id: context_id
       });
     }
 
@@ -649,7 +650,7 @@ export const authController = {
     if (!result.valid) {
       return res.status(401).json({
         error_code: 'CIAM_E01_02_002',
-        message: 'Invalid or expired refresh token'
+        context_id: context_id
       });
     }
 
@@ -684,12 +685,12 @@ export const authController = {
    */
   introspect: async (req: Request, res: Response) => {
     const { token } = req.body;
+    const context_id = 'introspect-' + Date.now();
 
     if (!token) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_TOKEN',
-        message: 'Token is required'
+        error_code: 'MISSING_TOKEN',
+        context_id: context_id
       });
     }
 
@@ -724,7 +725,7 @@ export const authController = {
     if (!transaction_id) {
       return res.status(400).json({
         error_code: 'MISSING_TRANSACTION_ID',
-        message: 'transaction_id is required'
+        context_id: context_id || ''
       });
     }
 
@@ -732,7 +733,7 @@ export const authController = {
     if (!method || !['sms', 'voice', 'push'].includes(method)) {
       return res.status(400).json({
         error_code: 'INVALID_MFA_METHOD',
-        message: 'Valid MFA method (sms, voice, or push) is required'
+        context_id: context_id || ''
       });
     }
 
@@ -740,7 +741,7 @@ export const authController = {
     if ((method === 'sms' || method === 'voice') && !mfa_option_id) {
       return res.status(400).json({
         error_code: 'MISSING_MFA_OPTION_ID',
-        message: 'mfa_option_id is required when method is sms or voice'
+        context_id: context_id || ''
       });
     }
 
@@ -750,7 +751,7 @@ export const authController = {
       console.log('❌ [MFA INITIATE] No MFA transaction found for:', transaction_id);
       return res.status(400).json({
         error_code: 'INVALID_TRANSACTION',
-        message: 'Invalid or expired transaction_id'
+        context_id: context_id || ''
       });
     }
 
@@ -796,7 +797,7 @@ export const authController = {
     // Fallback (should never reach here due to validation above)
     return res.status(400).json({
       error_code: 'INVALID_MFA_METHOD',
-      message: 'Unsupported MFA method'
+      context_id: context_id || ''
     });
   },
 
@@ -806,13 +807,14 @@ export const authController = {
    */
   checkMfaStatus: async (req: Request, res: Response) => {
     const { transactionId } = req.params;
+    const context_id = 'status-' + Date.now();
 
     console.log('🔍 MFA Status Check for transaction:', transactionId);
 
     if (!transactionId) {
       return res.status(400).json({
         error_code: 'MISSING_TRANSACTION_ID',
-        message: 'Transaction ID is required'
+        context_id: context_id
       });
     }
 
@@ -890,14 +892,14 @@ export const authController = {
     if (!transaction_id) {
       return res.status(400).json({
         error_code: 'MISSING_TRANSACTION_ID',
-        message: 'transaction_id is required'
+        context_id: context_id || ''
       });
     }
 
     if (!context_id) {
       return res.status(400).json({
         error_code: 'MISSING_CONTEXT_ID',
-        message: 'context_id is required'
+        context_id: ''
       });
     }
 
@@ -907,7 +909,7 @@ export const authController = {
       console.log('❌ [PUSH VERIFY] No MFA transaction found for:', transaction_id);
       return res.status(404).json({
         error_code: 'TRANSACTION_NOT_FOUND',
-        message: 'Transaction not found'
+        context_id: context_id
       });
     }
 
@@ -920,7 +922,7 @@ export const authController = {
       console.log('❌ [PUSH VERIFY] No push challenge found for:', transaction_id);
       return res.status(400).json({
         error_code: 'CHALLENGE_NOT_FOUND',
-        message: 'Push challenge not found or expired'
+        context_id: context_id
       });
     }
 
@@ -953,7 +955,6 @@ export const authController = {
         response_type_code: 'MFA_PENDING',
         transaction_id: transaction_id,
         context_id: context_id,
-        message: 'Awaiting mobile device approval',
         expires_at: new Date(challenge.createdAt + 10 * 1000).toISOString(),
         retry_after: 1000
       });
@@ -963,9 +964,11 @@ export const authController = {
     if (challenge_status === 'REJECTED') {
       console.log('❌ [PUSH VERIFY] Push notification rejected');
       pushChallenges.delete(transaction_id);
+      // Invalid push - delete MFA transaction (single-use security)
+      mfaTransactions.delete(transaction_id);
       return res.status(400).json({
         error_code: 'PUSH_REJECTED',
-        message: 'Push notification was rejected'
+        context_id: context_id
       });
     }
 
@@ -975,7 +978,7 @@ export const authController = {
       pushChallenges.delete(transaction_id);
       return res.status(410).json({
         error_code: 'TRANSACTION_EXPIRED',
-        message: 'Transaction has expired'
+        context_id: context_id
       });
     }
 
@@ -1036,14 +1039,14 @@ export const authController = {
     if (!transaction_id) {
       return res.status(400).json({
         error_code: 'MISSING_TRANSACTION_ID',
-        message: 'transaction_id is required'
+        context_id: context_id || ''
       });
     }
 
     if (!method) {
       return res.status(400).json({
         error_code: 'MISSING_METHOD',
-        message: 'method is required'
+        context_id: context_id || ''
       });
     }
 
@@ -1053,7 +1056,7 @@ export const authController = {
       console.log('❌ [OTP VERIFY] No MFA transaction found for:', transaction_id);
       return res.status(400).json({
         error_code: 'INVALID_TRANSACTION',
-        message: 'Invalid or expired transaction_id'
+        context_id: context_id || ''
       });
     }
 
@@ -1066,7 +1069,7 @@ export const authController = {
       if (!code) {
         return res.status(400).json({
           error_code: 'MISSING_CODE',
-          message: 'code is required when method is sms or voice'
+          context_id: context_id || ''
         });
       }
 
@@ -1112,9 +1115,11 @@ export const authController = {
           device_bound: false
         });
       } else {
+        // Invalid OTP - delete MFA transaction (single-use security)
+        mfaTransactions.delete(transaction_id);
         return res.status(400).json({
           error_code: 'INVALID_MFA_CODE',
-          message: 'Invalid or expired MFA code'
+          context_id: context_id || ''
         });
       }
     }
@@ -1126,7 +1131,7 @@ export const authController = {
       if (!challenge) {
         return res.status(400).json({
           error_code: 'CHALLENGE_NOT_FOUND',
-          message: 'Push challenge not found or expired'
+          context_id: context_id || ''
         });
       }
 
@@ -1148,10 +1153,8 @@ export const authController = {
 
       if (challenge_status !== 'APPROVED') {
         return res.status(400).json({
-          error_code: 'TRANSACTION_NOT_APPROVED',
-          message: challenge_status === 'REJECTED'
-            ? 'Push notification was rejected'
-            : 'Push notification not yet approved'
+          error_code: challenge_status === 'REJECTED' ? 'PUSH_REJECTED' : 'TRANSACTION_NOT_APPROVED',
+          context_id: context_id || ''
         });
       }
 
@@ -1202,7 +1205,7 @@ export const authController = {
 
     return res.status(400).json({
       error_code: 'UNSUPPORTED_MFA_METHOD',
-      message: 'MFA method not supported'
+      context_id: context_id || ''
     });
   },
 
@@ -1212,13 +1215,14 @@ export const authController = {
    */
   getESignDocument: async (req: Request, res: Response) => {
     const { documentId } = req.params;
+    const context_id = 'esign-get-' + Date.now();
 
     const document = esignDocuments.get(documentId);
 
     if (!document) {
       return res.status(404).json({
         error_code: 'DOCUMENT_NOT_FOUND',
-        message: 'eSign document not found'
+        context_id: context_id
       });
     }
 
@@ -1243,7 +1247,7 @@ export const authController = {
     if (!transaction_id || !document_id) {
       return res.status(400).json({
         error_code: 'MISSING_REQUIRED_FIELDS',
-        message: 'transaction_id and document_id are required'
+        context_id: context_id || ''
       });
     }
 
@@ -1259,7 +1263,7 @@ export const authController = {
     if (!username) {
       return res.status(400).json({
         error_code: 'NO_PENDING_ESIGN',
-        message: 'No pending eSign found for this document'
+        context_id: context_id || ''
       });
     }
 
@@ -1324,9 +1328,8 @@ export const authController = {
 
     if (!transactionId || !documentId) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Transaction ID and document ID are required'
+        error_code: 'MISSING_REQUIRED_FIELDS',
+        context_id: context_id || ''
       });
     }
 
@@ -1347,9 +1350,8 @@ export const authController = {
     }
 
     return res.status(400).json({
-      response_type_code: 'ESIGN_DECLINED',
-      message: 'Authentication failed. Terms and conditions must be accepted to proceed.',
-      context_id: '',
+      error_code: 'ESIGN_DECLINED',
+      context_id: context_id || '',
       transaction_id: transactionId,
       can_retry: true
     });
@@ -1361,12 +1363,12 @@ export const authController = {
    */
   postMfaCheck: async (req: Request, res: Response) => {
     const { sessionId, transactionId, username } = req.body;
+    const context_id = 'post-mfa-' + Date.now();
 
     if (!username) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_USERNAME',
-        message: 'Username is required'
+        error_code: 'MISSING_USERNAME',
+        context_id: context_id
       });
     }
 
@@ -1395,12 +1397,12 @@ export const authController = {
    */
   postLoginCheck: async (req: Request, res: Response) => {
     const { sessionId, username } = req.body;
+    const context_id = 'post-login-' + Date.now();
 
     if (!username) {
       return res.status(400).json({
-        success: false,
-        error: 'MISSING_USERNAME',
-        message: 'Username is required'
+        error_code: 'MISSING_USERNAME',
+        context_id: context_id
       });
     }
 
@@ -1442,11 +1444,12 @@ export const authController = {
    */
   userinfo: async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization;
+    const context_id = 'userinfo-' + Date.now();
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
-        error: 'MISSING_TOKEN',
-        message: 'Access token is required'
+        error_code: 'MISSING_TOKEN',
+        context_id: context_id
       });
     }
 
@@ -1455,8 +1458,8 @@ export const authController = {
 
     if (!result.valid) {
       return res.status(401).json({
-        error: 'INVALID_TOKEN',
-        message: 'Invalid or expired access token'
+        error_code: 'INVALID_TOKEN',
+        context_id: context_id
       });
     }
 
@@ -1489,7 +1492,7 @@ export const authController = {
     if (!transaction_id || bind_device === undefined) {
       return res.status(400).json({
         error_code: 'MISSING_REQUIRED_FIELDS',
-        message: 'transaction_id and bind_device are required'
+        context_id: context_id || ''
       });
     }
 
@@ -1499,7 +1502,7 @@ export const authController = {
       console.log('❌ [DEVICE BIND] No MFA transaction found for:', transaction_id);
       return res.status(404).json({
         error_code: 'TRANSACTION_NOT_FOUND',
-        message: 'Transaction not found'
+        context_id: context_id || ''
       });
     }
 
@@ -1511,7 +1514,7 @@ export const authController = {
     if (!userScenario) {
       return res.status(404).json({
         error_code: 'TRANSACTION_NOT_FOUND',
-        message: 'Transaction not found'
+        context_id: context_id || ''
       });
     }
 

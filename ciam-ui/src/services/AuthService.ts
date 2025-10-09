@@ -40,7 +40,14 @@ export class AuthService {
       'INVALID_CREDENTIALS': 'Invalid username or password',
       'MISSING_CREDENTIALS': 'Username and password are required',
       'ESIGN_REQUIRED': 'Electronic signature required for terms and conditions',
-      'ESIGN_DECLINED': 'Terms and conditions were declined'
+      'ESIGN_DECLINED': 'Terms and conditions were declined',
+      'INVALID_MFA_CODE': 'Invalid verification code. Please try again.',
+      'PUSH_REJECTED': 'Push notification was rejected',
+      'TRANSACTION_EXPIRED': 'Verification session has expired',
+      'CHALLENGE_NOT_FOUND': 'Verification session not found',
+      'MISSING_CODE': 'Verification code is required',
+      'MISSING_TRANSACTION_ID': 'Transaction ID is missing',
+      'INVALID_TRANSACTION': 'Invalid or expired transaction'
     };
     return messages[responseTypeCode] || 'An error occurred during authentication';
   }
@@ -79,9 +86,10 @@ export class AuthService {
             return responseData;
           }
 
+          const errorCode = responseData?.error_code || responseData?.error || 'HTTP_ERROR';
           const apiError: ApiError = {
-            code: responseData?.error_code || responseData?.error || 'HTTP_ERROR',
-            message: responseData?.message || `HTTP ${response.status}: ${response.statusText}`,
+            code: errorCode,
+            message: responseData?.message || this.getDefaultErrorMessage(errorCode) || `HTTP ${response.status}: ${response.statusText}`,
             timestamp: new Date().toISOString(),
           };
           throw new Error(JSON.stringify(apiError));
