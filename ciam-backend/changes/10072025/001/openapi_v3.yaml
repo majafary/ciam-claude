@@ -346,8 +346,17 @@ paths:
     post:
       tags:
         - MFA
-      summary: Verify MFA push transaction
-      description: Verify push notification approval and retrieve tokens
+      summary: Verify MFA push transaction (polling endpoint)
+      description: |
+        POST-based polling endpoint to verify push notification approval status.
+        Clients should poll this endpoint to check if push MFA has been approved by mobile device.
+
+        Returns:
+        - 200 MFA_PENDING: Transaction still awaiting mobile device approval (continue polling)
+        - 201 SUCCESS: Push notification approved, authentication complete
+        - 200 ESIGN_REQUIRED/DEVICE_BIND_REQUIRED: Next authentication step required
+        - 404: Transaction not found
+        - 410: Transaction expired or explicitly rejected
       parameters:
         - name: transaction_id
           in: path
@@ -369,15 +378,16 @@ paths:
                   description: Context ID from login response
       responses:
         '200':
-          description: Additional authentication steps required
+          description: Transaction state check - pending approval or next step required
           content:
             application/json:
               schema:
                 oneOf:
+                  - $ref: '#/components/schemas/MFAPendingResponse'
                   - $ref: '#/components/schemas/ESignRequiredResponse'
                   - $ref: '#/components/schemas/DeviceBindRequiredResponse'
         '201':
-          description: MFA verification successful
+          description: MFA verification successful - authentication complete
           headers:
             Set-Cookie:
               description: Refresh token set as httpOnly cookie
@@ -396,6 +406,14 @@ paths:
                 $ref: '#/components/schemas/TransactionGet404Error'
               example:
                 error_code: "CIAM_E01_03_001"
+        '410':
+          description: Transaction expired or rejected by user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionApprove410Error'
+              example:
+                error_code: "CIAM_E01_03_002"
         '503':
           description: Service unavailable
           content:
@@ -1138,32 +1156,31 @@ components:
         transaction_id:
           type: string
 
-    MFATransactionStatusResponse:
+    MFAPendingResponse:
       type: object
       required:
+        - response_type_code
         - transaction_id
-        - challenge_status
-        - updated_at
-        - expires_at
+        - context_id
       properties:
+        response_type_code:
+          type: string
+          enum: [MFA_PENDING]
         transaction_id:
           type: string
-        challenge_status:
+        context_id:
           type: string
-          enum: [PENDING, APPROVED, REJECTED, EXPIRED]
-          description: Current status of the MFA challenge
-        updated_at:
+        message:
           type: string
-          format: date-time
+          example: "Awaiting mobile device approval"
         expires_at:
           type: string
           format: date-time
-        display_number:
+          description: When the transaction will expire
+        retry_after:
           type: integer
-          description: Number displayed to user for matching
-        selected_number:
-          type: integer
-          description: Number selected by user on mobile device
+          description: Suggested retry interval in milliseconds
+          example: 1000
 
     MFAApproveResponse:
       type: object

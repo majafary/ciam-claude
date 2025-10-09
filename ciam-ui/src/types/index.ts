@@ -27,7 +27,7 @@ export interface MFAChallengeResponse {
 }
 
 export interface MFAVerifyResponse {
-  response_type_code: 'SUCCESS' | 'ESIGN_REQUIRED';
+  response_type_code: 'SUCCESS' | 'MFA_PENDING' | 'ESIGN_REQUIRED' | 'DEVICE_BIND_REQUIRED';
   id_token?: string;
   access_token?: string;
   context_id?: string;
@@ -35,20 +35,14 @@ export interface MFAVerifyResponse {
   device_bound?: boolean;
   esign_document_id?: string;
   is_mandatory?: boolean;
+  message?: string;
+  expires_at?: string;
+  retry_after?: number;
   error?: string;
   attempts?: number;
   canRetry?: boolean;
   // Legacy support
-  responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
-}
-
-export interface MFATransactionStatusResponse {
-  transaction_id: string;
-  challenge_status: MFAChallengeStatus;
-  updated_at: string;
-  expires_at: string;
-  display_number?: number; // For push challenges - single number to display on UI
-  selected_number?: number; // For push challenges - auto-selected number by test users
+  responseTypeCode?: 'SUCCESS' | 'MFA_PENDING' | 'ESIGN_REQUIRED' | 'DEVICE_BIND_REQUIRED';
 }
 
 export interface TokenRefreshResponse {
@@ -327,7 +321,7 @@ export interface UseMfaReturn {
   initiateChallenge: (method: 'sms' | 'voice' | 'push', contextId: string, transactionId: string, mfaOptionId?: number) => Promise<MFAChallengeResponse>;
   verifyOtp: (contextId: string, transactionId: string, otp: string) => Promise<MFAVerifyResponse>;
   verifyPush: (contextId: string, transactionId: string) => Promise<MFAVerifyResponse>;
-  checkStatus: (transactionId: string) => Promise<MFATransactionStatusResponse>;
+  pollPushStatus: (contextId: string, transactionId: string) => Promise<MFAVerifyResponse>;
   cancelTransaction: () => void;
 }
 

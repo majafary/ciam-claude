@@ -2,7 +2,6 @@ import {
   LoginResponse,
   MFAChallengeResponse,
   MFAVerifyResponse,
-  MFATransactionStatusResponse,
   TokenRefreshResponse,
   UserInfoResponse,
   ApiError,
@@ -433,6 +432,7 @@ export class AuthService {
 
   /**
    * Verify MFA Push challenge (v3 API - Push specific)
+   * Uses POST /mfa/transaction/{transaction_id} for both verification and polling
    */
   async verifyPushChallenge(
     contextId: string,
@@ -444,7 +444,7 @@ export class AuthService {
       method: 'push', // v3.0.0: method is required for verification
     };
 
-    const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/verify', {
+    const response = await this.apiCall<MFAVerifyResponse>(`/mfa/transaction/${encodeURIComponent(transactionId)}`, {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -468,13 +468,6 @@ export class AuthService {
         selected_number: selectedNumber,
       }),
     });
-  }
-
-  /**
-   * Get MFA transaction status
-   */
-  async getMFATransactionStatus(transactionId: string): Promise<MFATransactionStatusResponse> {
-    return this.apiCall<MFATransactionStatusResponse>(`/mfa/transaction/${encodeURIComponent(transactionId)}`);
   }
 
   /**

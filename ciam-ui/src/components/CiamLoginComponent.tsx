@@ -48,7 +48,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
     isAuthenticated, isLoading, user, error, login, logout, clearError,
     mfaRequired, mfaAvailableMethods, mfaOtpMethods, mfaError, mfaUsername, mfaTransactionId, mfaContextId, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
   } = useAuth();
-  const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, checkStatus } = useMfa();
+  const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, pollPushStatus } = useMfa();
 
   const [formData, setFormData] = useState({
     username: '',
@@ -1134,7 +1134,8 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         onOtpVerify={handleOtpVerify}
         onPushVerify={handlePushVerify}
         onMfaSuccess={handleMfaSuccess}
-        onCheckStatus={checkStatus}
+        onPollPushStatus={pollPushStatus}
+        mfaContextId={mfaContextId}
         username={formData.username}
       />
     </>

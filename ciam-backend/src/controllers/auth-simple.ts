@@ -878,6 +878,153 @@ export const authController = {
   },
 
   /**
+   * Verify Push MFA challenge (v3 - POST-based polling)
+   * POST /mfa/transaction/:transaction_id
+   */
+  verifyPushChallenge: async (req: Request, res: Response) => {
+    const { transaction_id } = req.params;
+    const { context_id } = req.body;
+
+    console.log('🔍 [PUSH VERIFY] Request:', { transaction_id, context_id });
+
+    if (!transaction_id) {
+      return res.status(400).json({
+        error_code: 'MISSING_TRANSACTION_ID',
+        message: 'transaction_id is required'
+      });
+    }
+
+    if (!context_id) {
+      return res.status(400).json({
+        error_code: 'MISSING_CONTEXT_ID',
+        message: 'context_id is required'
+      });
+    }
+
+    // Retrieve username from MFA transaction storage
+    const mfaTransaction = mfaTransactions.get(transaction_id);
+    if (!mfaTransaction) {
+      console.log('❌ [PUSH VERIFY] No MFA transaction found for:', transaction_id);
+      return res.status(404).json({
+        error_code: 'TRANSACTION_NOT_FOUND',
+        message: 'Transaction not found'
+      });
+    }
+
+    const username = mfaTransaction.username;
+    console.log('✅ [PUSH VERIFY] Retrieved username from transaction:', { transaction_id, username });
+
+    // Check if this is a Push challenge
+    const challenge = pushChallenges.get(transaction_id);
+    if (!challenge) {
+      console.log('❌ [PUSH VERIFY] No push challenge found for:', transaction_id);
+      return res.status(400).json({
+        error_code: 'CHALLENGE_NOT_FOUND',
+        message: 'Push challenge not found or expired'
+      });
+    }
+
+    // Determine current challenge status based on elapsed time and user scenario
+    const timeElapsed = Date.now() - challenge.createdAt;
+    let challenge_status = 'PENDING';
+
+    if (challenge.username === 'pushfail') {
+      if (timeElapsed > 7000) {
+        challenge_status = 'REJECTED';
+      }
+    } else if (challenge.username === 'pushexpired') {
+      if (timeElapsed > 10000) {
+        challenge_status = 'EXPIRED';
+      } else {
+        challenge_status = 'PENDING';
+      }
+    } else {
+      // Normal mfauser - auto-approve after 5 seconds
+      if (timeElapsed > 5000) {
+        challenge_status = 'APPROVED';
+      }
+    }
+
+    console.log('📊 [PUSH VERIFY] Challenge status:', { challenge_status, timeElapsed });
+
+    // V3: Return MFA_PENDING for polling when still pending
+    if (challenge_status === 'PENDING') {
+      return res.status(200).json({
+        response_type_code: 'MFA_PENDING',
+        transaction_id: transaction_id,
+        context_id: context_id,
+        message: 'Awaiting mobile device approval',
+        expires_at: new Date(challenge.createdAt + 10 * 1000).toISOString(),
+        retry_after: 1000
+      });
+    }
+
+    // Handle REJECTED status
+    if (challenge_status === 'REJECTED') {
+      console.log('❌ [PUSH VERIFY] Push notification rejected');
+      pushChallenges.delete(transaction_id);
+      return res.status(400).json({
+        error_code: 'PUSH_REJECTED',
+        message: 'Push notification was rejected'
+      });
+    }
+
+    // Handle EXPIRED status
+    if (challenge_status === 'EXPIRED') {
+      console.log('⏰ [PUSH VERIFY] Push notification expired');
+      pushChallenges.delete(transaction_id);
+      return res.status(410).json({
+        error_code: 'TRANSACTION_EXPIRED',
+        message: 'Transaction has expired'
+      });
+    }
+
+    // Transaction is APPROVED - generate tokens
+    console.log('✅ [PUSH VERIFY] Push approved, generating tokens');
+    pushChallenges.delete(transaction_id);
+
+    const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
+    updateLoginTime(username);
+
+    const accessToken = generateAccessToken(user);
+    const idToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: 'strict'
+    });
+
+    // Check if eSign is required after MFA
+    const pendingESign = getPendingESign(username);
+    if (pendingESign) {
+      console.log('📝 [PUSH VERIFY] eSign required after push MFA');
+      return res.status(200).json({
+        response_type_code: 'ESIGN_REQUIRED',
+        context_id: context_id,
+        transaction_id: transaction_id,
+        esign_document_id: pendingESign.documentId,
+        esign_url: `/esign/document/${pendingESign.documentId}`,
+        is_mandatory: pendingESign.mandatory
+      });
+    }
+
+    return res.status(201).json({
+      response_type_code: 'SUCCESS',
+      access_token: accessToken,
+      id_token: idToken,
+      refresh_token: refreshToken,
+      token_type: 'Bearer',
+      expires_in: 900,
+      context_id: context_id,
+      transaction_id: transaction_id,
+      device_bound: false
+    });
+  },
+
+  /**
    * Verify MFA
    * POST /auth/mfa/verify
    */

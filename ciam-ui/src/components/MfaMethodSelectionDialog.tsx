@@ -37,7 +37,8 @@ export interface MfaMethodSelectionProps {
   onOtpVerify?: (otp: string) => Promise<void>;
   onPushVerify?: (pushResult?: 'APPROVED' | 'REJECTED', selectedNumber?: number) => Promise<void>;
   onMfaSuccess?: (response: any) => Promise<void>;
-  onCheckStatus?: (transactionId: string) => Promise<any>;
+  onPollPushStatus?: (contextId: string, transactionId: string) => Promise<any>;
+  mfaContextId?: string;
   username?: string;
 }
 
@@ -52,7 +53,8 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
   onOtpVerify,
   onPushVerify,
   onMfaSuccess,
-  onCheckStatus,
+  onPollPushStatus,
+  mfaContextId,
   username,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'sms' | 'voice' | 'push' | null>(null);
@@ -111,8 +113,8 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
   // Stable polling function using useCallback to prevent re-creation
   const startPolling = useCallback(async (transactionId: string) => {
-    if (!onCheckStatus || !onPushVerify) {
-      console.log('❌ Missing polling callbacks');
+    if (!onPollPushStatus || !mfaContextId || !onPushVerify) {
+      console.log('❌ Missing polling callbacks or context');
       return;
     }
 
@@ -132,62 +134,98 @@ export const MfaMethodSelectionDialog: React.FC<MfaMethodSelectionProps> = ({
 
     intervalRef.current = setInterval(async () => {
       try {
-        const data = await onCheckStatus(transactionId);
+        const response = await onPollPushStatus(mfaContextId, transactionId);
 
-        // Check status first - rejection/approval takes precedence over expiration
-        if (data.challenge_status === 'APPROVED') {
-          console.log('🟢 Push notification approved by backend (mobile device selection)');
-          console.log('📊 Selected number from polling:', data.selected_number);
+        // Handle different response types from POST /mfa/transaction/{transaction_id}
+        if (response.response_type_code === 'SUCCESS') {
+          console.log('🟢 Push notification approved - MFA SUCCESS');
           if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
           }
           pollingStartedRef.current = false;
-          await onPushVerify('APPROVED', data.selected_number);
-          return;
-        } else if (data.challenge_status === 'REJECTED') {
-          console.log('🔴 Push notification rejected by backend (mobile device selection)');
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
+          // We already have the tokens in the response, pass them directly to success handler
+          if (onMfaSuccess) {
+            await onMfaSuccess(response);
           }
-          pollingStartedRef.current = false;
-          // Handle rejection locally - show error state instead of calling backend verify
-          setPushStatus('rejected');
-          setTimeLeft(0);
-          // Don't set isExpired when rejected - rejection takes precedence
           return;
-        }
+        } else if (response.response_type_code === 'MFA_PENDING') {
+          console.log('⏳ Push still pending, continuing to poll...');
 
-        // Update timer based on backend expiry time (only if still PENDING)
-        if (data.expires_at) {
-          const expiryTime = new Date(data.expires_at).getTime();
-          const currentTime = new Date().getTime();
-          const timeRemainingMs = expiryTime - currentTime;
-          const timeRemainingSec = Math.max(0, Math.ceil(timeRemainingMs / 1000));
+          // Update timer based on backend expiry time
+          if (response.expires_at) {
+            const expiryTime = new Date(response.expires_at).getTime();
+            const currentTime = new Date().getTime();
+            const timeRemainingMs = expiryTime - currentTime;
+            const timeRemainingSec = Math.max(0, Math.ceil(timeRemainingMs / 1000));
 
-          console.log('⏱️ Timer update from backend:', timeRemainingSec, 'seconds remaining');
-          setBackendTimeLeft(timeRemainingSec);
-          setTimeLeft(timeRemainingSec);
+            console.log('⏱️ Timer update from backend:', timeRemainingSec, 'seconds remaining');
+            setBackendTimeLeft(timeRemainingSec);
+            setTimeLeft(timeRemainingSec);
 
-          if (currentTime >= expiryTime) {
-            console.log('⏰ Push notification expired');
-            if (intervalRef.current) {
-              clearInterval(intervalRef.current);
-              intervalRef.current = null;
+            if (currentTime >= expiryTime) {
+              console.log('⏰ Push notification expired');
+              if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+              }
+              pollingStartedRef.current = false;
+              setIsExpired(true);
+              setTimeLeft(0);
+              return;
             }
-            pollingStartedRef.current = false;
-            setIsExpired(true);
-            setTimeLeft(0);
-            return;
           }
+          // Continue polling
+          return;
+        } else if (response.response_type_code === 'ESIGN_REQUIRED') {
+          console.log('📝 eSign required after MFA');
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          pollingStartedRef.current = false;
+          // Let parent component handle eSign flow
+          if (onMfaSuccess) {
+            await onMfaSuccess(response);
+          }
+          return;
+        } else if (response.response_type_code === 'DEVICE_BIND_REQUIRED') {
+          console.log('📱 Device binding required after MFA');
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          pollingStartedRef.current = false;
+          // Let parent component handle device binding flow
+          if (onMfaSuccess) {
+            await onMfaSuccess(response);
+          }
+          return;
         }
-        // If still PENDING, continue polling
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to poll push status:', error);
+
+        // Handle 410 Gone - transaction expired or rejected
+        if (error.code === 410 || error.message?.includes('expired') || error.message?.includes('rejected')) {
+          console.log('🔴 Push transaction expired or rejected');
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          pollingStartedRef.current = false;
+
+          if (error.message?.includes('rejected')) {
+            setPushStatus('rejected');
+          } else {
+            setIsExpired(true);
+          }
+          setTimeLeft(0);
+          return;
+        }
+        // For other errors, continue polling (network issues, etc.)
       }
     }, 1000); // Poll every second
-  }, [onCheckStatus, onPushVerify]);
+  }, [onPollPushStatus, mfaContextId, onPushVerify, onMfaSuccess]);
 
   // Start polling when push transaction begins
   useEffect(() => {

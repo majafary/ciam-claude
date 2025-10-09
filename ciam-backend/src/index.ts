@@ -34,7 +34,7 @@ import {
 
 // Import controllers
 import { login, logout, refreshToken, getESignDocument, acceptESign } from './controllers/authController';
-import { initiateChallenge, verifyOTPChallenge, verifyPushChallenge, getTransactionStatus, approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
+import { initiateChallenge, verifyOTPChallenge, verifyPushChallenge, approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
 import { bindDevice } from './controllers/deviceController';
 import { verifySessionEndpoint, listUserSessions, revokeSessionEndpoint } from './controllers/sessionController';
 import { getUserInfo } from './controllers/userController';

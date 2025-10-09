@@ -1,6 +1,6 @@
 import { useState, useCallback, useContext } from 'react';
 import { AuthService } from '../services/AuthService';
-import { UseMfaReturn, MFATransaction, MFAChallengeResponse, MFAVerifyResponse, MFATransactionStatusResponse, ApiError } from '../types';
+import { UseMfaReturn, MFATransaction, MFAChallengeResponse, MFAVerifyResponse, ApiError } from '../types';
 import { CiamContext } from '../components/CiamProvider';
 
 export const useMfa = (): UseMfaReturn => {
@@ -127,24 +127,32 @@ export const useMfa = (): UseMfaReturn => {
     }
   }, [authService]);
 
-  const checkStatus = useCallback(async (
+  const pollPushStatus = useCallback(async (
+    contextId: string,
     transactionId: string
-  ): Promise<MFATransactionStatusResponse> => {
+  ): Promise<MFAVerifyResponse> => {
     try {
-      const response = await authService.getMFATransactionStatus(transactionId);
+      // Use verifyPushChallenge for polling - returns MFA_PENDING if still pending
+      const response = await authService.verifyPushChallenge(contextId, transactionId);
 
-      // Update local transaction status and display numbers from polling
-      setState(prev => ({
-        ...prev,
-        transaction: prev.transaction && prev.transaction.transaction_id === transactionId
-          ? {
-              ...prev.transaction,
-              status: response.challenge_status,
-              display_number: response.display_number ?? prev.transaction.display_number,
-              selected_number: response.selected_number ?? prev.transaction.selected_number,
-            }
-          : prev.transaction,
-      }));
+      // Update transaction status based on response
+      if (response.response_type_code === 'MFA_PENDING') {
+        setState(prev => ({
+          ...prev,
+          transaction: prev.transaction ? {
+            ...prev.transaction,
+            status: 'PENDING',
+          } : null,
+        }));
+      } else if (response.response_type_code === 'SUCCESS') {
+        setState(prev => ({
+          ...prev,
+          transaction: prev.transaction ? {
+            ...prev.transaction,
+            status: 'APPROVED',
+          } : null,
+        }));
+      }
 
       return response;
     } catch (error) {
@@ -152,7 +160,7 @@ export const useMfa = (): UseMfaReturn => {
 
       setState(prev => ({
         ...prev,
-        error: apiError.message || 'Failed to check MFA status',
+        error: apiError.message || 'Failed to check push status',
       }));
 
       throw error;
@@ -175,7 +183,7 @@ export const useMfa = (): UseMfaReturn => {
     initiateChallenge,
     verifyOtp,
     verifyPush,
-    checkStatus,
+    pollPushStatus,
     cancelTransaction,
   };
 };

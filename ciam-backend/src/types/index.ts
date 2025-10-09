@@ -87,16 +87,16 @@ export interface MFAVerifySuccessResponse {
   transaction_id: string;
 }
 
-export type MFAVerifyResponse = MFAVerifySuccessResponse | ESignRequiredResponse | DeviceBindRequiredResponse;
-
-export interface MFATransactionStatusResponse {
+export interface MFAPendingResponse {
+  response_type_code: 'MFA_PENDING';
   transaction_id: string;
-  challenge_status: MFAChallengeStatus;
-  updated_at: string;
-  expires_at: string;
-  display_number?: number;
-  selected_number?: number;
+  context_id: string;
+  message?: string;
+  expires_at?: string;
+  retry_after?: number;
 }
+
+export type MFAVerifyResponse = MFAVerifySuccessResponse | MFAPendingResponse | ESignRequiredResponse | DeviceBindRequiredResponse;
 
 export interface MFAApproveRequest {
   context_id: string;

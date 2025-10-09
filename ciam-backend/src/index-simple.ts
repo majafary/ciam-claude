@@ -34,7 +34,7 @@ app.post('/auth/refresh', authController.refresh);
 app.post('/auth/introspect', authController.introspect);
 app.post('/auth/mfa/verify', authController.verifyMfa);
 app.post('/auth/mfa/initiate', authController.initiateMfaChallenge);
-app.get('/mfa/transaction/:transactionId', authController.checkMfaStatus);
+app.post('/mfa/transaction/:transaction_id', authController.verifyPushChallenge);
 app.post('/auth/post-mfa-check', authController.postMfaCheck);
 app.post('/auth/post-login-check', authController.postLoginCheck);
 
@@ -70,7 +70,7 @@ app.get('/', (req, res) => {
       mfa: {
         initiate: 'POST /auth/mfa/initiate',
         verify: 'POST /auth/mfa/verify',
-        status: 'GET /mfa/transaction/:transactionId'
+        push_verify_poll: 'POST /mfa/transaction/:transaction_id'
       },
       esign: {
         get_document: 'GET /esign/document/:documentId',

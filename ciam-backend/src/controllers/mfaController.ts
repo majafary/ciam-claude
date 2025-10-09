@@ -5,7 +5,7 @@ import { createRefreshToken } from '../services/tokenService';
 import { generateAccessToken, generateIdToken, getRefreshTokenCookieOptions } from '../utils/jwt';
 import { handleMFAError, handleAuthError, handleInternalError, sendErrorResponse, createApiError } from '../utils/errors';
 import { logAuthEvent } from '../utils/logger';
-import { MFAChallengeRequest, MFAChallengeResponse, MFAVerifyRequest, MFAVerifySuccessResponse, MFATransactionStatusResponse, OTPResponse, MFAApproveRequest, MFAApproveResponse } from '../types';
+import { MFAChallengeRequest, MFAChallengeResponse, MFAVerifyRequest, MFAVerifySuccessResponse, MFAPendingResponse, OTPResponse, MFAApproveRequest, MFAApproveResponse } from '../types';
 import { isDeviceTrusted } from './deviceController';
 
 /**
@@ -322,12 +322,24 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       return;
     }
 
-    // V3: Check transaction status
+    // V3: Check transaction status - return MFA_PENDING for polling
     if (transaction.status === 'PENDING') {
-      sendErrorResponse(res, 400, createApiError(
-        'CIAM_E01_01_018',
-        'Push notification not yet approved'
-      ));
+      const response: MFAPendingResponse = {
+        response_type_code: 'MFA_PENDING',
+        transaction_id: transaction_id,
+        context_id: context_id,
+        message: 'Awaiting mobile device approval',
+        expires_at: transaction.expiresAt.toISOString(),
+        retry_after: 1000
+      };
+
+      logAuthEvent('mfa_pending', transaction.userId, {
+        transactionId: transaction_id,
+        method: 'push',
+        ip: req.ip
+      });
+
+      res.status(200).json(response);
       return;
     }
 
@@ -419,37 +431,6 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
     });
 
     handleInternalError(res, error instanceof Error ? error : new Error('MFA push verification failed'));
-  }
-};
-
-/**
- * Get MFA transaction status (for polling)
- * GET /mfa/transaction/:transaction_id
- */
-export const getTransactionStatus = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { transaction_id } = req.params;
-
-    const transaction = await getMFATransaction(transaction_id);
-
-    if (!transaction) {
-      sendErrorResponse(res, 404, createApiError(
-        'CIAM_E01_01_001',
-        'Transaction not found'
-      ));
-      return;
-    }
-
-    const response: MFATransactionStatusResponse = {
-      transaction_id: transaction.transactionId,
-      challenge_status: transaction.status,
-      updated_at: transaction.updatedAt.toISOString(),
-      expires_at: transaction.expiresAt.toISOString()
-    };
-
-    res.json(response);
-  } catch (error) {
-    handleInternalError(res, error instanceof Error ? error : new Error('Failed to get transaction status'));
   }
 };
 
