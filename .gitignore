@@ -137,3 +137,17 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Security - Authentication & Session files
+cookies.txt
+*.cookies
+*.cookie
+.cookies/
+session.txt
+*.session
+tokens.txt
+*.tokens
+auth-debug.txt
+*.pem
+*.key
+!*.key.example
