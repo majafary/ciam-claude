@@ -89,9 +89,31 @@ export const logSecurityEvent = (
   });
 };
 
+// Authentication event type
+export type AuthEventType =
+  | 'login_attempt' | 'login_success' | 'login_failure'
+  | 'login_esign_required' | 'login_mfa_required'
+  | 'logout' | 'logout_failure'
+  | 'token_refresh' | 'token_refresh_success' | 'token_refresh_failure'
+  | 'token_revoked'
+  | 'mfa_challenge' | 'mfa_challenge_created' | 'mfa_challenge_failure'
+  | 'mfa_success' | 'mfa_failure'
+  | 'mfa_verify_otp' | 'mfa_verify_otp_failure'
+  | 'mfa_verify_push' | 'mfa_verify_push_failure'
+  | 'mfa_pending'
+  | 'push_approve_attempt' | 'push_approved' | 'push_approve_failure'
+  | 'esign_accept_attempt' | 'esign_accepted' | 'esign_accept_failure'
+  | 'device_bind_attempt' | 'device_bound' | 'device_bind_failure' | 'device_already_trusted'
+  | 'session_verify' | 'session_revoked' | 'session_revoke_failure'
+  | 'session_mismatch'
+  | 'sessions_listed' | 'sessions_list_failure'
+  | 'userinfo_accessed' | 'userinfo_failure'
+  | 'unauthorized_access' | 'authorization_failure'
+  | 'refresh_token_missing';
+
 // Authentication event logging
 export const logAuthEvent = (
-  event: 'login_attempt' | 'login_success' | 'login_failure' | 'logout' | 'token_refresh' | 'mfa_challenge' | 'mfa_success' | 'mfa_failure',
+  event: AuthEventType,
   userId?: string,
   details?: Record<string, unknown>
 ) => {
