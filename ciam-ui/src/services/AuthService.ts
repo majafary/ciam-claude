@@ -421,11 +421,10 @@ export class AuthService {
     const requestBody: any = {
       context_id: contextId,
       transaction_id: transactionId,
-      method: 'sms', // v3.0.0: method is required for verification
       code: otp,
     };
 
-    const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/verify', {
+    const response = await this.apiCall<MFAVerifyResponse>('/auth/mfa/otp/verify', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });

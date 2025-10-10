@@ -31,7 +31,7 @@ app.get('/health', (req, res) => {
 app.post('/auth/login', authController.login);
 app.post('/auth/logout', authController.logout);
 app.post('/auth/refresh', authController.refresh);
-app.post('/auth/mfa/verify', authController.verifyMfa);
+app.post('/auth/mfa/otp/verify', authController.verifyOtpChallenge);
 app.post('/auth/mfa/initiate', authController.initiateMfaChallenge);
 app.post('/auth/mfa/transactions/:transaction_id', authController.verifyPushChallenge);
 
@@ -59,7 +59,7 @@ app.get('/', (req, res) => {
       },
       mfa: {
         initiate: 'POST /auth/mfa/initiate',
-        verify: 'POST /auth/mfa/verify',
+        otp_verify: 'POST /auth/mfa/otp/verify',
         push_verify_poll: 'POST /auth/mfa/transactions/:transaction_id'
       },
       esign: {

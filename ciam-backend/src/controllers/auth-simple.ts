@@ -755,13 +755,29 @@ export const authController = {
     const username = mfaTransaction.username;
     console.log('✅ [MFA INITIATE] Retrieved username from transaction:', { transaction_id, username });
 
+    // Invalidate the old login transaction_id (one-time use)
+    mfaTransactions.delete(transaction_id);
+    console.log('🗑️ [MFA INITIATE] Invalidated login transaction_id:', transaction_id);
+
+    // Generate NEW transaction_id for MFA challenge step
+    const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+    // Store username context with NEW transaction_id for MFA challenge
+    mfaTransactions.set(newTransactionId, {
+      transaction_id: newTransactionId,
+      username,
+      createdAt: Date.now(),
+      method
+    });
+    console.log('📝 [MFA INITIATE] Created new transaction_id for MFA challenge:', { oldTxn: transaction_id, newTxn: newTransactionId, method });
+
     const expires_at = new Date(Date.now() + 10 * 1000).toISOString();
 
     // v3.0.0: Handle OTP methods (sms/voice) - both work the same way
     if (method === 'sms' || method === 'voice') {
       return res.json({
         success: true,
-        transaction_id: transaction_id,
+        transaction_id: newTransactionId,
         expires_at: expires_at
       });
     }
@@ -770,7 +786,7 @@ export const authController = {
       const { numbers, correctNumber } = generatePushNumbers();
 
       const pushChallenge: PushChallenge = {
-        transactionId: transaction_id,
+        transactionId: newTransactionId,
         numbers,
         correctNumber,
         username,
@@ -778,12 +794,12 @@ export const authController = {
         attempts: 0
       };
 
-      pushChallenges.set(transaction_id, pushChallenge);
-      console.log('🎲 Push challenge created:', { transaction_id, numbers, correctNumber, username });
+      pushChallenges.set(newTransactionId, pushChallenge);
+      console.log('🎲 Push challenge created:', { transaction_id: newTransactionId, numbers, correctNumber, username });
 
       return res.json({
         success: true,
-        transaction_id: transaction_id,
+        transaction_id: newTransactionId,
         expires_at: expires_at,
         display_number: correctNumber
       });
@@ -997,15 +1013,35 @@ export const authController = {
     const pendingESign = getPendingESign(username);
     if (pendingESign) {
       console.log('📝 [PUSH VERIFY] eSign required after push MFA');
+
+      // Invalidate the old push transaction_id (one-time use)
+      mfaTransactions.delete(transaction_id);
+      console.log('🗑️ [PUSH VERIFY] Invalidated push transaction_id:', transaction_id);
+
+      // Generate NEW transaction_id for eSign step
+      const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+      // Store username context with NEW transaction_id for eSign step
+      mfaTransactions.set(newTransactionId, {
+        transaction_id: newTransactionId,
+        username,
+        createdAt: Date.now()
+      });
+      console.log('📝 [PUSH VERIFY] Created new transaction_id for eSign:', { oldTxn: transaction_id, newTxn: newTransactionId });
+
       return res.status(200).json({
         response_type_code: 'ESIGN_REQUIRED',
         context_id: context_id,
-        transaction_id: transaction_id,
+        transaction_id: newTransactionId,
         esign_document_id: pendingESign.documentId,
         esign_url: `/auth/esign/documents/${pendingESign.documentId}`,
         is_mandatory: pendingESign.mandatory
       });
     }
+
+    // Invalidate the push transaction_id on success (one-time use)
+    mfaTransactions.delete(transaction_id);
+    console.log('🗑️ [PUSH VERIFY] Invalidated push transaction_id on success:', transaction_id);
 
     return res.status(201).json({
       response_type_code: 'SUCCESS',
@@ -1020,13 +1056,13 @@ export const authController = {
   },
 
   /**
-   * Verify MFA
-   * POST /auth/mfa/verify
+   * Verify OTP Challenge (v3.0.0 - OTP-specific endpoint)
+   * POST /auth/mfa/otp/verify
    */
-  verifyMfa: async (req: Request, res: Response) => {
-    const { transaction_id, method, code, context_id } = req.body;
+  verifyOtpChallenge: async (req: Request, res: Response) => {
+    const { transaction_id, code, context_id } = req.body;
 
-    console.log('🔍 [MFA VERIFY] Request:', { transaction_id, method, context_id });
+    console.log('🔍 [OTP VERIFY] Request:', { transaction_id, context_id });
 
     if (!transaction_id) {
       return res.status(400).json({
@@ -1035,9 +1071,9 @@ export const authController = {
       });
     }
 
-    if (!method) {
+    if (!code) {
       return res.status(400).json({
-        error_code: 'MISSING_METHOD',
+        error_code: 'MISSING_CODE',
         context_id: context_id || ''
       });
     }
@@ -1054,104 +1090,9 @@ export const authController = {
 
     const username = mfaTransaction.username;
     console.log('✅ [OTP VERIFY] Retrieved username from transaction:', { transaction_id, username });
-    const userScenario = USER_SCENARIOS[username];
 
-    // v3.0.0: Handle OTP methods (sms/voice)
-    if (method === 'sms' || method === 'voice') {
-      if (!code) {
-        return res.status(400).json({
-          error_code: 'MISSING_CODE',
-          context_id: context_id || ''
-        });
-      }
-
-      if (code === '1234') {
-        const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
-        updateLoginTime(username);
-
-        const accessToken = generateAccessToken(user);
-        const idToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken(user);
-
-        res.cookie('refresh_token', refreshToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          maxAge: 30 * 24 * 60 * 60 * 1000,
-          sameSite: 'strict'
-        });
-
-        // Check if eSign is required after MFA
-        console.log('🔍 [OTP VERIFY] Checking for pending eSign:', { username, transaction_id });
-        const pendingESign = getPendingESign(username);
-        console.log('🔍 [OTP VERIFY] Pending eSign result:', pendingESign);
-        if (pendingESign) {
-          return res.status(200).json({
-            response_type_code: 'ESIGN_REQUIRED',
-            context_id: context_id,
-            transaction_id: transaction_id,
-            esign_document_id: pendingESign.documentId,
-            esign_url: `/auth/esign/documents/${pendingESign.documentId}`,
-            is_mandatory: pendingESign.mandatory
-          });
-        }
-
-        return res.status(201).json({
-          response_type_code: 'SUCCESS',
-          access_token: accessToken,
-          id_token: idToken,
-          token_type: 'Bearer',
-          expires_in: 900,
-          context_id: context_id,
-          transaction_id: transaction_id,
-          device_bound: false
-        });
-      } else {
-        // Invalid OTP - delete MFA transaction (single-use security)
-        mfaTransactions.delete(transaction_id);
-        return res.status(400).json({
-          error_code: 'INVALID_MFA_CODE',
-          context_id: context_id || ''
-        });
-      }
-    }
-
-    if (method === 'push') {
-      // For push, check the transaction status
-      const challenge = pushChallenges.get(transaction_id);
-
-      if (!challenge) {
-        return res.status(400).json({
-          error_code: 'CHALLENGE_NOT_FOUND',
-          context_id: context_id || ''
-        });
-      }
-
-      // Check current status (would be APPROVED if user selected correct number on mobile)
-      const timeElapsed = Date.now() - challenge.createdAt;
-      let challenge_status = 'PENDING';
-
-      if (transaction_id.includes('pushfail')) {
-        if (timeElapsed > 7000) {
-          challenge_status = 'REJECTED';
-        }
-      } else if (transaction_id.includes('pushexpired')) {
-        challenge_status = 'PENDING';
-      } else {
-        if (timeElapsed > 5000) {
-          challenge_status = 'APPROVED';
-        }
-      }
-
-      if (challenge_status !== 'APPROVED') {
-        return res.status(400).json({
-          error_code: challenge_status === 'REJECTED' ? 'PUSH_REJECTED' : 'TRANSACTION_NOT_APPROVED',
-          context_id: context_id || ''
-        });
-      }
-
-      // Push approved - issue tokens
-      pushChallenges.delete(transaction_id);
-
+    // Verify OTP code
+    if (code === '1234') {
       const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
       updateLoginTime(username);
 
@@ -1166,20 +1107,39 @@ export const authController = {
         sameSite: 'strict'
       });
 
-      console.log('✅ Push verification successful:', { username });
-
       // Check if eSign is required after MFA
+      console.log('🔍 [OTP VERIFY] Checking for pending eSign:', { username, transaction_id });
       const pendingESign = getPendingESign(username);
+      console.log('🔍 [OTP VERIFY] Pending eSign result:', pendingESign);
       if (pendingESign) {
+        // Invalidate the old MFA transaction_id (one-time use)
+        mfaTransactions.delete(transaction_id);
+        console.log('🗑️ [OTP VERIFY] Invalidated MFA transaction_id:', transaction_id);
+
+        // Generate NEW transaction_id for eSign step
+        const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+        // Store username context with NEW transaction_id for eSign step
+        mfaTransactions.set(newTransactionId, {
+          transaction_id: newTransactionId,
+          username,
+          createdAt: Date.now()
+        });
+        console.log('📝 [OTP VERIFY] Created new transaction_id for eSign:', { oldTxn: transaction_id, newTxn: newTransactionId });
+
         return res.status(200).json({
           response_type_code: 'ESIGN_REQUIRED',
           context_id: context_id,
-          transaction_id: transaction_id,
+          transaction_id: newTransactionId,
           esign_document_id: pendingESign.documentId,
           esign_url: `/auth/esign/documents/${pendingESign.documentId}`,
           is_mandatory: pendingESign.mandatory
         });
       }
+
+      // Invalidate the MFA transaction_id on success (one-time use)
+      mfaTransactions.delete(transaction_id);
+      console.log('🗑️ [OTP VERIFY] Invalidated MFA transaction_id on success:', transaction_id);
 
       return res.status(201).json({
         response_type_code: 'SUCCESS',
@@ -1191,12 +1151,14 @@ export const authController = {
         transaction_id: transaction_id,
         device_bound: false
       });
+    } else {
+      // Invalid OTP - delete MFA transaction (single-use security)
+      mfaTransactions.delete(transaction_id);
+      return res.status(400).json({
+        error_code: 'INVALID_MFA_CODE',
+        context_id: context_id || ''
+      });
     }
-
-    return res.status(400).json({
-      error_code: 'UNSUPPORTED_MFA_METHOD',
-      context_id: context_id || ''
-    });
   },
 
   /**
@@ -1271,15 +1233,35 @@ export const authController = {
     // v3.0.0: If device is not bound, return DEVICE_BIND_REQUIRED
     if (!device_bound) {
       console.log('📱 [ESIGN ACCEPT] Device not bound, returning DEVICE_BIND_REQUIRED:', { username, deviceFingerprint });
+
+      // Invalidate the old eSign transaction_id (one-time use)
+      mfaTransactions.delete(transaction_id);
+      console.log('🗑️ [ESIGN ACCEPT] Invalidated eSign transaction_id:', transaction_id);
+
+      // Generate NEW transaction_id for device binding step
+      const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+      // Store username context with NEW transaction_id for device binding step
+      mfaTransactions.set(newTransactionId, {
+        transaction_id: newTransactionId,
+        username,
+        createdAt: Date.now()
+      });
+      console.log('📝 [ESIGN ACCEPT] Created new transaction_id for device binding:', { oldTxn: transaction_id, newTxn: newTransactionId });
+
       return res.status(200).json({
         response_type_code: 'DEVICE_BIND_REQUIRED',
         context_id: context_id,
-        transaction_id: transaction_id
+        transaction_id: newTransactionId
       });
     }
 
     // v3.0.0: Device already bound, return SUCCESS with tokens
     console.log('✅ [ESIGN ACCEPT] Device already bound, returning tokens:', { username, deviceFingerprint });
+
+    // Invalidate the eSign transaction_id on success (one-time use)
+    mfaTransactions.delete(transaction_id);
+    console.log('🗑️ [ESIGN ACCEPT] Invalidated eSign transaction_id on success:', transaction_id);
 
     // Generate tokens
     const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
