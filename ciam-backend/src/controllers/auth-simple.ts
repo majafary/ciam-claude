@@ -432,7 +432,7 @@ export const authController = {
       res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         sameSite: 'strict'
       });
 
@@ -440,7 +440,6 @@ export const authController = {
         response_type_code: 'SUCCESS',
         access_token: accessToken,
         id_token: idToken,
-        refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
         context_id: context_id,
@@ -492,7 +491,7 @@ export const authController = {
         res.cookie('refresh_token', refreshToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
-          maxAge: 7 * 24 * 60 * 60 * 1000,
+          maxAge: 30 * 24 * 60 * 60 * 1000,
           sameSite: 'strict'
         });
 
@@ -513,7 +512,6 @@ export const authController = {
           response_type_code: 'SUCCESS',
           access_token: accessToken,
           id_token: idToken,
-          refresh_token: refreshToken,
           token_type: 'Bearer',
           expires_in: 900,
           context_id: context_id,
@@ -582,7 +580,7 @@ export const authController = {
       res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         sameSite: 'strict'
       });
 
@@ -603,7 +601,6 @@ export const authController = {
         response_type_code: 'SUCCESS',
         access_token: accessToken,
         id_token: idToken,
-        refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
         context_id: context_id,
@@ -765,7 +762,6 @@ export const authController = {
       return res.json({
         success: true,
         transaction_id: transaction_id,
-        challenge_status: 'PENDING',
         expires_at: expires_at
       });
     }
@@ -788,7 +784,6 @@ export const authController = {
       return res.json({
         success: true,
         transaction_id: transaction_id,
-        challenge_status: 'PENDING',
         expires_at: expires_at,
         display_number: correctNumber
       });
@@ -854,7 +849,6 @@ export const authController = {
 
       return res.json({
         transaction_id: transactionId,
-        challenge_status: challenge_status,
         updated_at: new Date().toISOString(),
         expires_at: new Date(challenge.createdAt + 10 * 1000).toISOString(),
         display_number: challenge.correctNumber,
@@ -873,7 +867,6 @@ export const authController = {
 
     return res.json({
       transaction_id: transactionId,
-      challenge_status: challenge_status,
       updated_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 10 * 1000).toISOString()
     });
@@ -1018,7 +1011,6 @@ export const authController = {
       response_type_code: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,
-      refresh_token: refreshToken,
       token_type: 'Bearer',
       expires_in: 900,
       context_id: context_id,
@@ -1084,7 +1076,7 @@ export const authController = {
         res.cookie('refresh_token', refreshToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
-          maxAge: 7 * 24 * 60 * 60 * 1000,
+          maxAge: 30 * 24 * 60 * 60 * 1000,
           sameSite: 'strict'
         });
 
@@ -1107,7 +1099,6 @@ export const authController = {
           response_type_code: 'SUCCESS',
           access_token: accessToken,
           id_token: idToken,
-          refresh_token: refreshToken,
           token_type: 'Bearer',
           expires_in: 900,
           context_id: context_id,
@@ -1171,7 +1162,7 @@ export const authController = {
       res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         sameSite: 'strict'
       });
 
@@ -1194,7 +1185,6 @@ export const authController = {
         response_type_code: 'SUCCESS',
         access_token: accessToken,
         id_token: idToken,
-        refresh_token: refreshToken,
         token_type: 'Bearer',
         expires_in: 900,
         context_id: context_id,
@@ -1300,7 +1290,7 @@ export const authController = {
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
       sameSite: 'strict'
     });
 
@@ -1308,7 +1298,6 @@ export const authController = {
       response_type_code: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,
-      refresh_token: refreshToken,
       token_type: 'Bearer',
       expires_in: 900,
       context_id: context_id,
@@ -1546,7 +1535,7 @@ export const authController = {
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
       sameSite: 'strict'
     });
 
@@ -1554,7 +1543,6 @@ export const authController = {
       response_type_code: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,
-      refresh_token: refreshToken,
       token_type: 'Bearer',
       expires_in: 900,
       context_id: context_id,

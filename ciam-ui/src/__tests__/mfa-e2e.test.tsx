@@ -50,7 +50,6 @@ describe('MFA End-to-End Flow', () => {
     const mockVerifyMFAChallenge = jest.fn().mockResolvedValue({
       id_token: 'test-id-token',
       access_token: 'test-access-token',
-      refresh_token: 'test-refresh-token',
       sessionId: 'test-session-id',
       transactionId: transactionId,
       message: 'MFA verification successful'
@@ -68,8 +67,7 @@ describe('MFA End-to-End Flow', () => {
 
     const mockRefreshToken = jest.fn().mockResolvedValue({
       id_token: 'test-id-token',
-      access_token: 'test-access-token',
-      refresh_token: 'test-refresh-token'
+      access_token: 'test-access-token'
     });
 
     const mockSetStoredAccessToken = jest.fn();

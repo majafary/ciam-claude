@@ -468,7 +468,7 @@ export class AuthService {
   /**
    * Approve push MFA transaction (mobile app) (v3 API)
    */
-  async approvePushMFA(contextId: string, transactionId: string, selectedNumber: number): Promise<{ success: boolean; transaction_id: string; challenge_status: string }> {
+  async approvePushMFA(contextId: string, transactionId: string, selectedNumber: number): Promise<{ success: boolean; transaction_id: string }> {
     return this.apiCall(`/mfa/transaction/${encodeURIComponent(transactionId)}/approve`, {
       method: 'POST',
       body: JSON.stringify({

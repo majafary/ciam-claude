@@ -86,7 +86,6 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
     const response: MFAChallengeResponse = {
       success: true,
       transaction_id: transaction.transactionId, // V3: Returns NEW transaction_id
-      challenge_status: transaction.status,
       expires_at: transaction.expiresAt.toISOString() // V3: Backend-controlled timer
     };
 
@@ -255,7 +254,6 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
       id_token: idToken,
       token_type: 'Bearer',
       expires_in: 900, // 15 minutes
-      context_id: context_id,
       transaction_id: transaction_id
     };
 
@@ -327,7 +325,6 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       const response: MFAPendingResponse = {
         response_type_code: 'MFA_PENDING',
         transaction_id: transaction_id,
-        context_id: context_id,
         message: 'Awaiting mobile device approval',
         expires_at: transaction.expiresAt.toISOString(),
         retry_after: 1000
@@ -417,7 +414,6 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       id_token: idToken,
       token_type: 'Bearer',
       expires_in: 900, // 15 minutes
-      context_id: context_id,
       transaction_id: transaction_id
     };
 
@@ -492,8 +488,7 @@ export const approvePushNotification = async (req: Request, res: Response): Prom
 
     const response: MFAApproveResponse = {
       success: true,
-      transaction_id: transaction_id,
-      challenge_status: 'APPROVED'
+      transaction_id: transaction_id
     };
 
     res.json(response);

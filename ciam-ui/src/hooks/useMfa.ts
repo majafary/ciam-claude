@@ -34,7 +34,6 @@ export const useMfa = (): UseMfaReturn => {
       const transaction: MFATransaction = {
         transaction_id: response.transaction_id,
         method,
-        status: response.challenge_status,
         expires_at: response.expires_at,
         created_at: new Date().toISOString(),
         display_number: response.display_number, // Single number to display on UI for push challenges
@@ -70,14 +69,9 @@ export const useMfa = (): UseMfaReturn => {
 
       const response = await authService.verifyOTPChallenge(contextId, transactionId, otp);
 
-      // Update transaction status
       setState(prev => ({
         ...prev,
         isLoading: false,
-        transaction: prev.transaction ? {
-          ...prev.transaction,
-          status: 'APPROVED',
-        } : null,
       }));
 
       return response;
@@ -103,14 +97,9 @@ export const useMfa = (): UseMfaReturn => {
 
       const response = await authService.verifyPushChallenge(contextId, transactionId);
 
-      // Update transaction status
       setState(prev => ({
         ...prev,
         isLoading: false,
-        transaction: prev.transaction ? {
-          ...prev.transaction,
-          status: 'APPROVED',
-        } : null,
       }));
 
       return response;
@@ -134,25 +123,6 @@ export const useMfa = (): UseMfaReturn => {
     try {
       // Use verifyPushChallenge for polling - returns MFA_PENDING if still pending
       const response = await authService.verifyPushChallenge(contextId, transactionId);
-
-      // Update transaction status based on response
-      if (response.response_type_code === 'MFA_PENDING') {
-        setState(prev => ({
-          ...prev,
-          transaction: prev.transaction ? {
-            ...prev.transaction,
-            status: 'PENDING',
-          } : null,
-        }));
-      } else if (response.response_type_code === 'SUCCESS') {
-        setState(prev => ({
-          ...prev,
-          transaction: prev.transaction ? {
-            ...prev.transaction,
-            status: 'APPROVED',
-          } : null,
-        }));
-      }
 
       return response;
     } catch (error) {

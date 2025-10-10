@@ -21,7 +21,6 @@ export interface LoginResponse {
 export interface MFAChallengeResponse {
   success: boolean;
   transaction_id: string;
-  challenge_status: MFAChallengeStatus;
   expires_at: string;
   display_number?: number; // For push challenges - single number to display on UI
 }
@@ -30,7 +29,6 @@ export interface MFAVerifyResponse {
   response_type_code: 'SUCCESS' | 'MFA_PENDING' | 'ESIGN_REQUIRED' | 'DEVICE_BIND_REQUIRED';
   id_token?: string;
   access_token?: string;
-  context_id?: string;
   transaction_id: string;
   device_bound?: boolean;
   esign_document_id?: string;
@@ -142,14 +140,12 @@ export interface DeviceBindResponse {
   response_type_code: 'SUCCESS';
   access_token: string;
   id_token: string;
-  refresh_token?: string;
   token_type: string;
   expires_in: number;
   context_id: string;
   device_bound: boolean;
 }
 
-export type MFAChallengeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
 
 // Internal Types
 export interface User {
@@ -175,7 +171,6 @@ export interface AuthState {
 export interface MFATransaction {
   transaction_id: string;
   method: 'sms' | 'voice' | 'push';
-  status: MFAChallengeStatus;
   expires_at: string;
   created_at: string;
   display_number?: number; // For push challenges - single number to display on UI

@@ -138,7 +138,7 @@ All endpoints now use the v2 API paths:
   responseTypeCode: 'SUCCESS';
   access_token: string;
   id_token: string;
-  refresh_token: string;
+  // refresh_token managed via httpOnly cookie ONLY (Set-Cookie header, 30-day expiry)
   session_id: string;
   transaction_id?: string;
   device_bound: boolean;  // NEW - indicates if device is trusted
@@ -213,7 +213,7 @@ All endpoints now use the v2 API paths:
   responseTypeCode?: 'SUCCESS' | 'ESIGN_REQUIRED';
   access_token?: string;
   id_token?: string;
-  refresh_token?: string;    // NEW - all 3 tokens returned
+  // refresh_token managed via httpOnly cookie ONLY (Set-Cookie header, 30-day expiry)
   session_id?: string;
   transaction_id: string;
   device_bound?: boolean;    // NEW

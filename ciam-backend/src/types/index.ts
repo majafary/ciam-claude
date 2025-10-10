@@ -66,7 +66,6 @@ export interface MFAChallengeRequest {
 export interface MFAChallengeResponse {
   success: boolean;
   transaction_id: string;
-  challenge_status: MFAChallengeStatus;
   expires_at: string;
   display_number?: number;
 }
@@ -83,14 +82,12 @@ export interface MFAVerifySuccessResponse {
   id_token: string;
   token_type: string;
   expires_in: number;
-  context_id: string;
   transaction_id: string;
 }
 
 export interface MFAPendingResponse {
   response_type_code: 'MFA_PENDING';
   transaction_id: string;
-  context_id: string;
   message?: string;
   expires_at?: string;
   retry_after?: number;
@@ -106,7 +103,6 @@ export interface MFAApproveRequest {
 export interface MFAApproveResponse {
   success: boolean;
   transaction_id: string;
-  challenge_status: 'APPROVED';
 }
 
 export type MFAChallengeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
