@@ -1,13 +1,8 @@
 import { Request, Response } from 'express';
 import { getMFATransaction } from '../services/mfaService';
+import { trustDevice, isDeviceTrusted as checkDeviceTrusted } from '../services/deviceService';
 import { handleInternalError, sendErrorResponse, createApiError } from '../utils/errors';
 import { logAuthEvent } from '../utils/logger';
-
-/**
- * Mock device trust storage for development
- * TODO: Replace with actual database in production
- */
-const trustedDevices: Map<string, { userId: string; deviceFingerprint: string; trustedAt: Date }> = new Map();
 
 /**
  * Bind/trust device endpoint
@@ -51,36 +46,32 @@ export const bindDevice = async (req: Request, res: Response): Promise<void> => 
     }
 
     const userId = transaction.userId;
-    const deviceKey = `${userId}:${transaction_id}`;
+    const deviceFingerprint = transaction_id; // Using transaction_id as device identifier
 
     // Check if device is already trusted
-    const alreadyTrusted = trustedDevices.has(deviceKey);
+    const alreadyTrusted = await checkDeviceTrusted(userId, deviceFingerprint);
+
+    // Trust the device (will update last_used_at if already exists)
+    const device = await trustDevice(userId, deviceFingerprint, undefined, 30);
 
     if (!alreadyTrusted) {
-      // Trust the device
-      trustedDevices.set(deviceKey, {
-        userId,
-        deviceFingerprint: transaction_id, // Using transaction_id as device identifier
-        trustedAt: new Date()
-      });
-
       logAuthEvent('device_bound', userId, {
         transactionId: transaction_id,
+        deviceId: device.deviceId,
         ip: req.ip
       });
     } else {
       logAuthEvent('device_already_trusted', userId, {
         transactionId: transaction_id,
+        deviceId: device.deviceId,
         ip: req.ip
       });
     }
 
-    const trustedAt = trustedDevices.get(deviceKey)?.trustedAt || new Date();
-
     res.json({
       success: true,
       transaction_id,
-      trusted_at: trustedAt.toISOString(),
+      trusted_at: device.trustedAt.toISOString(),
       already_trusted: alreadyTrusted
     });
   } catch (error) {
@@ -98,6 +89,5 @@ export const bindDevice = async (req: Request, res: Response): Promise<void> => 
  * Check if device is trusted for user
  */
 export const isDeviceTrusted = async (userId: string, deviceFingerprint: string): Promise<boolean> => {
-  const deviceKey = `${userId}:${deviceFingerprint}`;
-  return trustedDevices.has(deviceKey);
+  return checkDeviceTrusted(userId, deviceFingerprint);
 };

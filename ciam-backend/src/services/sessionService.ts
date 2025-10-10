@@ -1,11 +1,31 @@
+/**
+ * Session Service
+ *
+ * Handles session lifecycle using SessionRepository
+ * Refactored to use repository pattern with database persistence
+ */
+
 import { v4 as uuidv4 } from 'uuid';
 import { Session, SessionInfo } from '../types';
+import { repositories } from '../repositories';
+import { Session as DBSession } from '../database/types';
 
 /**
- * Mock session storage for development
- * TODO: Replace with actual database (Redis/PostgreSQL) in production
+ * Type mapping: Session (DB) → Session (Service)
  */
-const mockSessions: Map<string, Session> = new Map();
+const toSession = (dbSession: DBSession): Session => {
+  return {
+    sessionId: dbSession.session_id,
+    userId: dbSession.user_id,
+    deviceId: dbSession.device_id || generateDeviceId(dbSession.user_agent || undefined),
+    createdAt: dbSession.created_at,
+    lastSeenAt: dbSession.last_seen_at,
+    expiresAt: dbSession.expires_at,
+    ip: dbSession.ip_address || undefined,
+    userAgent: dbSession.user_agent || undefined,
+    isActive: dbSession.is_active,
+  };
+};
 
 /**
  * Create a new session
@@ -13,48 +33,48 @@ const mockSessions: Map<string, Session> = new Map();
 export const createSession = async (
   userId: string,
   ip?: string,
-  userAgent?: string
+  userAgent?: string,
+  contextId?: string
 ): Promise<Session> => {
   const sessionId = `sess-${uuidv4()}`;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+  const deviceId = generateDeviceId(userAgent);
 
-  const session: Session = {
-    sessionId,
-    userId,
-    deviceId: generateDeviceId(userAgent),
-    createdAt: now,
-    lastSeenAt: now,
-    expiresAt,
-    ip,
-    userAgent,
-    isActive: true
-  };
+  const dbSession = await repositories.session.create({
+    session_id: sessionId,
+    user_id: userId,
+    context_id: contextId || null,
+    device_id: deviceId,
+    created_at: now,
+    last_seen_at: now,
+    expires_at: expiresAt,
+    ip_address: ip || null,
+    user_agent: userAgent || null,
+    is_active: true,
+  });
 
-  // TODO: Store in database in production
-  mockSessions.set(sessionId, session);
-
-  return session;
+  console.log(`Created session ${sessionId} for user ${userId}`);
+  return toSession(dbSession);
 };
 
 /**
  * Get session by ID
  */
 export const getSessionById = async (sessionId: string): Promise<Session | null> => {
-  // TODO: Replace with actual database query in production
-  const session = mockSessions.get(sessionId);
+  const dbSession = await repositories.session.findById(sessionId);
 
-  if (!session) {
+  if (!dbSession) {
     return null;
   }
 
   // Check if session is expired
-  if (session.expiresAt < new Date()) {
+  if (dbSession.expires_at < new Date()) {
     await revokeSession(sessionId);
     return null;
   }
 
-  return session;
+  return toSession(dbSession);
 };
 
 /**
@@ -69,33 +89,26 @@ export const verifySession = async (sessionId: string): Promise<boolean> => {
  * Update session's last seen timestamp
  */
 export const updateSessionActivity = async (sessionId: string): Promise<void> => {
-  // TODO: Replace with actual database update in production
-  const session = mockSessions.get(sessionId);
-  if (session && session.isActive) {
-    session.lastSeenAt = new Date();
-  }
+  await repositories.session.updateLastSeen(sessionId);
 };
 
 /**
  * Get all active sessions for a user
  */
 export const getUserSessions = async (userId: string): Promise<SessionInfo[]> => {
-  // TODO: Replace with actual database query in production
-  const userSessions: SessionInfo[] = [];
+  const dbSessions = await repositories.session.findActiveByUserId(userId);
 
-  for (const session of mockSessions.values()) {
-    if (session.userId === userId && session.isActive && session.expiresAt > new Date()) {
-      userSessions.push({
-        sessionId: session.sessionId,
-        deviceId: session.deviceId,
-        createdAt: session.createdAt.toISOString(),
-        lastSeenAt: session.lastSeenAt.toISOString(),
-        ip: session.ip,
-        userAgent: session.userAgent,
-        location: await getLocationFromIP(session.ip) // Mock location
-      });
-    }
-  }
+  const userSessions: SessionInfo[] = await Promise.all(
+    dbSessions.map(async (dbSession) => ({
+      sessionId: dbSession.session_id,
+      deviceId: dbSession.device_id || 'unknown',
+      createdAt: dbSession.created_at.toISOString(),
+      lastSeenAt: dbSession.last_seen_at.toISOString(),
+      ip: dbSession.ip_address || undefined,
+      userAgent: dbSession.user_agent || undefined,
+      location: await getLocationFromIP(dbSession.ip_address || undefined),
+    }))
+  );
 
   return userSessions.sort((a, b) =>
     new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
@@ -106,44 +119,28 @@ export const getUserSessions = async (userId: string): Promise<SessionInfo[]> =>
  * Revoke a specific session
  */
 export const revokeSession = async (sessionId: string): Promise<boolean> => {
-  // TODO: Replace with actual database update in production
-  const session = mockSessions.get(sessionId);
-
-  if (session) {
-    session.isActive = false;
-    return true;
-  }
-
-  return false;
+  const result = await repositories.session.deactivate(sessionId);
+  return !!result;
 };
 
 /**
  * Revoke all sessions for a user
  */
 export const revokeAllUserSessions = async (userId: string): Promise<number> => {
-  // TODO: Replace with actual database update in production
-  let revokedCount = 0;
-
-  for (const session of mockSessions.values()) {
-    if (session.userId === userId && session.isActive) {
-      session.isActive = false;
-      revokedCount++;
-    }
-  }
-
-  return revokedCount;
+  const count = await repositories.session.deactivateAllForUser(userId);
+  return count;
 };
 
 /**
  * Revoke all sessions except the current one
  */
 export const revokeOtherUserSessions = async (userId: string, currentSessionId: string): Promise<number> => {
-  // TODO: Replace with actual database update in production
-  let revokedCount = 0;
+  const allSessions = await repositories.session.findActiveByUserId(userId);
 
-  for (const session of mockSessions.values()) {
-    if (session.userId === userId && session.sessionId !== currentSessionId && session.isActive) {
-      session.isActive = false;
+  let revokedCount = 0;
+  for (const session of allSessions) {
+    if (session.session_id !== currentSessionId) {
+      await repositories.session.deactivate(session.session_id);
       revokedCount++;
     }
   }
@@ -155,29 +152,22 @@ export const revokeOtherUserSessions = async (userId: string, currentSessionId: 
  * Clean up expired sessions
  */
 export const cleanupExpiredSessions = async (): Promise<number> => {
-  // TODO: Replace with actual database cleanup in production
-  const now = new Date();
-  let cleanedCount = 0;
-
-  for (const [sessionId, session] of mockSessions.entries()) {
-    if (session.expiresAt < now) {
-      mockSessions.delete(sessionId);
-      cleanedCount++;
-    }
-  }
-
-  return cleanedCount;
+  const count = await repositories.session.expireOldSessions();
+  console.log(`Cleaned up ${count} expired sessions`);
+  return count;
 };
 
 /**
  * Extend session expiration
  */
 export const extendSession = async (sessionId: string, additionalHours: number = 24): Promise<boolean> => {
-  // TODO: Replace with actual database update in production
-  const session = mockSessions.get(sessionId);
+  const dbSession = await repositories.session.findById(sessionId);
 
-  if (session && session.isActive) {
-    session.expiresAt = new Date(session.expiresAt.getTime() + additionalHours * 60 * 60 * 1000);
+  if (dbSession && dbSession.is_active) {
+    const newExpiresAt = new Date(dbSession.expires_at.getTime() + additionalHours * 60 * 60 * 1000);
+    await repositories.session.update(sessionId, {
+      expires_at: newExpiresAt,
+    });
     return true;
   }
 
@@ -193,16 +183,14 @@ export const getSessionStats = async (): Promise<{
   expiredSessions: number;
   uniqueUsers: number;
 }> => {
-  // TODO: Replace with actual database aggregation in production
-  const now = new Date();
-  const sessions = Array.from(mockSessions.values());
-  const uniqueUsers = new Set(sessions.map(s => s.userId)).size;
+  const stats = await repositories.session.getStats();
+  const uniqueUsers = Object.keys(stats.byUser).length;
 
   return {
-    totalSessions: sessions.length,
-    activeSessions: sessions.filter(s => s.isActive && s.expiresAt > now).length,
-    expiredSessions: sessions.filter(s => s.expiresAt <= now).length,
-    uniqueUsers
+    totalSessions: stats.total,
+    activeSessions: stats.active,
+    expiredSessions: stats.expired,
+    uniqueUsers,
   };
 };
 
@@ -272,10 +260,11 @@ export const getSessionByUserAndDevice = async (
   userId: string,
   deviceId: string
 ): Promise<Session | null> => {
-  // TODO: Replace with actual database query in production
-  for (const session of mockSessions.values()) {
-    if (session.userId === userId && session.deviceId === deviceId && session.isActive) {
-      return session;
+  const sessions = await repositories.session.findActiveByUserId(userId);
+
+  for (const dbSession of sessions) {
+    if (dbSession.device_id === deviceId) {
+      return toSession(dbSession);
     }
   }
 

@@ -22,96 +22,111 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 -- ============================================================================
--- CUSTOM TYPES (ENUMS)
+-- DOCUMENTED VALUE CONSTANTS (Replaced ENUMs with VARCHAR for flexibility)
+-- ============================================================================
+-- Rationale: Using VARCHAR instead of ENUMs allows API-layer validation changes
+--            without requiring database migrations. DBAs and engineers can reference
+--            this documentation for expected values.
+--
+-- IMPORTANT: These are NOT database constraints - validation happens at API layer.
+--            This documentation ensures consistency across teams.
 -- ============================================================================
 
-DO $$ BEGIN
-    CREATE TYPE transaction_type AS ENUM (
-        'MFA_INITIATE',
-        'MFA_VERIFY',
-        'MFA_PUSH_VERIFY',
-        'ESIGN_PRESENT',
-        'ESIGN_ACCEPT',
-        'DEVICE_BIND'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- TRANSACTION_TYPE - Types of authentication transactions
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'MFA_INITIATE'      - User selects MFA method (SMS/voice/push)
+--   'MFA_VERIFY'        - User submits OTP code for verification
+--   'MFA_PUSH_VERIFY'   - User approves push notification on mobile device
+--   'ESIGN_PRESENT'     - Electronic signature document presented to user
+--   'ESIGN_ACCEPT'      - User accepts electronic signature document
+--   'DEVICE_BIND'       - Device binding offered/accepted/declined
+--
+-- Database Type: VARCHAR(50)
+-- Usage: auth_transactions.transaction_type
 
-DO $$ BEGIN
-    CREATE TYPE transaction_status AS ENUM (
-        'PENDING',
-        'CONSUMED',
-        'EXPIRED',
-        'REJECTED'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- TRANSACTION_STATUS - Status of authentication transaction
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'PENDING'   - Transaction created, awaiting user action
+--   'CONSUMED'  - Transaction completed, moved to next step
+--   'EXPIRED'   - Transaction expired (time limit exceeded)
+--   'REJECTED'  - User declined or verification failed
+--
+-- Database Type: VARCHAR(20)
+-- Usage: auth_transactions.transaction_status
 
-DO $$ BEGIN
-    CREATE TYPE token_type AS ENUM (
-        'ACCESS',
-        'REFRESH',
-        'ID'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- TOKEN_TYPE - Types of OAuth/OIDC tokens
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'ACCESS'   - Short-lived access token (15 minutes)
+--   'REFRESH'  - Long-lived refresh token (30 days)
+--   'ID'       - OpenID Connect ID token (15 minutes)
+--
+-- Database Type: VARCHAR(20)
+-- Usage: tokens.token_type
 
-DO $$ BEGIN
-    CREATE TYPE token_status AS ENUM (
-        'ACTIVE',
-        'ROTATED',
-        'REVOKED',
-        'EXPIRED'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- TOKEN_STATUS - Lifecycle status of tokens
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'ACTIVE'   - Currently valid token
+--   'ROTATED'  - Token replaced by new token (refresh flow)
+--   'REVOKED'  - Manually invalidated by user/admin
+--   'EXPIRED'  - Time-based expiration
+--
+-- Database Type: VARCHAR(20)
+-- Usage: tokens.status
 
-DO $$ BEGIN
-    CREATE TYPE session_status AS ENUM (
-        'ACTIVE',
-        'EXPIRED',
-        'REVOKED',
-        'LOGGED_OUT'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- SESSION_STATUS - Status of user sessions
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'ACTIVE'      - Session in use
+--   'EXPIRED'     - Session expired (time-based)
+--   'REVOKED'     - Manually revoked by admin/security event
+--   'LOGGED_OUT'  - User-initiated logout
+--
+-- Database Type: VARCHAR(20)
+-- Usage: sessions.status
 
-DO $$ BEGIN
-    CREATE TYPE device_status AS ENUM (
-        'ACTIVE',
-        'REVOKED',
-        'EXPIRED'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- DEVICE_STATUS - Status of trusted devices
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'ACTIVE'   - Device trusted and active
+--   'REVOKED'  - Trust revoked by user/admin
+--   'EXPIRED'  - Trust expired (time-based or policy)
+--
+-- Database Type: VARCHAR(20)
+-- Usage: trusted_devices.status
 
-DO $$ BEGIN
-    CREATE TYPE drs_recommendation AS ENUM (
-        'ALLOW',
-        'CHALLENGE',
-        'DENY',
-        'TRUST'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- DRS_RECOMMENDATION - Transmit DRS risk assessment recommendations
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'ALLOW'     - Low risk, allow login without additional verification
+--   'CHALLENGE' - Medium risk, require MFA verification
+--   'DENY'      - High risk, block login attempt
+--   'TRUST'     - Known good device, skip MFA
+--
+-- Database Type: VARCHAR(20)
+-- Usage: drs_evaluations.recommendation
 
-DO $$ BEGIN
-    CREATE TYPE event_severity AS ENUM (
-        'INFO',
-        'WARN',
-        'ERROR',
-        'CRITICAL'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- ----------------------------------------------------------------------------
+-- EVENT_SEVERITY - Audit log severity levels
+-- ----------------------------------------------------------------------------
+-- Expected Values:
+--   'INFO'     - Normal operations, informational events
+--   'WARN'     - Potential issues, warnings
+--   'ERROR'    - Errors, failures requiring attention
+--   'CRITICAL' - Security events, critical system issues
+--
+-- Database Type: VARCHAR(20)
+-- Usage: audit_logs.severity
 
 -- ============================================================================
 -- TABLE 1: auth_contexts
@@ -125,8 +140,10 @@ CREATE TABLE IF NOT EXISTS auth_contexts (
     -- Primary Key
     context_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- User Identity (from LDAP)
-    cupid VARCHAR(50) NOT NULL,
+    -- Customer & User Identity
+    guid VARCHAR(50) NOT NULL, -- Customer level identifier
+    cupid VARCHAR(50) NOT NULL, -- User identifier (from LDAP)
+    username VARCHAR(100) NOT NULL, -- Login username (before LDAP validation)
 
     -- Application Context
     app_id VARCHAR(50) NOT NULL,
@@ -158,6 +175,7 @@ CREATE TABLE IF NOT EXISTS auth_contexts (
 );
 
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_auth_ctx_guid ON auth_contexts(guid);
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_cupid ON auth_contexts(cupid);
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_correlation ON auth_contexts(correlation_id);
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_expires ON auth_contexts(expires_at)
@@ -167,7 +185,9 @@ CREATE INDEX IF NOT EXISTS idx_auth_ctx_created ON auth_contexts(created_at DESC
 -- Comments
 COMMENT ON TABLE auth_contexts IS 'Immutable container for authentication journey. One per login attempt.';
 COMMENT ON COLUMN auth_contexts.context_id IS 'Unique identifier for authentication journey, bridges pre-auth to post-auth';
+COMMENT ON COLUMN auth_contexts.guid IS 'Customer level identifier (multi-tenant scoping)';
 COMMENT ON COLUMN auth_contexts.cupid IS 'User identifier from LDAP system';
+COMMENT ON COLUMN auth_contexts.username IS 'Login username provided by user (before LDAP validation, useful for audit)';
 COMMENT ON COLUMN auth_contexts.requires_additional_steps IS 'TRUE if MFA/eSign/device bind required';
 COMMENT ON COLUMN auth_contexts.auth_outcome IS 'Final result: SUCCESS, EXPIRED, ABANDONED, FAILED';
 
@@ -188,8 +208,8 @@ CREATE TABLE IF NOT EXISTS auth_transactions (
     parent_transaction_id UUID REFERENCES auth_transactions(transaction_id),
 
     -- Transaction Identity
-    transaction_type transaction_type NOT NULL,
-    transaction_status transaction_status NOT NULL DEFAULT 'PENDING',
+    transaction_type VARCHAR(50) NOT NULL, -- See TRANSACTION_TYPE documentation above
+    transaction_status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- See TRANSACTION_STATUS documentation above
     sequence_number INT NOT NULL,
     phase VARCHAR(50) NOT NULL, -- MFA, ESIGN, DEVICE_BIND
 
@@ -273,7 +293,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_agent TEXT,
 
     -- Session State
-    status session_status NOT NULL DEFAULT 'ACTIVE',
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', -- See SESSION_STATUS documentation above
 
     -- Lifecycle
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -322,12 +342,12 @@ CREATE TABLE IF NOT EXISTS tokens (
     parent_token_id UUID REFERENCES tokens(token_id),
 
     -- Token Identity
-    token_type token_type NOT NULL,
+    token_type VARCHAR(20) NOT NULL, -- See TOKEN_TYPE documentation above
     token_value TEXT NOT NULL,
     token_value_hash VARCHAR(64) NOT NULL, -- SHA256 for fast lookup
 
     -- Token State
-    status token_status NOT NULL DEFAULT 'ACTIVE',
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', -- See TOKEN_STATUS documentation above
 
     -- Lifecycle
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -374,8 +394,12 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
     -- Primary Key
     device_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- User Identity
-    cupid VARCHAR(50) NOT NULL,
+    -- Customer & User Identity
+    guid VARCHAR(50) NOT NULL, -- Customer level identifier
+    cupid VARCHAR(50) NOT NULL, -- User identifier
+
+    -- Application Context
+    app_id VARCHAR(50) NOT NULL, -- Device trust is per-app
 
     -- Device Identity
     device_fingerprint TEXT NOT NULL,
@@ -386,7 +410,7 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
     device_type VARCHAR(50), -- BROWSER, MOBILE_APP, TABLET, DESKTOP_APP
 
     -- Trust State
-    status device_status NOT NULL DEFAULT 'ACTIVE',
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', -- See DEVICE_STATUS documentation above
 
     -- Lifecycle
     trusted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -401,13 +425,21 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_devices_cupid ON trusted_devices(cupid)
+CREATE INDEX IF NOT EXISTS idx_devices_guid ON trusted_devices(guid);
+CREATE INDEX IF NOT EXISTS idx_devices_cupid_app ON trusted_devices(cupid, app_id)
     WHERE status = 'ACTIVE';
 CREATE INDEX IF NOT EXISTS idx_devices_fingerprint_hash ON trusted_devices(device_fingerprint_hash);
 CREATE INDEX IF NOT EXISTS idx_devices_trusted ON trusted_devices(trusted_at DESC);
 
+-- Unique constraint: one device can only be trusted once per user per app
+CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_unique_per_user_app
+    ON trusted_devices(cupid, app_id, device_fingerprint_hash)
+    WHERE status = 'ACTIVE';
+
 -- Comments
 COMMENT ON TABLE trusted_devices IS 'Trusted device records for MFA skip on known devices';
+COMMENT ON COLUMN trusted_devices.guid IS 'Customer level identifier (multi-tenant scoping)';
+COMMENT ON COLUMN trusted_devices.app_id IS 'Device trust scoped to specific application';
 COMMENT ON COLUMN trusted_devices.device_fingerprint_hash IS 'SHA256 hash for fast device lookup';
 COMMENT ON COLUMN trusted_devices.last_used_at IS 'Updated each time device is used for login';
 
@@ -426,25 +458,36 @@ CREATE TABLE IF NOT EXISTS drs_evaluations (
     -- Foreign Keys
     context_id UUID NOT NULL REFERENCES auth_contexts(context_id) ON DELETE CASCADE,
 
-    -- User Identity
-    cupid VARCHAR(50) NOT NULL,
+    -- Customer & User Identity
+    guid VARCHAR(50) NOT NULL, -- Customer level identifier
+    cupid VARCHAR(50) NOT NULL, -- User identifier
 
     -- DRS Request
     action_token_hash VARCHAR(64) NOT NULL, -- SHA256 of DRS action token
 
     -- DRS Response
     device_id VARCHAR(100), -- DRS device identifier
-    recommendation drs_recommendation NOT NULL,
+    recommendation VARCHAR(20) NOT NULL, -- See DRS_RECOMMENDATION documentation above
     risk_score INT NOT NULL CHECK (risk_score BETWEEN 0 AND 100),
 
-    -- Detailed Signals (JSONB)
-    signals JSONB,
-    -- Example: [{"type": "NEW_DEVICE", "severity": "MEDIUM", "description": "..."}]
+    -- Device Attributes (flattened from DRS response)
+    browser VARCHAR(100),
+    browser_version VARCHAR(50),
+    operating_system VARCHAR(100),
+    os_version VARCHAR(50),
+    device_type VARCHAR(50), -- mobile, desktop, tablet
+    is_mobile BOOLEAN,
+    screen_resolution VARCHAR(20),
+    user_agent TEXT,
+    ip_location VARCHAR(100), -- City, State, Country from IP
 
-    device_attributes JSONB,
-    -- Example: {"browser": "Chrome 120", "os": "Windows 11", "is_mobile": false}
+    -- Risk Signals (flattened from DRS response)
+    primary_signal_type VARCHAR(50), -- Most significant signal type
+    signal_count INT, -- Total number of signals returned
+    has_high_risk_signals BOOLEAN, -- Any signals with HIGH severity
+    signal_types TEXT[], -- Array of all signal types for easy querying
 
-    -- Full Response (for audit)
+    -- Full Response (for audit and future extensibility)
     raw_response JSONB NOT NULL,
 
     -- Lifecycle
@@ -453,16 +496,35 @@ CREATE TABLE IF NOT EXISTS drs_evaluations (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_drs_context ON drs_evaluations(context_id);
+CREATE INDEX IF NOT EXISTS idx_drs_guid ON drs_evaluations(guid);
 CREATE INDEX IF NOT EXISTS idx_drs_cupid_time ON drs_evaluations(cupid, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_drs_recommendation ON drs_evaluations(recommendation);
 CREATE INDEX IF NOT EXISTS idx_drs_risk_score ON drs_evaluations(risk_score);
 CREATE INDEX IF NOT EXISTS idx_drs_created ON drs_evaluations(created_at DESC);
 
+-- Indexes for flattened device attributes
+CREATE INDEX IF NOT EXISTS idx_drs_browser ON drs_evaluations(browser);
+CREATE INDEX IF NOT EXISTS idx_drs_os ON drs_evaluations(operating_system);
+CREATE INDEX IF NOT EXISTS idx_drs_device_type ON drs_evaluations(device_type);
+CREATE INDEX IF NOT EXISTS idx_drs_is_mobile ON drs_evaluations(is_mobile);
+
+-- Indexes for risk signals (fraud detection queries)
+CREATE INDEX IF NOT EXISTS idx_drs_primary_signal ON drs_evaluations(primary_signal_type);
+CREATE INDEX IF NOT EXISTS idx_drs_high_risk ON drs_evaluations(has_high_risk_signals)
+    WHERE has_high_risk_signals = TRUE;
+CREATE INDEX IF NOT EXISTS idx_drs_signal_types ON drs_evaluations USING GIN(signal_types);
+
 -- Comments
-COMMENT ON TABLE drs_evaluations IS 'Device Recognition Service risk assessments from Transmit DRS';
+COMMENT ON TABLE drs_evaluations IS 'Device Recognition Service risk assessments from Transmit DRS with flattened attributes';
+COMMENT ON COLUMN drs_evaluations.guid IS 'Customer level identifier (multi-tenant scoping)';
 COMMENT ON COLUMN drs_evaluations.recommendation IS 'ALLOW, CHALLENGE (require MFA), DENY, or TRUST';
 COMMENT ON COLUMN drs_evaluations.risk_score IS '0-100 risk score (0=low, 100=high)';
-COMMENT ON COLUMN drs_evaluations.signals IS 'Array of risk indicators from DRS';
+COMMENT ON COLUMN drs_evaluations.browser IS 'Browser name extracted from DRS response';
+COMMENT ON COLUMN drs_evaluations.operating_system IS 'Operating system name extracted from DRS response';
+COMMENT ON COLUMN drs_evaluations.device_type IS 'Device category: mobile, desktop, tablet';
+COMMENT ON COLUMN drs_evaluations.primary_signal_type IS 'Most significant risk signal type (e.g., NEW_DEVICE, LOCATION_CHANGE)';
+COMMENT ON COLUMN drs_evaluations.signal_types IS 'Array of all signal types for easy querying (e.g., {NEW_DEVICE,VPN_DETECTED})';
+COMMENT ON COLUMN drs_evaluations.raw_response IS 'Complete DRS response for audit and future field extraction';
 
 -- ============================================================================
 -- TABLE 7: audit_logs (PARTITIONED BY MONTH)
@@ -479,7 +541,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     -- Event Classification
     event_type VARCHAR(100) NOT NULL,
     event_category VARCHAR(50) NOT NULL, -- AUTH, MFA, ESIGN, DEVICE, TOKEN, SESSION, SECURITY
-    severity event_severity NOT NULL DEFAULT 'INFO',
+    severity VARCHAR(20) NOT NULL DEFAULT 'INFO', -- See EVENT_SEVERITY documentation above
 
     -- Entity References (nullable - not all events have all refs)
     cupid VARCHAR(50),
@@ -637,6 +699,149 @@ FROM token_chain
 ORDER BY session_id, token_type, generation;
 
 COMMENT ON VIEW v_token_rotation_chains IS 'Token rotation history showing complete chain from original to current';
+
+-- ============================================================================
+-- SCHEMA REFINEMENTS (v1.1 - Performance & Data Integrity)
+-- ============================================================================
+-- Date: October 2025
+-- Purpose: Additional indexes and constraints for production optimization
+
+-- ----------------------------------------------------------------------------
+-- REFINEMENT 1: Additional Indexes for Query Optimization
+-- ----------------------------------------------------------------------------
+
+-- DRS action token tracking (prevent duplicate evaluations)
+CREATE INDEX IF NOT EXISTS idx_drs_action_token
+    ON drs_evaluations(action_token_hash);
+
+COMMENT ON INDEX idx_drs_action_token IS 'Fast lookup for DRS action token deduplication';
+
+-- Failed login attempts view (fraud detection)
+CREATE OR REPLACE VIEW v_failed_login_attempts AS
+SELECT
+    a.cupid,
+    a.ip_address,
+    a.event_data->>'error_code' as error_code,
+    COUNT(*) as attempt_count,
+    MAX(a.created_at) as last_attempt_at,
+    MIN(a.created_at) as first_attempt_at
+FROM audit_logs a
+WHERE a.event_type IN ('LOGIN_FAILED', 'MFA_VERIFY_FAILED', 'INVALID_CREDENTIALS')
+  AND a.severity IN ('WARN', 'ERROR')
+  AND a.created_at > NOW() - INTERVAL '1 hour'
+GROUP BY a.cupid, a.ip_address, a.event_data->>'error_code'
+HAVING COUNT(*) >= 3
+ORDER BY attempt_count DESC, last_attempt_at DESC;
+
+COMMENT ON VIEW v_failed_login_attempts IS 'Failed login attempts in last hour (3+ attempts) for fraud detection and rate limiting';
+
+-- ----------------------------------------------------------------------------
+-- REFINEMENT 2: Timestamp Validation Constraints
+-- ----------------------------------------------------------------------------
+
+-- Ensure token expiry is always in the future relative to creation
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'check_token_expiry_future'
+    ) THEN
+        ALTER TABLE tokens
+        ADD CONSTRAINT check_token_expiry_future
+        CHECK (expires_at > created_at);
+    END IF;
+END $$;
+
+-- Ensure session expiry is always in the future relative to creation
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'check_session_expiry_future'
+    ) THEN
+        ALTER TABLE sessions
+        ADD CONSTRAINT check_session_expiry_future
+        CHECK (expires_at > created_at);
+    END IF;
+END $$;
+
+-- Ensure auth_context expiry is always in the future relative to creation
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'check_context_expiry_future'
+    ) THEN
+        ALTER TABLE auth_contexts
+        ADD CONSTRAINT check_context_expiry_future
+        CHECK (expires_at > created_at);
+    END IF;
+END $$;
+
+-- Ensure auth_transaction expiry is always in the future relative to creation
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'check_transaction_expiry_future'
+    ) THEN
+        ALTER TABLE auth_transactions
+        ADD CONSTRAINT check_transaction_expiry_future
+        CHECK (expires_at > created_at);
+    END IF;
+END $$;
+
+-- ----------------------------------------------------------------------------
+-- REFINEMENT 3: Application Version Format Validation
+-- ----------------------------------------------------------------------------
+
+-- Validate app_version follows semantic versioning pattern (X.Y.Z)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'check_app_version_format'
+    ) THEN
+        ALTER TABLE auth_contexts
+        ADD CONSTRAINT check_app_version_format
+        CHECK (app_version ~ '^\d+\.\d+\.\d+(-[a-zA-Z0-9]+)?$');
+    END IF;
+END $$;
+
+COMMENT ON CONSTRAINT check_app_version_format ON auth_contexts IS 'Ensures app_version follows semver format (e.g., 1.2.3 or 1.2.3-beta)';
+
+-- ----------------------------------------------------------------------------
+-- REFINEMENT 4: Foreign Key Index Verification Query
+-- ----------------------------------------------------------------------------
+
+-- Query to detect missing indexes on foreign key columns
+-- Run this periodically to ensure all FKs have supporting indexes for join performance
+/*
+SELECT
+    tc.table_name,
+    kcu.column_name AS fk_column,
+    ccu.table_name AS referenced_table,
+    ccu.column_name AS referenced_column,
+    CASE
+        WHEN i.indexname IS NULL THEN '❌ MISSING INDEX'
+        ELSE '✅ INDEX EXISTS: ' || i.indexname
+    END AS index_status
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+    ON tc.constraint_name = kcu.constraint_name
+    AND tc.table_schema = kcu.table_schema
+JOIN information_schema.constraint_column_usage AS ccu
+    ON ccu.constraint_name = tc.constraint_name
+    AND ccu.table_schema = tc.table_schema
+LEFT JOIN pg_indexes i
+    ON i.tablename = tc.table_name
+    AND i.indexdef LIKE '%' || kcu.column_name || '%'
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_schema = 'public'
+  AND tc.table_name IN ('auth_contexts', 'auth_transactions', 'sessions', 'tokens',
+                        'trusted_devices', 'drs_evaluations')
+ORDER BY tc.table_name, kcu.column_name;
+*/
 
 -- ============================================================================
 -- UTILITY FUNCTIONS
@@ -798,46 +1003,6 @@ WHERE cupid = 'YOUR_CUPID'
 ORDER BY created_at DESC
 LIMIT 100;
 */
-
--- ============================================================================
--- GRANTS (ADJUST FOR YOUR APPLICATION USER)
--- ============================================================================
-
--- Create application user (if not exists)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'ciam_app') THEN
-        CREATE USER ciam_app WITH PASSWORD 'CHANGE_ME_IN_PRODUCTION';
-    END IF;
-END $$;
-
--- Grant permissions
-GRANT CONNECT ON DATABASE postgres TO ciam_app; -- Replace 'postgres' with your DB name
-GRANT USAGE ON SCHEMA public TO ciam_app;
-
--- Table permissions
-GRANT SELECT, INSERT, UPDATE ON auth_contexts TO ciam_app;
-GRANT SELECT, INSERT, UPDATE ON auth_transactions TO ciam_app;
-GRANT SELECT, INSERT, UPDATE ON sessions TO ciam_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tokens TO ciam_app;
-GRANT SELECT, INSERT, UPDATE ON trusted_devices TO ciam_app;
-GRANT SELECT, INSERT ON drs_evaluations TO ciam_app;
-GRANT SELECT, INSERT ON audit_logs TO ciam_app;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO ciam_app; -- If using partitions
-
--- Sequence permissions (for auto-increment if used)
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ciam_app;
-
--- View permissions
-GRANT SELECT ON v_active_sessions TO ciam_app;
-GRANT SELECT ON v_pending_transactions TO ciam_app;
-GRANT SELECT ON v_high_risk_logins TO ciam_app;
-GRANT SELECT ON v_token_rotation_chains TO ciam_app;
-
--- Function permissions
-GRANT EXECUTE ON FUNCTION cleanup_expired_transactions TO ciam_app;
-GRANT EXECUTE ON FUNCTION cleanup_expired_contexts TO ciam_app;
-GRANT EXECUTE ON FUNCTION expire_old_sessions TO ciam_app;
 
 -- ============================================================================
 -- SETUP COMPLETE

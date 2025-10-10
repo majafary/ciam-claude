@@ -281,6 +281,7 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
     const acceptance = await recordESignAcceptance(
       userId,
       document_id,
+      context_id,
       acceptance_ip || req.ip,
       acceptance_timestamp
     );

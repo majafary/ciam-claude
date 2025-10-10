@@ -1,39 +1,67 @@
+/**
+ * Token Service
+ *
+ * Handles refresh token lifecycle using RefreshTokenRepository
+ * Refactored to use repository pattern with database persistence
+ */
+
 import { v4 as uuidv4 } from 'uuid';
 import { RefreshToken } from '../types';
 import { generateRefreshToken } from '../utils/jwt';
+import { repositories } from '../repositories';
+import { RefreshToken as DBRefreshToken } from '../database/types';
+import * as crypto from 'crypto';
 
 /**
- * Mock refresh token storage for development
- * TODO: Replace with actual database (Redis/PostgreSQL) in production
+ * Hash a token for secure storage
  */
-const mockRefreshTokens: Map<string, RefreshToken> = new Map();
+const hashToken = (token: string): string => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+/**
+ * Type mapping: RefreshToken (DB) → RefreshToken (Service)
+ */
+const toRefreshToken = (dbToken: DBRefreshToken, rawToken?: string): RefreshToken => {
+  return {
+    tokenId: dbToken.token_id.toString(),
+    userId: dbToken.user_id,
+    sessionId: dbToken.session_id,
+    token: rawToken || dbToken.token_hash, // Use raw token if available, otherwise hash
+    expiresAt: dbToken.expires_at,
+    createdAt: dbToken.created_at,
+    isRevoked: dbToken.is_revoked,
+  };
+};
 
 /**
  * Create and store refresh token
  */
 export const createRefreshToken = async (
   userId: string,
-  sessionId: string
+  sessionId: string,
+  parentTokenId?: number
 ): Promise<RefreshToken> => {
-  const tokenId = uuidv4();
   const token = generateRefreshToken();
+  const tokenHash = hashToken(token);
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days
 
-  const refreshToken: RefreshToken = {
-    tokenId,
-    userId,
-    sessionId,
-    token,
-    expiresAt,
-    createdAt: now,
-    isRevoked: false
-  };
+  const dbToken = await repositories.refreshToken.create({
+    user_id: userId,
+    session_id: sessionId,
+    token_hash: tokenHash,
+    parent_token_id: parentTokenId || null,
+    created_at: now,
+    expires_at: expiresAt,
+    is_revoked: false,
+    revoked_at: null,
+  });
 
-  // TODO: Store in database in production
-  mockRefreshTokens.set(token, refreshToken);
+  console.log(`Created refresh token ${dbToken.token_id} for user ${userId}`);
 
-  return refreshToken;
+  // Return with raw token (not stored in DB)
+  return toRefreshToken(dbToken, token);
 };
 
 /**
@@ -44,17 +72,19 @@ export const validateRefreshToken = async (token: string): Promise<{
   refreshToken?: RefreshToken;
   error?: string;
 }> => {
-  // TODO: Replace with actual database query in production
-  const refreshToken = mockRefreshTokens.get(token);
+  const tokenHash = hashToken(token);
+  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
 
-  if (!refreshToken) {
+  if (!dbToken) {
     return {
       valid: false,
       error: 'Refresh token not found'
     };
   }
 
-  if (refreshToken.isRevoked) {
+  const refreshToken = toRefreshToken(dbToken, token);
+
+  if (dbToken.is_revoked) {
     return {
       valid: false,
       refreshToken,
@@ -62,8 +92,9 @@ export const validateRefreshToken = async (token: string): Promise<{
     };
   }
 
-  if (refreshToken.expiresAt < new Date()) {
+  if (dbToken.expires_at < new Date()) {
     // Automatically revoke expired token
+    await repositories.refreshToken.revoke(dbToken.token_id);
     refreshToken.isRevoked = true;
     return {
       valid: false,
@@ -108,11 +139,16 @@ export const rotateRefreshToken = async (
     };
   }
 
+  // Get parent token ID for rotation chain
+  const tokenHash = hashToken(oldToken);
+  const oldDbToken = await repositories.refreshToken.findByHash(tokenHash);
+  const parentTokenId = oldDbToken?.token_id;
+
   // Revoke old token
   await revokeRefreshToken(oldToken);
 
-  // Create new token
-  const newRefreshToken = await createRefreshToken(userId, sessionId);
+  // Create new token with parent reference
+  const newRefreshToken = await createRefreshToken(userId, sessionId, parentTokenId);
 
   return {
     success: true,
@@ -124,11 +160,11 @@ export const rotateRefreshToken = async (
  * Revoke refresh token
  */
 export const revokeRefreshToken = async (token: string): Promise<boolean> => {
-  // TODO: Replace with actual database update in production
-  const refreshToken = mockRefreshTokens.get(token);
+  const tokenHash = hashToken(token);
+  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
 
-  if (refreshToken) {
-    refreshToken.isRevoked = true;
+  if (dbToken) {
+    await repositories.refreshToken.revoke(dbToken.token_id);
     return true;
   }
 
@@ -139,12 +175,12 @@ export const revokeRefreshToken = async (token: string): Promise<boolean> => {
  * Revoke all refresh tokens for a user
  */
 export const revokeAllUserRefreshTokens = async (userId: string): Promise<number> => {
-  // TODO: Replace with actual database update in production
+  const tokens = await repositories.refreshToken.findByUserId(userId);
   let revokedCount = 0;
 
-  for (const refreshToken of mockRefreshTokens.values()) {
-    if (refreshToken.userId === userId && !refreshToken.isRevoked) {
-      refreshToken.isRevoked = true;
+  for (const token of tokens) {
+    if (!token.is_revoked) {
+      await repositories.refreshToken.revoke(token.token_id);
       revokedCount++;
     }
   }
@@ -156,27 +192,19 @@ export const revokeAllUserRefreshTokens = async (userId: string): Promise<number
  * Revoke all refresh tokens for a session
  */
 export const revokeSessionRefreshTokens = async (sessionId: string): Promise<number> => {
-  // TODO: Replace with actual database update in production
-  let revokedCount = 0;
-
-  for (const refreshToken of mockRefreshTokens.values()) {
-    if (refreshToken.sessionId === sessionId && !refreshToken.isRevoked) {
-      refreshToken.isRevoked = true;
-      revokedCount++;
-    }
-  }
-
-  return revokedCount;
+  const count = await repositories.refreshToken.revokeAllForSession(sessionId);
+  return count;
 };
 
 /**
  * Get refresh token by session ID
  */
 export const getRefreshTokenBySession = async (sessionId: string): Promise<RefreshToken | null> => {
-  // TODO: Replace with actual database query in production
-  for (const refreshToken of mockRefreshTokens.values()) {
-    if (refreshToken.sessionId === sessionId && !refreshToken.isRevoked) {
-      return refreshToken;
+  const tokens = await repositories.refreshToken.findBySessionId(sessionId);
+
+  for (const dbToken of tokens) {
+    if (!dbToken.is_revoked && dbToken.expires_at > new Date()) {
+      return toRefreshToken(dbToken);
     }
   }
 
@@ -187,41 +215,36 @@ export const getRefreshTokenBySession = async (sessionId: string): Promise<Refre
  * Get user's active refresh tokens
  */
 export const getUserRefreshTokens = async (userId: string): Promise<RefreshToken[]> => {
-  // TODO: Replace with actual database query in production
-  const userTokens: RefreshToken[] = [];
+  const dbTokens = await repositories.refreshToken.findByUserId(userId);
+  const now = new Date();
 
-  for (const refreshToken of mockRefreshTokens.values()) {
-    if (refreshToken.userId === userId && !refreshToken.isRevoked && refreshToken.expiresAt > new Date()) {
-      userTokens.push(refreshToken);
-    }
-  }
-
-  return userTokens;
+  return dbTokens
+    .filter((t) => !t.is_revoked && t.expires_at > now)
+    .map((t) => toRefreshToken(t));
 };
 
 /**
  * Clean up expired refresh tokens
  */
 export const cleanupExpiredRefreshTokens = async (): Promise<number> => {
-  // TODO: Replace with actual database cleanup in production
-  const now = new Date();
-  let cleanedCount = 0;
+  // Find and revoke expired tokens
+  const expiredTokens = await repositories.refreshToken.findExpired();
+  let count = 0;
 
-  for (const [token, refreshToken] of mockRefreshTokens.entries()) {
-    if (refreshToken.expiresAt < now) {
-      if (!refreshToken.isRevoked) {
-        refreshToken.isRevoked = true;
-        cleanedCount++;
-      }
-
-      // Delete tokens that expired more than 30 days ago
-      if (now.getTime() - refreshToken.expiresAt.getTime() > 30 * 24 * 60 * 60 * 1000) {
-        mockRefreshTokens.delete(token);
-      }
+  for (const token of expiredTokens) {
+    if (!token.is_revoked) {
+      await repositories.refreshToken.revoke(token.token_id);
+      count++;
     }
   }
 
-  return cleanedCount;
+  console.log(`Revoked ${count} expired refresh tokens`);
+
+  // Delete expired and revoked tokens
+  const deletedCount = await repositories.refreshToken.deleteExpiredAndRevoked();
+  console.log(`Deleted ${deletedCount} expired and revoked refresh tokens`);
+
+  return count;
 };
 
 /**
@@ -234,17 +257,18 @@ export const getRefreshTokenStats = async (): Promise<{
   expiredTokens: number;
   uniqueUsers: number;
 }> => {
-  // TODO: Replace with actual database aggregation in production
-  const now = new Date();
-  const tokens = Array.from(mockRefreshTokens.values());
-  const uniqueUsers = new Set(tokens.map(t => t.userId)).size;
+  const stats = await repositories.refreshToken.getStats();
+
+  // Calculate unique users from all tokens
+  const allTokens = await repositories.refreshToken.findAll();
+  const uniqueUsers = new Set(allTokens.map(t => t.user_id)).size;
 
   return {
-    totalTokens: tokens.length,
-    activeTokens: tokens.filter(t => !t.isRevoked && t.expiresAt > now).length,
-    revokedTokens: tokens.filter(t => t.isRevoked).length,
-    expiredTokens: tokens.filter(t => t.expiresAt <= now).length,
-    uniqueUsers
+    totalTokens: stats.total,
+    activeTokens: stats.valid,
+    revokedTokens: stats.revoked,
+    expiredTokens: stats.expired,
+    uniqueUsers,
   };
 };
 
@@ -252,8 +276,9 @@ export const getRefreshTokenStats = async (): Promise<{
  * Check if refresh token belongs to user
  */
 export const isTokenOwner = async (token: string, userId: string): Promise<boolean> => {
-  const refreshToken = mockRefreshTokens.get(token);
-  return refreshToken?.userId === userId;
+  const tokenHash = hashToken(token);
+  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
+  return dbToken?.user_id === userId;
 };
 
 /**
@@ -290,9 +315,10 @@ export const detectTokenReuse = async (token: string): Promise<{
   riskLevel: 'low' | 'medium' | 'high';
   details?: Record<string, unknown>;
 }> => {
-  const refreshToken = mockRefreshTokens.get(token);
+  const tokenHash = hashToken(token);
+  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
 
-  if (!refreshToken) {
+  if (!dbToken) {
     return {
       reuseDetected: false,
       riskLevel: 'low'
@@ -300,15 +326,15 @@ export const detectTokenReuse = async (token: string): Promise<{
   }
 
   // If trying to use a revoked token, it's definitely reuse
-  if (refreshToken.isRevoked) {
+  if (dbToken.is_revoked) {
     return {
       reuseDetected: true,
-      userId: refreshToken.userId,
+      userId: dbToken.user_id,
       riskLevel: 'high',
       details: {
         reason: 'revoked_token_reuse',
-        originalExpiry: refreshToken.expiresAt,
-        revokedAt: new Date() // In real implementation, track revocation time
+        originalExpiry: dbToken.expires_at,
+        revokedAt: dbToken.revoked_at || new Date(),
       }
     };
   }
@@ -318,7 +344,7 @@ export const detectTokenReuse = async (token: string): Promise<{
 
   return {
     reuseDetected: false,
-    userId: refreshToken.userId,
+    userId: dbToken.user_id,
     riskLevel: 'low'
   };
 };

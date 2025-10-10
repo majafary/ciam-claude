@@ -1,0 +1,114 @@
+# ============================================================================
+# Docker Compose Configuration for CIAM Backend
+# ============================================================================
+# This file sets up a local PostgreSQL database for development/testing
+#
+# Usage:
+#   docker-compose up -d        # Start PostgreSQL in background
+#   docker-compose down         # Stop PostgreSQL
+#   docker-compose logs -f      # View logs
+#   docker-compose ps           # View status
+#
+# After starting, run schema setup:
+#   psql -h localhost -U ciam_user -d ciam_db -f changes/10082025/schema_docs/schema-setup.sql
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ciam-postgres
+    restart: unless-stopped
+
+    environment:
+      # Database credentials (match .env.example)
+      POSTGRES_DB: ciam_db
+      POSTGRES_USER: ciam_user
+      POSTGRES_PASSWORD: ciam_password
+
+      # Performance tuning
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+
+      # Timezone
+      TZ: UTC
+
+    ports:
+      # Map PostgreSQL port to host
+      - "5432:5432"
+
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+
+      # Optional: Auto-initialize with schema
+      # Uncomment to automatically run schema on first start
+      # - ./changes/10082025/schema_docs/schema-setup.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ciam_user -d ciam_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    networks:
+      - ciam-network
+
+    # Resource limits (optional, adjust based on your needs)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 1G
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 512M
+
+  # --------------------------------------------------------------------------
+  # pgAdmin (Optional - Web-based PostgreSQL management)
+  # --------------------------------------------------------------------------
+  # Uncomment to enable pgAdmin for database management
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: ciam-pgadmin
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@ciam.local
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #     PGADMIN_CONFIG_SERVER_MODE: 'False'
+  #
+  #   ports:
+  #     - "5050:80"
+  #
+  #   volumes:
+  #     - pgadmin_data:/var/lib/pgadmin
+  #
+  #   depends_on:
+  #     - postgres
+  #
+  #   networks:
+  #     - ciam-network
+
+# ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+volumes:
+  # PostgreSQL data persistence
+  postgres_data:
+    driver: local
+
+  # pgAdmin data persistence (if enabled)
+  # pgadmin_data:
+  #   driver: local
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  ciam-network:
+    driver: bridge

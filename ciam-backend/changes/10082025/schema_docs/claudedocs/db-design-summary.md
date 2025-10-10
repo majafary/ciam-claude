@@ -462,6 +462,80 @@ INSERT INTO audit_logs (
 
 ---
 
+## Schema Refinements (v1.1)
+
+**Date:** October 2025
+
+### 8. ENUM Types vs VARCHAR - Flexibility Decision
+
+**Concern:** Should we use PostgreSQL ENUM types or VARCHAR for status/type fields?
+
+**Decision:** ✅ Use VARCHAR with documented values (replaced ENUMs)
+
+**Rationale:**
+
+**Problems with ENUMs:**
+- ❌ Adding new values requires ALTER TYPE migration
+- ❌ Tight coupling between database and application
+- ❌ Schema changes required for business logic updates
+- ❌ Limited flexibility for A/B testing new states
+- ❌ Complex rollback scenarios when adding values
+
+**Benefits of VARCHAR:**
+- ✅ API layer controls validation (single source of truth)
+- ✅ New values added without database migration
+- ✅ Flexible experimentation with new states
+- ✅ Easier rollback if needed
+- ✅ No database downtime for value additions
+- ✅ Better separation of concerns (DB = storage, API = logic)
+
+**Implementation:**
+- Replaced all 8 ENUM types with VARCHAR
+- Added comprehensive documentation for each value set
+- Documentation includes: description, expected values, usage context
+- DBAs can reference docs to understand data flow
+- Engineers know exact values to use in application code
+
+**Affected Fields:**
+- `auth_transactions.transaction_type` (VARCHAR(50))
+- `auth_transactions.transaction_status` (VARCHAR(20))
+- `tokens.token_type` (VARCHAR(20))
+- `tokens.status` (VARCHAR(20))
+- `sessions.status` (VARCHAR(20))
+- `trusted_devices.status` (VARCHAR(20))
+- `drs_evaluations.recommendation` (VARCHAR(20))
+- `audit_logs.severity` (VARCHAR(20))
+
+---
+
+### 9. Additional Refinements
+
+**A. Performance Optimizations:**
+- ✅ Added index on `drs_evaluations.action_token_hash` (prevent duplicate evaluations)
+- ✅ Verified `audit_logs.correlation_id` index exists (distributed tracing)
+- ✅ Created FK index verification query for DBAs
+
+**B. Data Integrity Constraints:**
+- ✅ Timestamp validation: `expires_at > created_at` on all time-sensitive tables
+- ✅ App version format validation: semver pattern on `auth_contexts.app_version`
+- ✅ Prevents logical errors at database layer
+- ✅ Idempotent constraint addition (safe to re-run)
+
+**C. Fraud Detection View:**
+- ✅ Created `v_failed_login_attempts` view
+- ✅ Aggregates failed attempts in last hour
+- ✅ Supports rate limiting and brute force detection
+- ✅ Groups by CUPID + IP + error_code
+- ✅ Shows attempts ≥3 for alert threshold
+
+**Impact:**
+- Zero breaking changes to existing functionality
+- Enhanced data quality through constraints
+- Better fraud detection capabilities
+- Improved API flexibility (no DB migrations for new values)
+
+---
+
 ## Conclusion
 
 This schema design balances operational efficiency, security, and flexibility for an enterprise-grade CIAM system. The two-table approach (auth_contexts + auth_transactions) provides:
@@ -475,8 +549,14 @@ This schema design balances operational efficiency, security, and flexibility fo
 
 The design is production-ready, scalable, and meets all requirements for fraud detection, compliance, and operational dashboards.
 
+**v1.1 Updates:**
+- Replaced ENUMs with VARCHAR for API-layer flexibility
+- Added performance indexes and data integrity constraints
+- Enhanced fraud detection with failed login attempts view
+- Zero breaking changes, full backward compatibility
+
 ---
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Last Updated:** October 2025
 **Reviewed By:** Senior DBA (pending)
