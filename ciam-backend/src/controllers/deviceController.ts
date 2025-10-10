@@ -11,7 +11,7 @@ const trustedDevices: Map<string, { userId: string; deviceFingerprint: string; t
 
 /**
  * Bind/trust device endpoint
- * POST /device/bind
+ * POST /auth/device/bind
  */
 export const bindDevice = async (req: Request, res: Response): Promise<void> => {
   try {

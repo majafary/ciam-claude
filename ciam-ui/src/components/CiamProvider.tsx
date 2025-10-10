@@ -851,13 +851,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
   };
 
   const handleESignDecline = async () => {
-    console.log('⏭️ Provider: eSign declined');
-    try {
-      await authService.declineESign(authState.mfaContextId || '', esignState.transactionId, esignState.documentId, 'User declined');
-    } catch (err) {
-      console.error('❌ Provider: Failed to decline eSign:', err);
-    }
-
+    console.log('⏭️ Provider: eSign declined - returning to login');
     setEsignState({ open: false, documentId: '', transactionId: '', mandatory: false, username: '', saveUsername: false, deviceFingerprint: '', onComplete: null });
     setAuthState(prev => ({
       ...prev,

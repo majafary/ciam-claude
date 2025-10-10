@@ -302,7 +302,7 @@ npm run format:all
 
 ### OpenAPI Specification
 
-📘 **[View Full API Documentation (OpenAPI 3.0)](./ciam-backend/openapi.yaml)**
+📘 **[View Full API Documentation (OpenAPI 3.0)](./ciam-backend/changes/10072025/001/openapi_v3.yaml)**
 
 The complete API specification is available in OpenAPI 3.0 format. You can:
 
@@ -313,8 +313,15 @@ The complete API specification is available in OpenAPI 3.0 format. You can:
 ### CIAM Backend Endpoints
 
 - **Base URL**: `http://localhost:8080`
+- **API Documentation**: `GET /api-docs` (Swagger UI)
 - **Health Check**: `GET /health`
-- **JWKS**: `GET /.well-known/jwks.json`
+
+#### OIDC Discovery Endpoints:
+
+```
+GET  /.well-known/openid-configuration  # OIDC Discovery document
+GET  /.well-known/jwks.json            # JSON Web Key Set for token verification
+```
 
 #### Authentication Endpoints:
 
@@ -322,37 +329,36 @@ The complete API specification is available in OpenAPI 3.0 format. You can:
 POST /auth/login                        # User authentication
 POST /auth/logout                       # User logout
 POST /auth/refresh                      # Refresh access token
-POST /auth/introspect                   # Token introspection
-GET  /userinfo                          # User information
 ```
 
 #### MFA Endpoints:
 
 ```
-POST /auth/mfa/initiate                 # Initiate MFA challenge
-POST /auth/mfa/verify                   # Verify MFA (includes eSign status)
-GET  /mfa/transaction/{transactionId}   # Get MFA transaction status
+POST /auth/mfa/initiate                            # Initiate MFA challenge (OTP or Push)
+POST /auth/mfa/otp/verify                          # Verify OTP code
+POST /auth/mfa/transactions/{transaction_id}       # Poll push notification status (POST-based polling)
+POST /auth/mfa/transactions/{transaction_id}/approve # Approve push notification (mobile device)
 ```
 
 #### Device Management:
 
 ```
-POST /device/bind                       # Bind/trust device
+POST /auth/device/bind                  # Bind/trust device
 ```
 
 #### Electronic Signature:
 
 ```
-GET  /esign/document/{documentId}       # Get eSign document
-POST /esign/accept                      # Accept eSign document
-POST /esign/decline                     # Decline eSign document
+GET  /auth/esign/documents/{document_id} # Get eSign document
+POST /auth/esign/accept                  # Accept eSign document
 ```
 
-#### Deprecated (kept for backward compatibility):
+#### Session Management:
 
 ```
-POST /auth/post-mfa-check              # ⚠️ Deprecated - eSign status now in /auth/mfa/verify
-POST /auth/post-login-check            # ⚠️ Deprecated - eSign status now in /auth/login
+GET  /auth/sessions/{session_id}/verify # Verify session validity
+GET  /auth/sessions                     # List user's active sessions (requires authentication)
+DELETE /auth/sessions/{session_id}      # Revoke specific session (requires authentication)
 ```
 
 ## 🛡️ Security Features

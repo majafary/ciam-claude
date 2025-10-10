@@ -464,7 +464,7 @@ export const authController = {
         context_id: context_id,
         transaction_id: transaction_id,
         esign_document_id: 'terms-v1-2025',
-        esign_url: '/esign/documents/terms-v1-2025',
+        esign_url: '/auth/esign/documents/terms-v1-2025',
         is_mandatory: true
       });
     }
@@ -503,7 +503,7 @@ export const authController = {
             context_id: context_id,
             transaction_id: transaction_id,
             esign_document_id: 'terms-v1-2025',
-            esign_url: '/esign/documents/terms-v1-2025',
+            esign_url: '/auth/esign/documents/terms-v1-2025',
             is_mandatory: true
           });
         }
@@ -592,7 +592,7 @@ export const authController = {
           context_id: context_id,
           transaction_id: transaction_id,
           esign_document_id: 'terms-v1-2025',
-          esign_url: '/esign/documents/terms-v1-2025',
+          esign_url: '/auth/esign/documents/terms-v1-2025',
           is_mandatory: true
         });
       }
@@ -1002,7 +1002,7 @@ export const authController = {
         context_id: context_id,
         transaction_id: transaction_id,
         esign_document_id: pendingESign.documentId,
-        esign_url: `/esign/documents/${pendingESign.documentId}`,
+        esign_url: `/auth/esign/documents/${pendingESign.documentId}`,
         is_mandatory: pendingESign.mandatory
       });
     }
@@ -1090,7 +1090,7 @@ export const authController = {
             context_id: context_id,
             transaction_id: transaction_id,
             esign_document_id: pendingESign.documentId,
-            esign_url: `/esign/documents/${pendingESign.documentId}`,
+            esign_url: `/auth/esign/documents/${pendingESign.documentId}`,
             is_mandatory: pendingESign.mandatory
           });
         }
@@ -1176,7 +1176,7 @@ export const authController = {
           context_id: context_id,
           transaction_id: transaction_id,
           esign_document_id: pendingESign.documentId,
-          esign_url: `/esign/documents/${pendingESign.documentId}`,
+          esign_url: `/auth/esign/documents/${pendingESign.documentId}`,
           is_mandatory: pendingESign.mandatory
         });
       }
@@ -1201,7 +1201,7 @@ export const authController = {
 
   /**
    * Get eSign document
-   * GET /esign/documents/:documentId
+   * GET /auth/esign/documents/:documentId
    */
   getESignDocument: async (req: Request, res: Response) => {
     const { documentId } = req.params;
@@ -1227,7 +1227,7 @@ export const authController = {
 
   /**
    * Accept eSign document
-   * POST /esign/accept
+   * POST /auth/esign/accept
    */
   acceptESign: async (req: Request, res: Response) => {
     const { transaction_id, document_id, acceptance_ip, acceptance_timestamp, context_id } = req.body;
@@ -1470,7 +1470,7 @@ export const authController = {
 
   /**
    * Bind device (trust device) - v3.0.0
-   * POST /device/bind
+   * POST /auth/device/bind
    */
   bindDevice: async (req: Request, res: Response) => {
     const { transaction_id, context_id, bind_device } = req.body;
@@ -1518,7 +1518,7 @@ export const authController = {
       // User chose to trust the device
       trustDevice(deviceFingerprint, username);
       device_bound = true;
-      console.log('🔐 Device bound via /device/bind:', { username, deviceFingerprint });
+      console.log('🔐 Device bound via /auth/device/bind:', { username, deviceFingerprint });
     } else {
       // User declined to trust the device
       console.log('⏭️ Device binding skipped by user:', { username, deviceFingerprint });

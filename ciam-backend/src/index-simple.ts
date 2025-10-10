@@ -31,23 +31,16 @@ app.get('/health', (req, res) => {
 app.post('/auth/login', authController.login);
 app.post('/auth/logout', authController.logout);
 app.post('/auth/refresh', authController.refresh);
-app.post('/auth/introspect', authController.introspect);
 app.post('/auth/mfa/verify', authController.verifyMfa);
 app.post('/auth/mfa/initiate', authController.initiateMfaChallenge);
-app.post('/mfa/transactions/:transaction_id', authController.verifyPushChallenge);
-app.post('/auth/post-mfa-check', authController.postMfaCheck);
-app.post('/auth/post-login-check', authController.postLoginCheck);
+app.post('/auth/mfa/transactions/:transaction_id', authController.verifyPushChallenge);
 
 // eSign routes
-app.get('/esign/documents/:documentId', authController.getESignDocument);
-app.post('/esign/accept', authController.acceptESign);
-app.post('/esign/decline', authController.declineESign);
-
-// User info routes
-app.get('/userinfo', authController.userinfo);
+app.get('/auth/esign/documents/:documentId', authController.getESignDocument);
+app.post('/auth/esign/accept', authController.acceptESign);
 
 // Device management routes
-app.post('/device/bind', authController.bindDevice);
+app.post('/auth/device/bind', authController.bindDevice);
 
 // OIDC routes
 app.get('/.well-known/jwks.json', authController.jwks);
@@ -56,29 +49,25 @@ app.get('/.well-known/jwks.json', authController.jwks);
 app.get('/', (req, res) => {
   res.json({
     message: 'CIAM Backend API',
-    version: '2.0.0',
+    version: '3.0.0',
     endpoints: {
       health: '/health',
       auth: {
         login: 'POST /auth/login',
         logout: 'POST /auth/logout',
-        refresh: 'POST /auth/refresh',
-        introspect: 'POST /auth/introspect',
-        post_mfa_check: 'POST /auth/post-mfa-check',
-        post_login_check: 'POST /auth/post-login-check'
+        refresh: 'POST /auth/refresh'
       },
       mfa: {
         initiate: 'POST /auth/mfa/initiate',
         verify: 'POST /auth/mfa/verify',
-        push_verify_poll: 'POST /mfa/transactions/:transaction_id'
+        push_verify_poll: 'POST /auth/mfa/transactions/:transaction_id'
       },
       esign: {
-        get_document: 'GET /esign/documents/:documentId',
-        accept: 'POST /esign/accept',
-        decline: 'POST /esign/decline'
+        get_document: 'GET /auth/esign/documents/:documentId',
+        accept: 'POST /auth/esign/accept'
       },
-      user: {
-        info: 'GET /userinfo'
+      device: {
+        bind: 'POST /auth/device/bind'
       },
       oidc: {
         jwks: 'GET /.well-known/jwks.json'

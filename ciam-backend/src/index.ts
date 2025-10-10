@@ -135,27 +135,27 @@ app.post('/auth/refresh', tokenRefreshRateLimit, requireRefreshToken, validateTo
 // MFA endpoints (v3)
 app.post('/auth/mfa/initiate', mfaRateLimit, validateMFAChallengeRequest, initiateChallenge);
 app.post('/auth/mfa/otp/verify', mfaVerificationRateLimit, validateMFAVerifyRequest, verifyOTPChallenge);
-app.post('/mfa/transactions/:transaction_id', mfaVerificationRateLimit, validatePushVerificationRequest, verifyPushChallenge);
+app.post('/auth/mfa/transactions/:transaction_id', mfaVerificationRateLimit, validatePushVerificationRequest, verifyPushChallenge);
 
 // MFA push approval endpoint (mobile devices - v3)
-app.post('/mfa/transactions/:transaction_id/approve', validateTransactionIdParam, validateMFAPushApprovalRequest, approvePushNotification);
+app.post('/auth/mfa/transactions/:transaction_id/approve', validateTransactionIdParam, validateMFAPushApprovalRequest, approvePushNotification);
 
 // Test-only endpoint for OTP retrieval
 if (process.env.NODE_ENV !== 'production') {
-  app.get('/mfa/transactions/:transaction_id/otp', validateTransactionIdParam, getOTPForTestEndpoint);
+  app.get('/auth/mfa/transactions/:transaction_id/otp', validateTransactionIdParam, getOTPForTestEndpoint);
 }
 
 // eSign endpoints
-app.get('/esign/documents/:document_id', validateDocumentIdParam, getESignDocument);
-app.post('/esign/accept', validateESignAcceptRequest, acceptESign);
+app.get('/auth/esign/documents/:document_id', validateDocumentIdParam, getESignDocument);
+app.post('/auth/esign/accept', validateESignAcceptRequest, acceptESign);
 
 // Device management endpoints
-app.post('/device/bind', bindDevice);
+app.post('/auth/device/bind', bindDevice);
 
-// Session management endpoints (kept for backward compatibility - not in v2 spec)
-app.get('/session/verify', validateSessionVerifyRequest, verifySessionEndpoint);
-app.get('/sessions', sessionRateLimit, authenticateToken, listUserSessions);
-app.delete('/sessions/:sessionId', sessionRateLimit, authenticateToken, validateSessionIdParam, revokeSessionEndpoint);
+// Session management endpoints
+app.get('/auth/sessions/:session_id/verify', validateSessionIdParam, verifySessionEndpoint);
+app.get('/auth/sessions', sessionRateLimit, authenticateToken, listUserSessions);
+app.delete('/auth/sessions/:session_id', sessionRateLimit, authenticateToken, validateSessionIdParam, revokeSessionEndpoint);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
@@ -184,14 +184,14 @@ const server = app.listen(PORT, () => {
       'POST /auth/refresh',
       'POST /auth/mfa/initiate',
       'POST /auth/mfa/otp/verify',
-      'POST /mfa/transactions/:transaction_id',
-      'POST /mfa/transactions/:transaction_id/approve',
-      'GET /esign/documents/:document_id',
-      'POST /esign/accept',
-      'POST /device/bind',
-      'GET /session/verify',
-      'GET /sessions',
-      'DELETE /sessions/:sessionId',
+      'POST /auth/mfa/transactions/:transaction_id',
+      'POST /auth/mfa/transactions/:transaction_id/approve',
+      'GET /auth/esign/documents/:document_id',
+      'POST /auth/esign/accept',
+      'POST /auth/device/bind',
+      'GET /auth/sessions/:session_id/verify',
+      'GET /auth/sessions',
+      'DELETE /auth/sessions/:session_id',
       'GET /.well-known/openid-configuration',
       'GET /.well-known/jwks.json',
       'GET /health',

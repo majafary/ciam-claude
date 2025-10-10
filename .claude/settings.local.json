@@ -57,7 +57,9 @@
       "Bash(/Users/mjafary/Documents/dev-ai/claude-poc-9-24-2025/ciam-claude/claudedocs/test-ciam-changes.sh)",
       "Bash(killall:*)",
       "Bash(git rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

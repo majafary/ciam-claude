@@ -144,7 +144,7 @@ export const validateTokenRefreshRequest = [
  * Session verify request validation
  */
 export const validateSessionVerifyRequest = [
-  query('sessionId')
+  param('session_id')
     .isString()
     .notEmpty()
     .matches(/^sess-[a-zA-Z0-9-]+$/)
@@ -169,7 +169,7 @@ export const validateTransactionIdParam = [
  * Session ID parameter validation
  */
 export const validateSessionIdParam = [
-  param('sessionId')
+  param('session_id')
     .isString()
     .matches(/^sess-[a-zA-Z0-9-]+$/)
     .withMessage('Valid session ID is required'),

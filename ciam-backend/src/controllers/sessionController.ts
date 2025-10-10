@@ -6,13 +6,13 @@ import { AuthenticatedRequest, SessionVerifyResponse } from '../types';
 
 /**
  * Verify session validity
- * GET /session/verify?sessionId=sess-123
+ * GET /auth/sessions/{session_id}/verify
  */
 export const verifySessionEndpoint = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { sessionId } = req.query as { sessionId: string };
+    const { session_id } = req.params;
 
-    if (!sessionId) {
+    if (!session_id) {
       sendErrorResponse(res, 400, createApiError(
         'BAD_REQUEST',
         'Session ID is required'
@@ -20,8 +20,8 @@ export const verifySessionEndpoint = async (req: Request, res: Response): Promis
       return;
     }
 
-    const isValid = await verifySession(sessionId);
-    const session = await getSessionById(sessionId);
+    const isValid = await verifySession(session_id);
+    const session = await getSessionById(session_id);
 
     const response: SessionVerifyResponse = {
       isValid,
@@ -30,7 +30,7 @@ export const verifySessionEndpoint = async (req: Request, res: Response): Promis
     };
 
     logAuthEvent('session_verify', session?.userId, {
-      sessionId,
+      sessionId: session_id,
       isValid,
       ip: req.ip
     });
@@ -43,7 +43,7 @@ export const verifySessionEndpoint = async (req: Request, res: Response): Promis
 
 /**
  * List active sessions for authenticated user
- * GET /sessions
+ * GET /auth/sessions
  */
 export const listUserSessions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -76,11 +76,11 @@ export const listUserSessions = async (req: AuthenticatedRequest, res: Response)
 
 /**
  * Revoke a specific session
- * DELETE /sessions/:sessionId
+ * DELETE /auth/sessions/{session_id}
  */
 export const revokeSessionEndpoint = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { sessionId } = req.params;
+    const { session_id } = req.params;
     const userId = req.user?.sub;
 
     if (!userId) {
@@ -89,7 +89,7 @@ export const revokeSessionEndpoint = async (req: AuthenticatedRequest, res: Resp
     }
 
     // Check if session belongs to the user
-    const isOwner = await isSessionOwner(sessionId, userId);
+    const isOwner = await isSessionOwner(session_id, userId);
     if (!isOwner) {
       handleAuthError(res, 'unauthorized', {
         reason: 'Session does not belong to user'
@@ -97,15 +97,15 @@ export const revokeSessionEndpoint = async (req: AuthenticatedRequest, res: Resp
       return;
     }
 
-    const revoked = await revokeSession(sessionId);
+    const revoked = await revokeSession(session_id);
 
     if (!revoked) {
-      handleSessionError(res, 'not_found', { sessionId });
+      handleSessionError(res, 'not_found', { sessionId: session_id });
       return;
     }
 
     logAuthEvent('session_revoked', userId, {
-      sessionId,
+      sessionId: session_id,
       ip: req.ip
     });
 
@@ -114,7 +114,7 @@ export const revokeSessionEndpoint = async (req: AuthenticatedRequest, res: Resp
     });
   } catch (error) {
     logAuthEvent('session_revoke_failure', req.user?.sub, {
-      sessionId: req.params.sessionId,
+      sessionId: req.params.session_id,
       error: error instanceof Error ? error.message : 'Unknown error',
       ip: req.ip
     });

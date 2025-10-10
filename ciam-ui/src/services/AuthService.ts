@@ -440,7 +440,7 @@ export class AuthService {
 
   /**
    * Verify MFA Push challenge (v3 API - Push specific)
-   * Uses POST /mfa/transactions/{transaction_id} for both verification and polling
+   * Uses POST /auth/mfa/transactions/{transaction_id} for both verification and polling
    */
   async verifyPushChallenge(
     contextId: string,
@@ -452,7 +452,7 @@ export class AuthService {
       method: 'push', // v3.0.0: method is required for verification
     };
 
-    const response = await this.apiCall<MFAVerifyResponse>(`/mfa/transactions/${encodeURIComponent(transactionId)}`, {
+    const response = await this.apiCall<MFAVerifyResponse>(`/auth/mfa/transactions/${encodeURIComponent(transactionId)}`, {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -469,7 +469,7 @@ export class AuthService {
    * Approve push MFA transaction (mobile app) (v3 API)
    */
   async approvePushMFA(contextId: string, transactionId: string, selectedNumber: number): Promise<{ success: boolean; transaction_id: string }> {
-    return this.apiCall(`/mfa/transactions/${encodeURIComponent(transactionId)}/approve`, {
+    return this.apiCall(`/auth/mfa/transactions/${encodeURIComponent(transactionId)}/approve`, {
       method: 'POST',
       body: JSON.stringify({
         context_id: contextId,
@@ -482,7 +482,7 @@ export class AuthService {
    * Get OTP for testing (development only)
    */
   async getOTPForTesting(transactionId: string): Promise<{ otp: string; message?: string }> {
-    return this.apiCall(`/mfa/transactions/${encodeURIComponent(transactionId)}/otp`);
+    return this.apiCall(`/auth/mfa/transactions/${encodeURIComponent(transactionId)}/otp`);
   }
 
   /**
@@ -517,7 +517,7 @@ export class AuthService {
    * Get eSign document by ID (v3 API)
    */
   async getESignDocument(documentId: string): Promise<ESignDocument> {
-    return this.apiCall<ESignDocument>(`/esign/documents/${encodeURIComponent(documentId)}`);
+    return this.apiCall<ESignDocument>(`/auth/esign/documents/${encodeURIComponent(documentId)}`);
   }
 
   /**
@@ -537,7 +537,7 @@ export class AuthService {
       acceptance_timestamp: new Date().toISOString(),
     };
 
-    const response = await this.apiCall<ESignResponse>('/esign/accept', {
+    const response = await this.apiCall<ESignResponse>('/auth/esign/accept', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -548,28 +548,6 @@ export class AuthService {
     }
 
     return response;
-  }
-
-  /**
-   * Decline eSign document (v3 API)
-   */
-  async declineESign(
-    contextId: string,
-    transactionId: string,
-    documentId: string,
-    reason?: string
-  ): Promise<void> {
-    const requestBody: any = {
-      context_id: contextId,
-      transactionId,
-      documentId,
-      reason: reason || 'User declined',
-    };
-
-    await this.apiCall<void>('/esign/decline', {
-      method: 'POST',
-      body: JSON.stringify(requestBody),
-    });
   }
 
   /**
@@ -584,7 +562,7 @@ export class AuthService {
       bind_device: bindDevice,
     };
 
-    const response = await this.apiCall<DeviceBindResponse>('/device/bind', {
+    const response = await this.apiCall<DeviceBindResponse>('/auth/device/bind', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
