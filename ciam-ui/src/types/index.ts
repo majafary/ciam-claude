@@ -299,7 +299,7 @@ export interface UseAuthReturn {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   clearError: () => void;
-  clearMfa: () => void;
+  clearMfa: (errorMessage?: string) => void;
   // Device binding
   showDeviceBindDialog: (username: string, deviceFingerprint: string, onComplete?: () => void) => void;
   // eSign

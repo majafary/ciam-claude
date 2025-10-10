@@ -508,7 +508,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         // Let error display for 2 seconds, then force login restart
         setTimeout(() => {
           console.log('🔴 Invalid OTP - returning to login');
-          clearMfa();
+          clearMfa('Invalid verification code. Please try again with the correct code.');
           cancelTransaction();
           setFormData({
             username: saveUsername ? formData.username : '',
@@ -533,7 +533,9 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
   const handleMethodSelectionCancel = () => {
     console.log('🔴 handleMethodSelectionCancel called - clearing MFA state and resetting form');
-    clearMfa();
+    // When MFA dialog is cancelled, show appropriate error message on login screen
+    // This handles push rejections, OTP failures, and user cancellations
+    clearMfa('Multi-factor authentication was not completed. Please log in again.');
     cancelTransaction(); // Clear transaction state to close dialog immediately
     // Reset form fields (clear password, optionally keep username if saved)
     setFormData({

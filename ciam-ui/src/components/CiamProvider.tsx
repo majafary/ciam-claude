@@ -28,7 +28,7 @@ interface CiamContextValue {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   clearError: () => void;
-  clearMfa: () => void;
+  clearMfa: (errorMessage?: string) => void;
   // Device binding
   showDeviceBindDialog: (username: string, deviceFingerprint: string, onComplete?: () => void) => void;
   // eSign
@@ -595,7 +595,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     setAuthState(prev => ({ ...prev, error: null }));
   }, []);
 
-  const clearMfa = useCallback(() => {
+  const clearMfa = useCallback((errorMessage?: string) => {
     setAuthState(prev => ({
       ...prev,
       mfaRequired: false,
@@ -605,6 +605,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
       mfaUsername: null, // Clear stored username
       mfaTransactionId: null, // Clear stored transaction_id
       mfaDeviceFingerprint: null, // Clear stored deviceFingerprint
+      error: errorMessage || prev.error, // Set error if provided, otherwise keep existing error
     }));
   }, []);
 
