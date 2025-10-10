@@ -440,7 +440,7 @@ export class AuthService {
 
   /**
    * Verify MFA Push challenge (v3 API - Push specific)
-   * Uses POST /mfa/transaction/{transaction_id} for both verification and polling
+   * Uses POST /mfa/transactions/{transaction_id} for both verification and polling
    */
   async verifyPushChallenge(
     contextId: string,
@@ -452,7 +452,7 @@ export class AuthService {
       method: 'push', // v3.0.0: method is required for verification
     };
 
-    const response = await this.apiCall<MFAVerifyResponse>(`/mfa/transaction/${encodeURIComponent(transactionId)}`, {
+    const response = await this.apiCall<MFAVerifyResponse>(`/mfa/transactions/${encodeURIComponent(transactionId)}`, {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -469,7 +469,7 @@ export class AuthService {
    * Approve push MFA transaction (mobile app) (v3 API)
    */
   async approvePushMFA(contextId: string, transactionId: string, selectedNumber: number): Promise<{ success: boolean; transaction_id: string }> {
-    return this.apiCall(`/mfa/transaction/${encodeURIComponent(transactionId)}/approve`, {
+    return this.apiCall(`/mfa/transactions/${encodeURIComponent(transactionId)}/approve`, {
       method: 'POST',
       body: JSON.stringify({
         context_id: contextId,
@@ -482,7 +482,7 @@ export class AuthService {
    * Get OTP for testing (development only)
    */
   async getOTPForTesting(transactionId: string): Promise<{ otp: string; message?: string }> {
-    return this.apiCall(`/mfa/transaction/${encodeURIComponent(transactionId)}/otp`);
+    return this.apiCall(`/mfa/transactions/${encodeURIComponent(transactionId)}/otp`);
   }
 
   /**
@@ -517,7 +517,7 @@ export class AuthService {
    * Get eSign document by ID (v3 API)
    */
   async getESignDocument(documentId: string): Promise<ESignDocument> {
-    return this.apiCall<ESignDocument>(`/esign/document/${encodeURIComponent(documentId)}`);
+    return this.apiCall<ESignDocument>(`/esign/documents/${encodeURIComponent(documentId)}`);
   }
 
   /**

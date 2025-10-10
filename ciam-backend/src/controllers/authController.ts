@@ -100,7 +100,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
               context_id: session.sessionId,
               transaction_id: transactionId,
               esign_document_id: esignCheck.documentId,
-              esign_url: `/esign/document/${esignCheck.documentId}`,
+              esign_url: `/esign/documents/${esignCheck.documentId}`,
               is_mandatory: esignCheck.isMandatory || false
             };
 
@@ -199,7 +199,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 /**
  * Get eSign document
- * GET /esign/document/:document_id
+ * GET /esign/documents/:document_id
  */
 export const getESignDocument = async (req: Request, res: Response): Promise<void> => {
   try {

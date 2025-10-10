@@ -342,7 +342,7 @@ paths:
               example:
                 error_code: "CIAM_E05_00_001"
 
-  /mfa/transaction/{transaction_id}:
+  /mfa/transactions/{transaction_id}:
     post:
       tags:
         - MFA
@@ -423,7 +423,7 @@ paths:
               example:
                 error_code: "CIAM_E05_00_001"
 
-  /mfa/transaction/{transaction_id}/approve:
+  /mfa/transactions/{transaction_id}/approve:
     post:
       tags:
         - MFA
@@ -492,7 +492,7 @@ paths:
               example:
                 error_code: "CIAM_E05_00_001"
 
-  /esign/document/{document_id}:
+  /esign/documents/{document_id}:
     get:
       tags:
         - eSign

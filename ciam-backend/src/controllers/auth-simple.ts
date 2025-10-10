@@ -464,7 +464,7 @@ export const authController = {
         context_id: context_id,
         transaction_id: transaction_id,
         esign_document_id: 'terms-v1-2025',
-        esign_url: '/esign/document/terms-v1-2025',
+        esign_url: '/esign/documents/terms-v1-2025',
         is_mandatory: true
       });
     }
@@ -503,7 +503,7 @@ export const authController = {
             context_id: context_id,
             transaction_id: transaction_id,
             esign_document_id: 'terms-v1-2025',
-            esign_url: '/esign/document/terms-v1-2025',
+            esign_url: '/esign/documents/terms-v1-2025',
             is_mandatory: true
           });
         }
@@ -592,7 +592,7 @@ export const authController = {
           context_id: context_id,
           transaction_id: transaction_id,
           esign_document_id: 'terms-v1-2025',
-          esign_url: '/esign/document/terms-v1-2025',
+          esign_url: '/esign/documents/terms-v1-2025',
           is_mandatory: true
         });
       }
@@ -1002,7 +1002,7 @@ export const authController = {
         context_id: context_id,
         transaction_id: transaction_id,
         esign_document_id: pendingESign.documentId,
-        esign_url: `/esign/document/${pendingESign.documentId}`,
+        esign_url: `/esign/documents/${pendingESign.documentId}`,
         is_mandatory: pendingESign.mandatory
       });
     }
@@ -1090,7 +1090,7 @@ export const authController = {
             context_id: context_id,
             transaction_id: transaction_id,
             esign_document_id: pendingESign.documentId,
-            esign_url: `/esign/document/${pendingESign.documentId}`,
+            esign_url: `/esign/documents/${pendingESign.documentId}`,
             is_mandatory: pendingESign.mandatory
           });
         }
@@ -1176,7 +1176,7 @@ export const authController = {
           context_id: context_id,
           transaction_id: transaction_id,
           esign_document_id: pendingESign.documentId,
-          esign_url: `/esign/document/${pendingESign.documentId}`,
+          esign_url: `/esign/documents/${pendingESign.documentId}`,
           is_mandatory: pendingESign.mandatory
         });
       }
@@ -1201,7 +1201,7 @@ export const authController = {
 
   /**
    * Get eSign document
-   * GET /esign/document/:documentId
+   * GET /esign/documents/:documentId
    */
   getESignDocument: async (req: Request, res: Response) => {
     const { documentId } = req.params;

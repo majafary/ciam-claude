@@ -34,12 +34,12 @@ app.post('/auth/refresh', authController.refresh);
 app.post('/auth/introspect', authController.introspect);
 app.post('/auth/mfa/verify', authController.verifyMfa);
 app.post('/auth/mfa/initiate', authController.initiateMfaChallenge);
-app.post('/mfa/transaction/:transaction_id', authController.verifyPushChallenge);
+app.post('/mfa/transactions/:transaction_id', authController.verifyPushChallenge);
 app.post('/auth/post-mfa-check', authController.postMfaCheck);
 app.post('/auth/post-login-check', authController.postLoginCheck);
 
 // eSign routes
-app.get('/esign/document/:documentId', authController.getESignDocument);
+app.get('/esign/documents/:documentId', authController.getESignDocument);
 app.post('/esign/accept', authController.acceptESign);
 app.post('/esign/decline', authController.declineESign);
 
@@ -70,10 +70,10 @@ app.get('/', (req, res) => {
       mfa: {
         initiate: 'POST /auth/mfa/initiate',
         verify: 'POST /auth/mfa/verify',
-        push_verify_poll: 'POST /mfa/transaction/:transaction_id'
+        push_verify_poll: 'POST /mfa/transactions/:transaction_id'
       },
       esign: {
-        get_document: 'GET /esign/document/:documentId',
+        get_document: 'GET /esign/documents/:documentId',
         accept: 'POST /esign/accept',
         decline: 'POST /esign/decline'
       },
