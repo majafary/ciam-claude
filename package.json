@@ -33,6 +33,7 @@
     "docker:rebuild": "docker-compose down -v && docker-compose up --build --force-recreate"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.0",
     "concurrently": "^8.2.2"
   },
   "engines": {

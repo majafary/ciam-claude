@@ -406,9 +406,14 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         cancelTransaction();
 
         // Show device bind dialog (managed by provider, persists after component unmount)
-        showDeviceBindDialog(loginDataToUse.username, mfaDeviceFingerprint, () => {
+        showDeviceBindDialog(loginDataToUse.username, mfaDeviceFingerprint, async () => {
           // This callback runs after device bind (whether trusted or skipped)
           console.log('🔐 Device bind completed, finishing authentication flow');
+
+          // Refresh session one more time to ensure user state is fully updated
+          await refreshSession();
+          console.log('🔄 Session refreshed after device bind');
+
           setOriginalLoginData(null);
 
           // Clear form (but keep username if saving)

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Drawer,
   Box,
@@ -9,7 +9,7 @@ import {
   Divider,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import { CiamLoginComponent } from 'ciam-ui';
+import { CiamLoginComponent, useAuth } from 'ciam-ui';
 
 interface LoginSlideOutProps {
   open: boolean;
@@ -19,6 +19,23 @@ interface LoginSlideOutProps {
 const LoginSlideOut: React.FC<LoginSlideOutProps> = ({ open, onClose }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { isAuthenticated } = useAuth();
+  const [wasAuthenticatedOnOpen, setWasAuthenticatedOnOpen] = React.useState(false);
+
+  // Track auth state when drawer opens
+  useEffect(() => {
+    if (open) {
+      setWasAuthenticatedOnOpen(isAuthenticated);
+    }
+  }, [open, isAuthenticated]);
+
+  // Auto-close drawer only when user BECOMES authenticated (transition from false to true)
+  useEffect(() => {
+    if (isAuthenticated && open && !wasAuthenticatedOnOpen) {
+      console.log('🚀 LoginSlideOut: User newly authenticated, auto-closing drawer');
+      onClose();
+    }
+  }, [isAuthenticated, open, wasAuthenticatedOnOpen, onClose]);
 
   return (
     <Drawer
@@ -255,9 +272,11 @@ const LoginSlideOut: React.FC<LoginSlideOutProps> = ({ open, onClose }) => {
             },
           }}
           onLoginSuccess={(user) => {
-            console.log('LoginSlideOut: User logged in:', user);
+            console.log('🚀 LoginSlideOut: onLoginSuccess called with user:', user);
+            console.log('🚀 LoginSlideOut: Calling onClose() to close drawer');
             // Close immediately on successful login for smooth UX
             onClose();
+            console.log('🚀 LoginSlideOut: onClose() called');
           }}
           onLoginError={(error) => {
             console.error('LoginSlideOut: Login failed:', error);

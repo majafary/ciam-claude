@@ -151,3 +151,12 @@ auth-debug.txt
 *.pem
 *.key
 !*.key.example
+
+# Playwright Test Results
+test-results/
+playwright-report/
+playwright/.cache/
+# Only ignore screenshots and videos in test results
+test-results/**/*.png
+test-results/**/*.webm
+test-results/**/error-context.md

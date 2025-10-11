@@ -84,6 +84,7 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
     });
 
     const response: MFAChallengeResponse = {
+      response_type_code: method === 'push' ? 'PUSH_VERIFY_REQUIRED' : 'OTP_VERIFY_REQUIRED',
       success: true,
       transaction_id: transaction.transactionId, // V3: Returns NEW transaction_id
       expires_at: transaction.expiresAt.toISOString() // V3: Backend-controlled timer

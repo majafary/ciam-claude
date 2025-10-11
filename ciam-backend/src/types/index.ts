@@ -64,6 +64,7 @@ export interface MFAChallengeRequest {
 }
 
 export interface MFAChallengeResponse {
+  response_type_code: 'OTP_VERIFY_REQUIRED' | 'PUSH_VERIFY_REQUIRED';
   success: boolean;
   transaction_id: string;
   expires_at: string;

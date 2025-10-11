@@ -1269,10 +1269,15 @@ components:
     MFAChallengeResponse:
       type: object
       required:
+        - response_type_code
         - success
         - transaction_id
         - expires_at
       properties:
+        response_type_code:
+          type: string
+          enum: [OTP_VERIFY_REQUIRED, PUSH_VERIFY_REQUIRED]
+          description: Indicates which verification flow to use (OTP or Push)
         success:
           type: boolean
         transaction_id:
@@ -1282,7 +1287,7 @@ components:
           format: date-time
         display_number:
           type: integer
-          description: Number to display for push challenge
+          description: Number to display for push challenge (only present when response_type_code is PUSH_VERIFY_REQUIRED)
 
     MFAVerifySuccessResponse:
       type: object
