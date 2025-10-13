@@ -258,7 +258,7 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
 export const jwks = async (req: Request, res: Response): Promise<void> => {
   try {
     // Import JWKS generator
-    const { generateJWKS } = await import('../utils/jwt-simple');
+    const { generateJWKS } = await import('../utils/jwt');
 
     res.set({
       'Cache-Control': 'public, max-age=3600',

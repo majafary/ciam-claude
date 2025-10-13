@@ -11,7 +11,7 @@ import { userRepository } from '../repositories/userRepository';
 import { deviceTrustRepository } from '../repositories/deviceTrustRepository';
 import { pendingESignRepository } from '../repositories/pendingESignRepository';
 import { loginTimeRepository } from '../repositories/loginTimeRepository';
-import { generateAccessToken, generateRefreshToken } from '../utils/jwt-simple';
+import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
 
 export interface MFAInitiateRequest {
   method: 'sms' | 'voice' | 'push';
@@ -291,9 +291,9 @@ class MFAServiceNew {
       }
 
       // PRIORITY 3: No eSign, device is trusted - SUCCESS with tokens
-      const accessToken = generateAccessToken(user);
-      const idToken = generateAccessToken(user);
-      const refreshToken = generateRefreshToken(user);
+      const accessToken = generateAccessToken(user.id, context_id, user.roles);
+      const idToken = generateAccessToken(user.id, context_id, user.roles);
+      const refreshToken = generateRefreshToken();
 
       // Invalidate the MFA transaction_id on success (one-time use)
       mfaTransactionRepository.delete(transaction_id);
@@ -509,9 +509,9 @@ class MFAServiceNew {
     }
 
     // PRIORITY 3: No eSign, device is trusted - SUCCESS with tokens
-    const accessToken = generateAccessToken(user);
-    const idToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const accessToken = generateAccessToken(user.id, context_id, user.roles);
+    const idToken = generateAccessToken(user.id, context_id, user.roles);
+    const refreshToken = generateRefreshToken();
 
     mfaTransactionRepository.delete(transaction_id);
     console.log('🗑️ [PUSH VERIFY] Invalidated push transaction_id on success:', transaction_id);

@@ -10,7 +10,7 @@ import { deviceTrustRepository } from '../repositories/deviceTrustRepository';
 import { pendingESignRepository } from '../repositories/pendingESignRepository';
 import { esignAcceptanceRepository } from '../repositories/esignAcceptanceRepository';
 import { loginTimeRepository } from '../repositories/loginTimeRepository';
-import { generateAccessToken, generateRefreshToken } from '../utils/jwt-simple';
+import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
 
 export interface LoginRequest {
   username: string;
@@ -147,9 +147,9 @@ class AuthService {
       };
       loginTimeRepository.update(username);
 
-      const accessToken = generateAccessToken(user);
-      const idToken = generateAccessToken(user); // In production, this would be different
-      const refreshToken = generateRefreshToken(user);
+      const accessToken = generateAccessToken(user.id, context_id, user.roles);
+      const idToken = generateAccessToken(user.id, context_id, user.roles); // In production, this would be different
+      const refreshToken = generateRefreshToken();
 
       return {
         success: true,
@@ -200,9 +200,9 @@ class AuthService {
         };
         loginTimeRepository.update(username);
 
-        const accessToken = generateAccessToken(user);
-        const idToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken(user);
+        const accessToken = generateAccessToken(user.id, context_id, user.roles);
+        const idToken = generateAccessToken(user.id, context_id, user.roles);
+        const refreshToken = generateRefreshToken();
 
         // Check for pending eSign (compliance scenario)
         if (userScenario.esignBehavior === 'compliance' &&
@@ -296,9 +296,9 @@ class AuthService {
       };
       loginTimeRepository.update(username);
 
-      const accessToken = generateAccessToken(user);
-      const idToken = generateAccessToken(user);
-      const refreshToken = generateRefreshToken(user);
+      const accessToken = generateAccessToken(user.id, context_id, user.roles);
+      const idToken = generateAccessToken(user.id, context_id, user.roles);
+      const refreshToken = generateRefreshToken();
 
       // Check for compliance pending
       if (userScenario.esignBehavior === 'compliance' &&

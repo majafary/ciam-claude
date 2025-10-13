@@ -11,7 +11,7 @@ import { mfaTransactionRepository } from '../repositories/mfaTransactionReposito
 import { deviceTrustRepository } from '../repositories/deviceTrustRepository';
 import { userRepository } from '../repositories/userRepository';
 import { loginTimeRepository } from '../repositories/loginTimeRepository';
-import { generateAccessToken, generateRefreshToken } from '../utils/jwt-simple';
+import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
 
 export interface ESignAcceptRequest {
   transaction_id: string;
@@ -153,9 +153,9 @@ class ESignServiceNew {
     const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
     loginTimeRepository.update(username);
 
-    const accessToken = generateAccessToken(user);
-    const idToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const accessToken = generateAccessToken(user.id, context_id, user.roles);
+    const idToken = generateAccessToken(user.id, context_id, user.roles);
+    const refreshToken = generateRefreshToken();
 
     return {
       success: true,
