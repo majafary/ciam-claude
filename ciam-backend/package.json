@@ -4,8 +4,10 @@
   "description": "CIAM Backend API - Customer Identity and Access Management",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index-simple.ts",
-    "build": "tsc src/index-simple.ts src/controllers/auth-simple.ts src/utils/jwt-simple.ts --outDir dist --target es2020 --module commonjs --esModuleInterop --skipLibCheck --resolveJsonModule && mv dist/index-simple.js dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "dev:simple": "tsx watch src/index-simple.ts",
+    "build": "tsc --project tsconfig.json",
+    "build:simple": "tsc src/index-simple.ts src/controllers/auth-simple.ts src/utils/jwt-simple.ts --outDir dist --target es2020 --module commonjs --esModuleInterop --skipLibCheck --resolveJsonModule && mv dist/index-simple.js dist/index.js",
     "start": "node dist/index.js",
     "test": "jest",
     "test:unit": "jest --testPathPattern=unit",

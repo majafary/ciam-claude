@@ -32,13 +32,26 @@ import {
   validatePushVerificationRequest
 } from './utils/validation';
 
-// Import controllers
-import { login, logout, refreshToken, getESignDocument, acceptESign } from './controllers/authController';
-import { initiateChallenge, verifyOTPChallenge, verifyPushChallenge, approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
-import { bindDevice } from './controllers/deviceController';
+// Import controllers (New - Service-based architecture)
+import {
+  login,
+  logout,
+  refresh as refreshToken,
+  getESignDocument,
+  acceptESign,
+  jwks as getJWKS
+} from './controllers/authControllerNew';
+import {
+  initiateChallenge,
+  verifyOTPChallenge,
+  verifyPushChallenge
+} from './controllers/mfaControllerNew';
+// Import utility endpoints from old controller (not yet migrated)
+import { approvePushNotification, getOTPForTestEndpoint } from './controllers/mfaController';
+import { bindDevice } from './controllers/deviceControllerNew';
 import { verifySessionEndpoint, listUserSessions, revokeSessionEndpoint } from './controllers/sessionController';
 import { getUserInfo } from './controllers/userController';
-import { getOIDCConfiguration, getJWKS, healthCheck } from './controllers/oidcController';
+import { getOIDCConfiguration, healthCheck } from './controllers/oidcController';
 
 // Import logger
 import logger from './utils/logger';
