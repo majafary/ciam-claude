@@ -85,23 +85,17 @@ test.describe('Basic Authentication Flows', () => {
 
     test('TC-AUTH-004: trusteduser - device_bound flag should be true', async ({ page }) => {
       // This test validates the backend response - we can check via network inspection
-      let deviceBound = false;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 201) {
-          const json = await response.json();
-          if (json.device_bound !== undefined) {
-            deviceBound = json.device_bound;
-          }
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 201
+      );
 
       await authHelpers.loginAsTrustedUser();
 
-      // Wait a moment for network request to complete
-      await page.waitForTimeout(1000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const loginResponse = await response.json();
 
-      expect(deviceBound).toBe(true);
+      expect(loginResponse.device_bound).toBe(true);
     });
   });
 
@@ -121,20 +115,19 @@ test.describe('Basic Authentication Flows', () => {
     test('TC-ERR-001: Invalid credentials - returns CIAM_E01_01_001 (401)', async ({ page }) => {
       const account = TEST_ACCOUNTS.invaliduser;
 
-      let errorCode = '';
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 401) {
-          const json = await response.json();
-          errorCode = json.error_code || '';
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 401
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
-      await page.waitForTimeout(2000);
-      expect(errorCode).toBe('CIAM_E01_01_001');
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
+      expect(errorResponse.error_code).toBe('CIAM_E01_01_001');
     });
   });
 
@@ -154,51 +147,39 @@ test.describe('Basic Authentication Flows', () => {
     test('TC-ERR-002: Account locked - returns CIAM_E01_01_002 (423)', async ({ page }) => {
       const account = TEST_ACCOUNTS.lockeduser;
 
-      let errorCode = '';
-      let statusCode = 0;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login')) {
-          statusCode = response.status();
-          if (statusCode === 423) {
-            const json = await response.json();
-            errorCode = json.error_code || '';
-          }
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 423
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
-      await page.waitForTimeout(2000);
-      expect(statusCode).toBe(423);
-      expect(errorCode).toBe('CIAM_E01_01_002');
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
+      expect(response.status()).toBe(423);
+      expect(errorResponse.error_code).toBe('CIAM_E01_01_002');
     });
 
     test('TC-ERR-003: MFA locked account - returns CIAM_E01_01_005 (423)', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfalockeduser;
 
-      let errorCode = '';
-      let statusCode = 0;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login')) {
-          statusCode = response.status();
-          if (statusCode === 423) {
-            const json = await response.json();
-            errorCode = json.error_code || '';
-          }
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 423
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
-      await page.waitForTimeout(2000);
-      expect(statusCode).toBe(423);
-      expect(errorCode).toBe('CIAM_E01_01_005');
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
+      expect(response.status()).toBe(423);
+      expect(errorResponse.error_code).toBe('CIAM_E01_01_005');
     });
   });
 

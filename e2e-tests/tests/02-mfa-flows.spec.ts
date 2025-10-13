@@ -23,51 +23,47 @@ test.describe('MFA Authentication Flows', () => {
   test.describe('OTP (SMS) Flows', () => {
     test('TC-MFA-001: mfauser login → MFA_REQUIRED with otp_methods', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let mfaResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 200) {
-          const json = await response.json();
-          if (json.responseTypeCode === 'MFA_REQUIRED') {
-            mfaResponse = json;
-          }
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const mfaResponse = await response.json();
+
       // Wait for MFA dialog to appear
       await authHelpers.waitForMfaMethodSelection();
 
       // Verify response has OTP methods
-      await page.waitForTimeout(1000);
       expect(mfaResponse).toBeTruthy();
-      expect(mfaResponse.responseTypeCode).toBe('MFA_REQUIRED');
+      expect(mfaResponse.response_type_code).toBe('MFA_REQUIRED');
       expect(mfaResponse.otp_methods).toBeDefined();
       expect(Array.isArray(mfaResponse.otp_methods)).toBe(true);
     });
 
     test('TC-MFA-002: Select SMS method → initiate → transaction_id returned', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let initiateResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/initiate') && response.status() === 201) {
-          initiateResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/initiate') && response.status() === 201
+      );
+
       await authHelpers.selectOtpMethod();
 
-      // Wait for initiate request
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const initiateResponse = await response.json();
 
       expect(initiateResponse).toBeTruthy();
       expect(initiateResponse.transaction_id).toBeDefined();
@@ -76,18 +72,18 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-MFA-003: Enter correct OTP (1234) → SUCCESS with tokens', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let verifyResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/otp/verify') && response.status() === 201) {
-          verifyResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/otp/verify') && response.status() === 201
+      );
 
       await authHelpers.loginWithOtp(account.username, OTP_CODE.VALID);
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const verifyResponse = await response.json();
+
       // Verify tokens received
-      await page.waitForTimeout(1000);
       expect(verifyResponse).toBeTruthy();
       expect(verifyResponse.access_token).toBeDefined();
       expect(verifyResponse.id_token).toBeDefined();
@@ -95,13 +91,6 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-MFA-004: Enter incorrect OTP (0000) → INVALID_MFA_CODE error', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let errorResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/otp/verify') && response.status() === 400) {
-          errorResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
@@ -110,10 +99,17 @@ test.describe('MFA Authentication Flows', () => {
       await authHelpers.waitForMfaMethodSelection();
       await authHelpers.selectOtpMethod();
 
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/otp/verify') && response.status() === 400
+      );
+
       // Enter invalid OTP
       await authHelpers.enterOtpCode(OTP_CODE.INVALID);
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
       expect(errorResponse).toBeTruthy();
       expect(errorResponse.error_code).toBe('CIAM_E01_03_001'); // INVALID_MFA_CODE
     });
@@ -149,17 +145,17 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-MFA-007: OTP success → verify device_bound: false (not trusted)', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let otpVerifyResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/otp/verify') && response.status() === 201) {
-          otpVerifyResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/otp/verify') && response.status() === 201
+      );
 
       await authHelpers.loginWithOtp(account.username, OTP_CODE.VALID);
 
-      await page.waitForTimeout(1000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const otpVerifyResponse = await response.json();
+
       expect(otpVerifyResponse).toBeTruthy();
       expect(otpVerifyResponse.device_bound).toBe(false);
     });
@@ -197,21 +193,21 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-MFA-012: otponlyuser → verify mobile_approve_status: NOT_REGISTERED', async ({ page }) => {
       const account = TEST_ACCOUNTS.otponlyuser;
-      let loginResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 200) {
-          loginResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const loginResponse = await response.json();
+
       await authHelpers.waitForMfaMethodSelection();
 
-      await page.waitForTimeout(1000);
       expect(loginResponse).toBeTruthy();
       expect(loginResponse.mobile_approve_status).toBe('NOT_REGISTERED');
     });
@@ -220,23 +216,22 @@ test.describe('MFA Authentication Flows', () => {
   test.describe('Push Notification Flows', () => {
     test('TC-PUSH-001: mfauser → select Push → display_number returned', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let initiateResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/initiate') && response.status() === 201) {
-          initiateResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/initiate') && response.status() === 201
+      );
+
       await authHelpers.selectPushMethod();
 
-      // Wait for initiate request
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const initiateResponse = await response.json();
 
       expect(initiateResponse).toBeTruthy();
       expect(initiateResponse.display_number).toBeDefined();
@@ -244,47 +239,49 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-PUSH-002: Poll status → MFA_PENDING initially', async ({ page }) => {
       const account = TEST_ACCOUNTS.pushexpired; // This user's push never approves
-      let pollResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 200) {
-          pollResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 200
+      );
+
       await authHelpers.selectPushMethod();
 
-      // Wait for first poll
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const pollResponse = await response.json();
 
       expect(pollResponse).toBeTruthy();
       expect(pollResponse.status).toBe('MFA_PENDING');
     });
 
     test('TC-PUSH-003: mfauser → Wait 5+ seconds → status APPROVED → tokens (201)', async ({ page }) => {
+      test.setTimeout(90000); // 90 seconds for push auto-approval test
       const account = TEST_ACCOUNTS.mfauser; // Auto-approves after 5s
-      let approvedResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 201) {
-          approvedResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 201
+      );
+
       await authHelpers.selectPushMethod();
 
       // Wait for auto-approval (backend auto-approves after 5s for mfauser)
       await authHelpers.waitForPushApproval();
+
+      // Wait for and parse response
+      const response = await responsePromise;
+      const approvedResponse = await response.json();
 
       // Wait for auth success
       await authHelpers.waitForAuthSuccess();
@@ -304,26 +301,28 @@ test.describe('MFA Authentication Flows', () => {
     });
 
     test('TC-PUSH-005: pushfail → auto-rejects after 7s → PUSH_REJECTED (400)', async ({ page }) => {
+      test.setTimeout(90000); // 90 seconds for push auto-rejection test
       const account = TEST_ACCOUNTS.pushfail;
-      let rejectedResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 400) {
-          rejectedResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 400
+      );
+
       await authHelpers.selectPushMethod();
 
       // Wait for auto-rejection
       await authHelpers.waitForPushRejection();
 
-      await page.waitForTimeout(1000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const rejectedResponse = await response.json();
+
       expect(rejectedResponse).toBeTruthy();
       expect(rejectedResponse.error_code).toBe('CIAM_E01_04_002'); // PUSH_REJECTED
     });
@@ -338,17 +337,17 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-PUSH-008: Push success → verify tokens returned', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let pushResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 201) {
-          pushResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 201
+      );
 
       await authHelpers.loginWithPush(account.username);
 
-      await page.waitForTimeout(1000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const pushResponse = await response.json();
+
       expect(pushResponse).toBeTruthy();
       expect(pushResponse.access_token).toBeDefined();
       expect(pushResponse.id_token).toBeDefined();
@@ -385,27 +384,29 @@ test.describe('MFA Authentication Flows', () => {
 
     test('TC-PUSH-011: Polling → verify retry_after: 1000 in MFA_PENDING', async ({ page }) => {
       const account = TEST_ACCOUNTS.pushexpired;
-      let pollResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 200) {
-          pollResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 200
+      );
+
       await authHelpers.selectPushMethod();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const pollResponse = await response.json();
+
       expect(pollResponse).toBeTruthy();
       expect(pollResponse.retry_after).toBe(1000);
     });
 
     test('TC-PUSH-012: Cancel push during polling → return to login', async ({ page }) => {
+      test.setTimeout(90000); // 90 seconds for push polling test
       const account = TEST_ACCOUNTS.mfauser;
 
       await authHelpers.openLoginSlideOut();
@@ -441,12 +442,22 @@ test.describe('MFA Authentication Flows', () => {
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/initiate') && response.status() === 201
+      );
+
       await authHelpers.selectPushMethod();
 
-      // Wait for push approval screen
-      await page.waitForTimeout(2000);
+      // Wait for and parse response to get display_number
+      const response = await responsePromise;
+      const initiateResponse = await response.json();
 
-      // Verify display number is shown (should be 3 digits)
+      // Wait for push approval screen
+      await page.waitForTimeout(1000);
+
+      // Verify display number is shown
+      expect(initiateResponse.display_number).toBeDefined();
       await expect(page.getByText(/\d{3}/)).toBeVisible();
     });
   });

@@ -32,6 +32,7 @@ export const useAuth = (): UseAuthReturn => {
     refreshSession: context.refreshSession,
     clearError: context.clearError,
     clearMfa: context.clearMfa,
+    setMfaDeviceFingerprint: context.setMfaDeviceFingerprint,
     // Device binding
     showDeviceBindDialog: context.showDeviceBindDialog,
     // eSign

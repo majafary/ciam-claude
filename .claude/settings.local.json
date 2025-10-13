@@ -63,7 +63,12 @@
       "Bash(python3:*)",
       "Bash(npx playwright test:*)",
       "Bash(tee:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(for file in tests/*.spec.ts)",
+      "Bash(done)",
+      "Bash(DEBUG=pw:api npx playwright test --grep \"TC-DEVICE-001\" --headed)",
+      "Bash(timeout 30 npx playwright test:*)",
+      "Bash(xargs cat:*)"
     ],
     "deny": [],
     "ask": []

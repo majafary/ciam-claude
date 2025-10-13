@@ -11,6 +11,7 @@ interface MFATransaction {
   username: string;
   createdAt: number;
   method?: 'sms' | 'voice' | 'push';
+  deviceFingerprint?: string; // Store device fingerprint from login for device trust check during MFA verify
 }
 
 // Push Challenge Storage
@@ -554,9 +555,10 @@ export const authController = {
       mfaTransactions.set(transaction_id, {
         transaction_id,
         username,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        deviceFingerprint: deviceFingerprint // Store device fingerprint for device trust check during MFA verify
       });
-      console.log('📝 [LOGIN] Stored MFA transaction:', { transaction_id, username });
+      console.log('📝 [LOGIN] Stored MFA transaction:', { transaction_id, username, deviceFingerprint });
 
       // Standard MFA required
       return res.status(200).json({
@@ -763,13 +765,15 @@ export const authController = {
     const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
     // Store username context with NEW transaction_id for MFA challenge
+    // Preserve deviceFingerprint from previous transaction
     mfaTransactions.set(newTransactionId, {
       transaction_id: newTransactionId,
       username,
       createdAt: Date.now(),
-      method
+      method,
+      deviceFingerprint: mfaTransaction.deviceFingerprint // Carry forward device fingerprint for device trust check
     });
-    console.log('📝 [MFA INITIATE] Created new transaction_id for MFA challenge:', { oldTxn: transaction_id, newTxn: newTransactionId, method });
+    console.log('📝 [MFA INITIATE] Created new transaction_id for MFA challenge:', { oldTxn: transaction_id, newTxn: newTransactionId, method, deviceFingerprint: mfaTransaction.deviceFingerprint });
 
     const expires_at = new Date(Date.now() + 10 * 1000).toISOString();
 
@@ -998,22 +1002,11 @@ export const authController = {
     const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
     updateLoginTime(username);
 
-    const accessToken = generateAccessToken(user);
-    const idToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-
-    res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: 'strict'
-    });
-
-    // Check if eSign is required after MFA
+    // PRIORITY 1: Check if eSign is required FIRST (before device binding)
+    console.log('🔍 [PUSH VERIFY] Checking for pending eSign:', { username, transaction_id });
     const pendingESign = getPendingESign(username);
+    console.log('🔍 [PUSH VERIFY] Pending eSign result:', pendingESign);
     if (pendingESign) {
-      console.log('📝 [PUSH VERIFY] eSign required after push MFA');
-
       // Invalidate the old push transaction_id (one-time use)
       mfaTransactions.delete(transaction_id);
       console.log('🗑️ [PUSH VERIFY] Invalidated push transaction_id:', transaction_id);
@@ -1039,6 +1032,50 @@ export const authController = {
       });
     }
 
+    // PRIORITY 2: Check device trust status (after eSign check)
+    // Retrieve deviceFingerprint from MFA transaction (stored during login)
+    const deviceFingerprint = mfaTransaction.deviceFingerprint;
+    const deviceBound = deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false;
+    console.log('🔍 [PUSH VERIFY] Device trust check:', { deviceFingerprint, deviceBound });
+
+    // V3: If device is NOT trusted, return DEVICE_BIND_REQUIRED (200) instead of SUCCESS (201)
+    if (!deviceBound) {
+      console.log('📱 [PUSH VERIFY] Device not bound, returning DEVICE_BIND_REQUIRED:', { username, deviceFingerprint });
+
+      // Invalidate the old push transaction_id (one-time use)
+      mfaTransactions.delete(transaction_id);
+      console.log('🗑️ [PUSH VERIFY] Invalidated push transaction_id:', transaction_id);
+
+      // Generate NEW transaction_id for device binding step
+      const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+      // Store username context with NEW transaction_id for device binding step
+      mfaTransactions.set(newTransactionId, {
+        transaction_id: newTransactionId,
+        username,
+        createdAt: Date.now()
+      });
+      console.log('📝 [PUSH VERIFY] Created new transaction_id for device binding:', { oldTxn: transaction_id, newTxn: newTransactionId });
+
+      return res.status(200).json({
+        response_type_code: 'DEVICE_BIND_REQUIRED',
+        context_id: context_id,
+        transaction_id: newTransactionId
+      });
+    }
+
+    // PRIORITY 3: No eSign, device is trusted - SUCCESS with tokens
+    const accessToken = generateAccessToken(user);
+    const idToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      sameSite: 'strict'
+    });
+
     // Invalidate the push transaction_id on success (one-time use)
     mfaTransactions.delete(transaction_id);
     console.log('🗑️ [PUSH VERIFY] Invalidated push transaction_id on success:', transaction_id);
@@ -1051,7 +1088,7 @@ export const authController = {
       expires_in: 900,
       context_id: context_id,
       transaction_id: transaction_id,
-      device_bound: false
+      device_bound: true // Device is trusted if we reach here
     });
   },
 
@@ -1096,18 +1133,7 @@ export const authController = {
       const user = { id: username, username, email: `${username}@example.com`, roles: ['user'] };
       updateLoginTime(username);
 
-      const accessToken = generateAccessToken(user);
-      const idToken = generateAccessToken(user);
-      const refreshToken = generateRefreshToken(user);
-
-      res.cookie('refresh_token', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        sameSite: 'strict'
-      });
-
-      // Check if eSign is required after MFA
+      // PRIORITY 1: Check if eSign is required FIRST (before device binding)
       console.log('🔍 [OTP VERIFY] Checking for pending eSign:', { username, transaction_id });
       const pendingESign = getPendingESign(username);
       console.log('🔍 [OTP VERIFY] Pending eSign result:', pendingESign);
@@ -1137,6 +1163,50 @@ export const authController = {
         });
       }
 
+      // PRIORITY 2: Check device trust status (after eSign check)
+      // Retrieve deviceFingerprint from MFA transaction (stored during login)
+      const deviceFingerprint = mfaTransaction.deviceFingerprint;
+      const deviceBound = deviceFingerprint ? isDeviceTrusted(deviceFingerprint, username) : false;
+      console.log('🔍 [OTP VERIFY] Device trust check:', { deviceFingerprint, deviceBound });
+
+      // V3: If device is NOT trusted, return DEVICE_BIND_REQUIRED (200) instead of SUCCESS (201)
+      if (!deviceBound) {
+        console.log('📱 [OTP VERIFY] Device not bound, returning DEVICE_BIND_REQUIRED:', { username, deviceFingerprint });
+
+        // Invalidate the old MFA transaction_id (one-time use)
+        mfaTransactions.delete(transaction_id);
+        console.log('🗑️ [OTP VERIFY] Invalidated MFA transaction_id:', transaction_id);
+
+        // Generate NEW transaction_id for device binding step
+        const newTransactionId = 'txn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+        // Store username context with NEW transaction_id for device binding step
+        mfaTransactions.set(newTransactionId, {
+          transaction_id: newTransactionId,
+          username,
+          createdAt: Date.now()
+        });
+        console.log('📝 [OTP VERIFY] Created new transaction_id for device binding:', { oldTxn: transaction_id, newTxn: newTransactionId });
+
+        return res.status(200).json({
+          response_type_code: 'DEVICE_BIND_REQUIRED',
+          context_id: context_id,
+          transaction_id: newTransactionId
+        });
+      }
+
+      // PRIORITY 3: No eSign, device is trusted - SUCCESS with tokens
+      const accessToken = generateAccessToken(user);
+      const idToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      res.cookie('refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        sameSite: 'strict'
+      });
+
       // Invalidate the MFA transaction_id on success (one-time use)
       mfaTransactions.delete(transaction_id);
       console.log('🗑️ [OTP VERIFY] Invalidated MFA transaction_id on success:', transaction_id);
@@ -1149,7 +1219,7 @@ export const authController = {
         expires_in: 900,
         context_id: context_id,
         transaction_id: transaction_id,
-        device_bound: false
+        device_bound: true // Device is trusted if we reach here
       });
     } else {
       // Invalid OTP - delete MFA transaction (single-use security)
@@ -1521,7 +1591,7 @@ export const authController = {
       sameSite: 'strict'
     });
 
-    return res.status(200).json({
+    return res.status(201).json({
       response_type_code: 'SUCCESS',
       access_token: accessToken,
       id_token: idToken,

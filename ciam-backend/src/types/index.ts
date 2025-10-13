@@ -84,6 +84,8 @@ export interface MFAVerifySuccessResponse {
   token_type: string;
   expires_in: number;
   transaction_id: string;
+  device_fingerprint?: string;
+  device_bound?: boolean;
 }
 
 export interface MFAPendingResponse {
@@ -211,6 +213,7 @@ export interface MFATransaction {
   otp?: string;
   displayNumber?: number;
   selectedNumber?: number;
+  deviceFingerprint?: string;
   createdAt: Date;
   expiresAt: Date;
   updatedAt: Date;

@@ -429,6 +429,13 @@ export class AuthService {
       body: JSON.stringify(requestBody),
     });
 
+    console.log('🔍 [AuthService] verifyOTPChallenge response:', {
+      response_type_code: response.response_type_code,
+      responseTypeCode: response.responseTypeCode,
+      has_access_token: !!response.access_token,
+      has_transaction_id: !!response.transaction_id
+    });
+
     // Store access token if MFA was successful
     if (response.access_token) {
       this.setStoredAccessToken(response.access_token);

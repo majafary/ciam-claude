@@ -222,6 +222,29 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    // Check device trust status FIRST (before generating tokens)
+    const deviceBound = await isDeviceTrusted(user.id, transaction_id);
+
+    // V3: If device is NOT trusted, return DEVICE_BIND_REQUIRED (200) instead of SUCCESS (201)
+    if (!deviceBound) {
+      logAuthEvent('mfa_success_device_bind_required', user.id, {
+        transactionId: transaction_id,
+        method: transaction.method,
+        ip: req.ip
+      });
+
+      // Return 200 with DEVICE_BIND_REQUIRED to trigger device bind dialog
+      const deviceBindResponse = {
+        response_type_code: 'DEVICE_BIND_REQUIRED',
+        context_id: context_id,
+        transaction_id: transaction_id
+      };
+
+      res.status(200).json(deviceBindResponse);
+      return;
+    }
+
+    // Device is already trusted - proceed with normal token generation (201 SUCCESS)
     // Generate tokens
     const sessionId = transaction.sessionId || `sess-${Date.now()}`;
     const accessToken = generateAccessToken(user.id, sessionId, user.roles);
@@ -235,9 +258,6 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
 
     // Create refresh token
     const refreshToken = await createRefreshToken(user.id, sessionId);
-
-    // Check device trust status
-    const deviceBound = await isDeviceTrusted(user.id, transaction_id);
 
     logAuthEvent('mfa_success', user.id, {
       transactionId: transaction_id,
@@ -255,10 +275,12 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
       id_token: idToken,
       token_type: 'Bearer',
       expires_in: 900, // 15 minutes
-      transaction_id: transaction_id
+      transaction_id: transaction_id,
+      device_fingerprint: transaction.deviceFingerprint || user.id,
+      device_bound: true // Device is trusted if we reach here
     };
 
-    res.json(response);
+    res.status(201).json(response);
   } catch (error) {
     logAuthEvent('mfa_verify_otp_failure', undefined, {
       contextId: req.body.context_id,
@@ -385,6 +407,29 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       return;
     }
 
+    // Check device trust status FIRST (before generating tokens)
+    const deviceBoundPush = await isDeviceTrusted(user.id, transaction_id);
+
+    // V3: If device is NOT trusted, return DEVICE_BIND_REQUIRED (200) instead of SUCCESS (201)
+    if (!deviceBoundPush) {
+      logAuthEvent('mfa_success_device_bind_required', user.id, {
+        transactionId: transaction_id,
+        method: 'push',
+        ip: req.ip
+      });
+
+      // Return 200 with DEVICE_BIND_REQUIRED to trigger device bind dialog
+      const deviceBindResponse = {
+        response_type_code: 'DEVICE_BIND_REQUIRED',
+        context_id: context_id,
+        transaction_id: transaction_id
+      };
+
+      res.status(200).json(deviceBindResponse);
+      return;
+    }
+
+    // Device is already trusted - proceed with normal token generation (201 SUCCESS)
     // Generate tokens
     const sessionId = transaction.sessionId || `sess-${Date.now()}`;
     const accessToken = generateAccessToken(user.id, sessionId, user.roles);
@@ -415,10 +460,12 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       id_token: idToken,
       token_type: 'Bearer',
       expires_in: 900, // 15 minutes
-      transaction_id: transaction_id
+      transaction_id: transaction_id,
+      device_fingerprint: transaction.deviceFingerprint || user.id,
+      device_bound: true // Device is trusted if we reach here
     };
 
-    res.json(response);
+    res.status(201).json(response);
   } catch (error) {
     logAuthEvent('mfa_verify_push_failure', undefined, {
       contextId: req.body.context_id,

@@ -46,7 +46,7 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 }) => {
   const {
     isAuthenticated, isLoading, user, error, login, logout, clearError,
-    mfaRequired, mfaAvailableMethods, mfaOtpMethods, mfaError, mfaUsername, mfaTransactionId, mfaContextId, mfaDeviceFingerprint, clearMfa, refreshSession, authService, showDeviceBindDialog, showESignDialog
+    mfaRequired, mfaAvailableMethods, mfaOtpMethods, mfaError, mfaUsername, mfaTransactionId, mfaContextId, mfaDeviceFingerprint, clearMfa, setMfaDeviceFingerprint, refreshSession, authService, showDeviceBindDialog, showESignDialog
   } = useAuth();
   const { transaction, initiateChallenge, verifyOtp, verifyPush, cancelTransaction, pollPushStatus } = useMfa();
 
@@ -306,6 +306,12 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
       // Check for eSign requirement directly in MFA response (v3.0.0: check response_type_code with fallback)
       const responseTypeCode = mfaResponse.response_type_code || mfaResponse.responseTypeCode;
+      console.log('🔍 [MFA SUCCESS DEBUG] response_type_code check:', {
+        response_type_code: mfaResponse.response_type_code,
+        responseTypeCode: mfaResponse.responseTypeCode,
+        extracted: responseTypeCode,
+        isDeviceBindRequired: responseTypeCode === 'DEVICE_BIND_REQUIRED'
+      });
       if (responseTypeCode === 'ESIGN_REQUIRED') {
         console.log('📝 eSign required after MFA - calling Provider');
 
@@ -386,31 +392,22 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
         console.log('🗑️ [MFA SUCCESS DEBUG] Username removed from localStorage');
       }
 
-      // Trigger session refresh to update Provider state with authenticated user
-      await refreshSession();
-
-      console.log('🟢 MFA Success - session refreshed, user should be authenticated');
-
-      // Check if device binding should be offered
-      console.log('🔍 [DEVICE BIND CHECK]', {
-        mfaDeviceFingerprint,
-        username: loginDataToUse.username,
-        willShowDialog: !!(mfaDeviceFingerprint && loginDataToUse.username)
-      });
-
-      if (mfaDeviceFingerprint && loginDataToUse.username) {
-        console.log('🔐 Offering device binding:', { username: loginDataToUse.username, deviceFingerprint: mfaDeviceFingerprint });
+      // Check if device binding is required based on response_type_code
+      // Backend returns DEVICE_BIND_REQUIRED (200) when device binding should be offered
+      // IMPORTANT: Check this BEFORE calling refreshSession() to prevent authentication completing prematurely
+      if (responseTypeCode === 'DEVICE_BIND_REQUIRED') {
+        console.log('📱 Device binding required after MFA');
 
         // Clear MFA dialog immediately
         clearMfa();
         cancelTransaction();
 
-        // Show device bind dialog (managed by provider, persists after component unmount)
-        showDeviceBindDialog(loginDataToUse.username, mfaDeviceFingerprint, async () => {
+        // Show device bind dialog with transaction_id (backend has the device_fingerprint)
+        showDeviceBindDialog(loginDataToUse.username, mfaResponse.transaction_id, async () => {
           // This callback runs after device bind (whether trusted or skipped)
           console.log('🔐 Device bind completed, finishing authentication flow');
 
-          // Refresh session one more time to ensure user state is fully updated
+          // Refresh session to ensure user state is fully updated
           await refreshSession();
           console.log('🔄 Session refreshed after device bind');
 
@@ -431,6 +428,11 @@ export const CiamLoginComponent: React.FC<CiamLoginComponentProps> = ({
 
         return; // Don't complete authentication flow yet - wait for device bind dialog
       }
+
+      // Trigger session refresh to update Provider state with authenticated user
+      await refreshSession();
+
+      console.log('🟢 MFA Success - session refreshed, user should be authenticated');
 
       // Clear MFA state after successful authentication - this will close the dialog
       clearMfa();

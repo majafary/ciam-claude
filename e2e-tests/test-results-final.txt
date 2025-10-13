@@ -1,0 +1,23 @@
+
+Running 138 tests using 4 workers
+
+  ✓    3 tests/01-basic-auth.spec.ts:23:9 › Basic Authentication Flows › Anonymous User - Storefront Navigation › TC-SF-001: Load storefront homepage as anonymous user (3.0s)
+  ✓    4 tests/02-mfa-flows.spec.ts:24:9 › MFA Authentication Flows › OTP (SMS) Flows › TC-MFA-001: mfauser login → MFA_REQUIRED with otp_methods (4.0s)
+  ✓    2 tests/03-esign-flows.spec.ts:27:9 › eSign (Electronic Signature) Flows › eSign After Trusted Login › TC-ESIGN-001: trustedesignuser → Login → ESIGN_REQUIRED (5.7s)
+  ✓    5 tests/01-basic-auth.spec.ts:28:9 › Basic Authentication Flows › Anonymous User - Storefront Navigation › TC-SF-002: Verify hero section displays without auth (2.5s)
+  ✓    1 tests/04-cross-app.spec.ts:26:9 › Cross-App Integration Tests › Storefront → Snapshot Navigation › TC-CROSS-001: Login on Storefront → Navigate to Snapshot → Session preserved (8.2s)
+  ✓    8 tests/01-basic-auth.spec.ts:33:9 › Basic Authentication Flows › Anonymous User - Storefront Navigation › TC-SF-003: Click Sign In button - login slide-out appears (3.3s)
+  ✘    7 tests/03-esign-flows.spec.ts:50:9 › eSign (Electronic Signature) Flows › eSign After Trusted Login › TC-ESIGN-002: eSign dialog displays document title (Terms of Service) (3.5s)
+  ✓   10 tests/01-basic-auth.spec.ts:39:9 › Basic Authentication Flows › Anonymous User - Storefront Navigation › TC-SF-004: Navigate storefront without login - no protected content shown (1.5s)
+  -   11 tests/01-basic-auth.spec.ts:44:10 › Basic Authentication Flows › Anonymous User - Storefront Navigation › TC-SF-005: Verify build info displays correctly
+  ✓   12 tests/01-basic-auth.spec.ts:52:9 › Basic Authentication Flows › Trusted User - Instant Login › TC-AUTH-001: trusteduser with correct password - instant login (device trusted) (2.1s)
+  -   13 tests/01-basic-auth.spec.ts:66:10 › Basic Authentication Flows › Trusted User - Instant Login › TC-AUTH-002: trusteduser - verify welcome message displays with username
+  ✓    9 tests/04-cross-app.spec.ts:40:9 › Cross-App Integration Tests › Storefront → Snapshot Navigation › TC-CROSS-002: Snapshot page displays account data after cross-app navigation (5.7s)
+  ✓   14 tests/01-basic-auth.spec.ts:74:9 › Basic Authentication Flows › Trusted User - Instant Login › TC-AUTH-003: trusteduser - verify tokens are stored (check cookies) (2.0s)
+  ✓   17 tests/01-basic-auth.spec.ts:86:9 › Basic Authentication Flows › Trusted User - Instant Login › TC-AUTH-004: trusteduser - device_bound flag should be true (3.3s)
+  -   18 tests/01-basic-auth.spec.ts:103:10 › Basic Authentication Flows › Login with Invalid Credentials › TC-SF-010: Invalid credentials - error displays in slide-out
+  ✘   16 tests/04-cross-app.spec.ts:52:9 › Cross-App Integration Tests › Storefront → Snapshot Navigation › TC-CROSS-003: Anonymous user on Storefront → Navigate to Snapshot → Redirected to login (4.3s)
+  ✘   15 tests/03-esign-flows.spec.ts:63:9 › eSign (Electronic Signature) Flows › eSign After Trusted Login › TC-ESIGN-003: Accept eSign → Device bind dialog appears (4.6s)
+  ✓   19 tests/01-basic-auth.spec.ts:115:9 › Basic Authentication Flows › Login with Invalid Credentials › TC-ERR-001: Invalid credentials - returns CIAM_E01_01_001 (401) (1.6s)
+  -   20 tests/01-basic-auth.spec.ts:135:10 › Basic Authentication Flows › Account Locked Scenarios › TC-SF-011: Locked account - error message displays
+  ✓   21 tests/01-basic-auth.spec.ts:147:9 › Basic Authentication Flows › Account Locked Scenarios › TC-ERR-002: Account locked - returns CIAM_E01_01_002 (423) (817ms)

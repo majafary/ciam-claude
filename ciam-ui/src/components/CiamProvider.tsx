@@ -29,6 +29,7 @@ interface CiamContextValue {
   refreshSession: () => Promise<void>;
   clearError: () => void;
   clearMfa: (errorMessage?: string) => void;
+  setMfaDeviceFingerprint: (deviceFingerprint: string | null) => void;
   // Device binding
   showDeviceBindDialog: (username: string, deviceFingerprint: string, onComplete?: () => void) => void;
   // eSign
@@ -609,6 +610,14 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     }));
   }, []);
 
+  // Set MFA device fingerprint from MFA verify response
+  const setMfaDeviceFingerprint = useCallback((deviceFingerprint: string | null) => {
+    setAuthState(prev => ({
+      ...prev,
+      mfaDeviceFingerprint: deviceFingerprint,
+    }));
+  }, []);
+
   // Device bind dialog state
   const [deviceBindState, setDeviceBindState] = useState({
     open: false,
@@ -899,6 +908,7 @@ export const CiamProvider: React.FC<CiamProviderProps> = ({
     refreshSession,
     clearError,
     clearMfa,
+    setMfaDeviceFingerprint,
     // Device binding
     showDeviceBindDialog,
     // eSign

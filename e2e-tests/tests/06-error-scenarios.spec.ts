@@ -27,57 +27,57 @@ test.describe('Error Scenarios & Edge Cases', () => {
   test.describe('Authentication Errors (CIAM_E01_01_xxx)', () => {
     test('TC-ERR-001: Invalid credentials → CIAM_E01_01_001 (401)', async ({ page }) => {
       const account = TEST_ACCOUNTS.invaliduser;
-      let errorResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 401) {
-          errorResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 401
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
       expect(errorResponse).toBeTruthy();
       expect(errorResponse.error_code).toBe('CIAM_E01_01_001');
     });
 
     test('TC-ERR-002: Account locked → CIAM_E01_01_002 (423)', async ({ page }) => {
       const account = TEST_ACCOUNTS.lockeduser;
-      let errorResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 423) {
-          errorResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 423
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
       expect(errorResponse).toBeTruthy();
       expect(errorResponse.error_code).toBe('CIAM_E01_01_002');
     });
 
     test('TC-ERR-003: MFA locked account → CIAM_E01_01_005 (423)', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfalockeduser;
-      let errorResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 423) {
-          errorResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 423
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
       expect(errorResponse).toBeTruthy();
       expect(errorResponse.error_code).toBe('CIAM_E01_01_005');
     });
@@ -151,13 +151,6 @@ test.describe('Error Scenarios & Edge Cases', () => {
   test.describe('MFA Errors (CIAM_E01_03_xxx, CIAM_E01_04_xxx)', () => {
     test('TC-ERR-009: Invalid OTP code → CIAM_E01_03_001 (400)', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let errorResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/otp/verify') && response.status() === 400) {
-          errorResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
@@ -165,34 +158,43 @@ test.describe('Error Scenarios & Edge Cases', () => {
 
       await authHelpers.waitForMfaMethodSelection();
       await authHelpers.selectOtpMethod();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/otp/verify') && response.status() === 400
+      );
+
       await authHelpers.enterOtpCode(OTP_CODE.INVALID);
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
       expect(errorResponse).toBeTruthy();
       expect(errorResponse.error_code).toBe('CIAM_E01_03_001');
     });
 
     test('TC-ERR-010: Push rejected → CIAM_E01_04_002 (400)', async ({ page }) => {
       const account = TEST_ACCOUNTS.pushfail; // Auto-rejects after 7s
-      let errorResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 400) {
-          errorResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForMfaMethodSelection();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/mfa\/transactions\/.*/) && response.status() === 400
+      );
+
       await authHelpers.selectPushMethod();
 
       // Wait for auto-rejection
       await authHelpers.waitForPushRejection();
 
-      await page.waitForTimeout(1000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const errorResponse = await response.json();
+
       expect(errorResponse).toBeTruthy();
       expect(errorResponse.error_code).toBe('CIAM_E01_04_002');
     });
@@ -363,37 +365,38 @@ test.describe('Error Scenarios & Edge Cases', () => {
 
     test('TC-ERR-030: Multiple rapid login attempts → Consistent error handling', async ({ page }) => {
       const account = TEST_ACCOUNTS.invaliduser;
-      let errorCount = 0;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 401) {
-          errorCount++;
-        }
-      });
+      const responsePromises: Promise<any>[] = [];
 
       // Attempt 3 rapid logins
       for (let i = 0; i < 3; i++) {
         await authHelpers.openLoginSlideOut();
         await authHelpers.fillLoginCredentials(account.username, account.password);
+
+        const responsePromise = page.waitForResponse(
+          response => response.url().includes('/auth/login') && response.status() === 401
+        );
+        responsePromises.push(responsePromise);
+
         await authHelpers.submitLoginForm();
         await page.waitForTimeout(1000);
       }
 
+      // Wait for all responses
+      const responses = await Promise.all(responsePromises);
+
       // Should have received 3 error responses
-      expect(errorCount).toBe(3);
+      expect(responses.length).toBe(3);
+
+      // Verify all are 401 errors
+      for (const response of responses) {
+        expect(response.status()).toBe(401);
+      }
     });
   });
 
   test.describe('Device Binding Error Scenarios', () => {
     test('TC-ERR-031: Skip device trust → device_bound remains false', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let otpVerifyResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/otp/verify') && response.status() === 201) {
-          otpVerifyResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
@@ -401,7 +404,16 @@ test.describe('Error Scenarios & Edge Cases', () => {
 
       await authHelpers.waitForMfaMethodSelection();
       await authHelpers.selectOtpMethod();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/otp/verify') && response.status() === 201
+      );
+
       await authHelpers.enterOtpCode(OTP_CODE.VALID);
+
+      // Wait for and parse response
+      const response = await responsePromise;
+      const otpVerifyResponse = await response.json();
 
       await authHelpers.waitForDeviceBindDialog();
       await authHelpers.skipDeviceTrust();
@@ -411,7 +423,6 @@ test.describe('Error Scenarios & Edge Cases', () => {
       await authHelpers.verifyStorefrontAuthenticated();
 
       // Verify device_bound is false
-      await page.waitForTimeout(1000);
       expect(otpVerifyResponse).toBeTruthy();
       expect(otpVerifyResponse.device_bound).toBe(false);
     });

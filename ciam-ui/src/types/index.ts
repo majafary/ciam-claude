@@ -32,6 +32,7 @@ export interface MFAVerifyResponse {
   access_token?: string;
   transaction_id: string;
   device_bound?: boolean;
+  device_fingerprint?: string;
   esign_document_id?: string;
   is_mandatory?: boolean;
   message?: string;
@@ -301,6 +302,7 @@ export interface UseAuthReturn {
   refreshSession: () => Promise<void>;
   clearError: () => void;
   clearMfa: (errorMessage?: string) => void;
+  setMfaDeviceFingerprint: (deviceFingerprint: string | null) => void;
   // Device binding
   showDeviceBindDialog: (username: string, deviceFingerprint: string, onComplete?: () => void) => void;
   // eSign

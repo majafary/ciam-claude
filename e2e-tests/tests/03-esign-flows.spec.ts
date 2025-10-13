@@ -26,24 +26,24 @@ test.describe('eSign (Electronic Signature) Flows', () => {
   test.describe('eSign After Trusted Login', () => {
     test('TC-ESIGN-001: trustedesignuser → Login → ESIGN_REQUIRED', async ({ page }) => {
       const account = TEST_ACCOUNTS.trustedesignuser;
-      let loginResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 200) {
-          loginResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const loginResponse = await response.json();
+
       // Wait for eSign dialog
       await authHelpers.waitForESignDialog();
 
-      await page.waitForTimeout(1000);
       expect(loginResponse).toBeTruthy();
-      expect(loginResponse.response_type_code || loginResponse.responseTypeCode).toBe('ESIGN_REQUIRED');
+      expect(loginResponse.response_type_code).toBe('ESIGN_REQUIRED');
       expect(loginResponse.esign_document_id).toBeDefined();
     });
 
@@ -144,13 +144,6 @@ test.describe('eSign (Electronic Signature) Flows', () => {
   test.describe('eSign After MFA', () => {
     test('TC-ESIGN-008: mfaesignuser → MFA → ESIGN_REQUIRED', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfaesignuser;
-      let mfaVerifyResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/mfa/otp/verify') && response.status() === 200) {
-          mfaVerifyResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
@@ -158,14 +151,22 @@ test.describe('eSign (Electronic Signature) Flows', () => {
 
       await authHelpers.waitForMfaMethodSelection();
       await authHelpers.selectOtpMethod();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/mfa/otp/verify') && response.status() === 200
+      );
+
       await authHelpers.enterOtpCode(OTP_CODE.VALID);
+
+      // Wait for and parse response
+      const response = await responsePromise;
+      const mfaVerifyResponse = await response.json();
 
       // eSign should appear after MFA
       await authHelpers.waitForESignDialog();
 
-      await page.waitForTimeout(1000);
       expect(mfaVerifyResponse).toBeTruthy();
-      expect(mfaVerifyResponse.response_type_code || mfaVerifyResponse.responseTypeCode).toBe('ESIGN_REQUIRED');
+      expect(mfaVerifyResponse.response_type_code).toBe('ESIGN_REQUIRED');
     });
 
     test('TC-ESIGN-009: MFA → eSign accept → Device bind → Authenticated', async ({ page }) => {
@@ -197,17 +198,17 @@ test.describe('eSign (Electronic Signature) Flows', () => {
 
     test('TC-ESIGN-011: MFA → eSign → Trust device → device_bound flag validated', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfaesignuser;
-      let deviceBindResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/device/bind') && response.status() === 201) {
-          deviceBindResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/device/bind') && response.status() === 201
+      );
 
       await authHelpers.loginWithMfaAndESign(account.username, true);
 
-      await page.waitForTimeout(1000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const deviceBindResponse = await response.json();
+
       expect(deviceBindResponse).toBeTruthy();
       expect(deviceBindResponse.device_bound).toBe(true);
     });
@@ -228,21 +229,21 @@ test.describe('eSign (Electronic Signature) Flows', () => {
 
     test('TC-ESIGN-013: Compliance eSign → is_mandatory flag true', async ({ page }) => {
       const account = TEST_ACCOUNTS.complianceuser;
-      let loginResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 200) {
-          loginResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const loginResponse = await response.json();
+
       await authHelpers.waitForESignDialog();
 
-      await page.waitForTimeout(1000);
       expect(loginResponse).toBeTruthy();
       expect(loginResponse.is_mandatory).toBe(true);
     });
@@ -268,55 +269,53 @@ test.describe('eSign (Electronic Signature) Flows', () => {
   test.describe('eSign API Response Validation', () => {
     test('TC-ESIGN-015: eSign response includes esign_document_id', async ({ page }) => {
       const account = TEST_ACCOUNTS.trustedesignuser;
-      let loginResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 200) {
-          loginResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const loginResponse = await response.json();
+
       await authHelpers.waitForESignDialog();
 
-      await page.waitForTimeout(1000);
       expect(loginResponse.esign_document_id).toBeDefined();
       expect(loginResponse.esign_document_id.length).toBeGreaterThan(0);
     });
 
     test('TC-ESIGN-016: eSign accept → POST /auth/esign/accept called', async ({ page }) => {
       const account = TEST_ACCOUNTS.trustedesignuser;
-      let acceptResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/esign/accept') && response.status() === 201) {
-          acceptResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
       await authHelpers.waitForESignDialog();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/esign/accept') && response.status() === 201
+      );
+
       await authHelpers.acceptESign();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const acceptResponse = await response.json();
+
       expect(acceptResponse).toBeTruthy();
     });
 
     test('TC-ESIGN-017: eSign document fetch → GET /auth/esign/documents/:id', async ({ page }) => {
       const account = TEST_ACCOUNTS.trustedesignuser;
-      let documentResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().match(/\/auth\/esign\/documents\/.*/) && response.status() === 200) {
-          documentResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().match(/\/auth\/esign\/documents\/.*/) && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
@@ -324,7 +323,10 @@ test.describe('eSign (Electronic Signature) Flows', () => {
 
       await authHelpers.waitForESignDialog();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const documentResponse = await response.json();
+
       expect(documentResponse).toBeTruthy();
       expect(documentResponse.title).toBeDefined();
       expect(documentResponse.content).toBeDefined();

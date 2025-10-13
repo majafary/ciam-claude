@@ -42,13 +42,6 @@ test.describe('Session & Device Management', () => {
 
     test('TC-DEVICE-002: Trust device → POST /auth/device/bind called', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let bindResponse: any = null;
-
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/device/bind') && response.status() === 201) {
-          bindResponse = await response.json();
-        }
-      });
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
@@ -59,9 +52,17 @@ test.describe('Session & Device Management', () => {
       await authHelpers.enterOtpCode(OTP_CODE.VALID);
 
       await authHelpers.waitForDeviceBindDialog();
+
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/device/bind') && response.status() === 201
+      );
+
       await authHelpers.trustDevice();
 
-      await page.waitForTimeout(2000);
+      // Wait for and parse response
+      const response = await responsePromise;
+      const bindResponse = await response.json();
+
       expect(bindResponse).toBeTruthy();
       expect(bindResponse.device_bound).toBe(true);
     });
@@ -206,21 +207,21 @@ test.describe('Session & Device Management', () => {
   test.describe('Device Fingerprinting', () => {
     test('TC-DEVICE-006: Device fingerprint generated on MFA', async ({ page }) => {
       const account = TEST_ACCOUNTS.mfauser;
-      let mfaResponse: any = null;
 
-      page.on('response', async (response) => {
-        if (response.url().includes('/auth/login') && response.status() === 200) {
-          mfaResponse = await response.json();
-        }
-      });
+      const responsePromise = page.waitForResponse(
+        response => response.url().includes('/auth/login') && response.status() === 200
+      );
 
       await authHelpers.openLoginSlideOut();
       await authHelpers.fillLoginCredentials(account.username, account.password);
       await authHelpers.submitLoginForm();
 
+      // Wait for and parse response
+      const response = await responsePromise;
+      const mfaResponse = await response.json();
+
       await authHelpers.waitForMfaMethodSelection();
 
-      await page.waitForTimeout(1000);
       expect(mfaResponse).toBeTruthy();
       expect(mfaResponse.device_fingerprint).toBeDefined();
       expect(mfaResponse.device_fingerprint.length).toBeGreaterThan(0);
