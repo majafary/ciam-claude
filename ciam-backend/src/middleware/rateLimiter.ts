@@ -52,23 +52,23 @@ export const generalRateLimit = rateLimit(
 );
 
 /**
- * Authentication rate limiter (5 attempts per 5 minutes per IP)
+ * Authentication rate limiter (5 attempts per 5 minutes per IP in production, 50 in development)
  */
 export const authRateLimit = rateLimit(
   getRateLimitConfig(
     5 * 60 * 1000, // 5 minutes
-    5,
+    process.env.NODE_ENV === 'production' ? 5 : 50, // More lenient in development
     'Too many authentication attempts, please try again later.'
   )
 );
 
 /**
- * MFA rate limiter (10 attempts per 5 minutes per IP)
+ * MFA rate limiter (10 attempts per 5 minutes per IP in production, 100 in development)
  */
 export const mfaRateLimit = rateLimit(
   getRateLimitConfig(
     5 * 60 * 1000, // 5 minutes
-    10,
+    process.env.NODE_ENV === 'production' ? 10 : 100, // More lenient in development
     'Too many MFA attempts, please try again later.'
   )
 );
