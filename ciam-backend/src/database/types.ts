@@ -75,7 +75,7 @@ export type AuthTransactionUpdate = Updateable<AuthTransactionsTable>;
 
 export interface SessionsTable {
   session_id: string; // PRIMARY KEY - UUID
-  user_id: string; // Reference to user
+  cupid: string; // User identifier (from LDAP)
   context_id: string | null; // FOREIGN KEY to auth_contexts
   device_id: string | null;
   created_at: Timestamp;
@@ -91,24 +91,28 @@ export type NewSession = Insertable<SessionsTable>;
 export type SessionUpdate = Updateable<SessionsTable>;
 
 // ============================================================================
-// REFRESH_TOKENS TABLE
+// TOKENS TABLE (ACCESS, REFRESH, ID)
 // ============================================================================
 
-export interface RefreshTokensTable {
+export type TokenType = 'ACCESS' | 'REFRESH' | 'ID';
+export type TokenStatus = 'ACTIVE' | 'ROTATED' | 'REVOKED' | 'EXPIRED';
+
+export interface TokensTable {
   token_id: GeneratedId; // PRIMARY KEY - SERIAL
-  user_id: string;
-  session_id: string; // FOREIGN KEY to sessions
-  token_hash: string; // SHA-256 hash of actual token (UNIQUE)
+  session_id: string; // FOREIGN KEY to sessions - ONLY foreign key
   parent_token_id: number | null; // FOREIGN KEY - token rotation chain
+  token_type: TokenType; // ACCESS, REFRESH, or ID
+  token_value: string; // Actual JWT token
+  token_value_hash: string; // SHA-256 hash for fast lookup
+  status: TokenStatus; // ACTIVE, ROTATED, REVOKED, EXPIRED
   created_at: Timestamp;
   expires_at: Timestamp;
-  is_revoked: boolean;
   revoked_at: Timestamp | null;
 }
 
-export type RefreshToken = Selectable<RefreshTokensTable>;
-export type NewRefreshToken = Insertable<RefreshTokensTable>;
-export type RefreshTokenUpdate = Updateable<RefreshTokensTable>;
+export type Token = Selectable<TokensTable>;
+export type NewToken = Insertable<TokensTable>;
+export type TokenUpdate = Updateable<TokensTable>;
 
 // ============================================================================
 // TRUSTED_DEVICES TABLE
@@ -211,7 +215,7 @@ export interface Database {
   auth_contexts: AuthContextsTable;
   auth_transactions: AuthTransactionsTable;
   sessions: SessionsTable;
-  refresh_tokens: RefreshTokensTable;
+  tokens: TokensTable; // Unified tokens table (ACCESS, REFRESH, ID)
   trusted_devices: TrustedDevicesTable;
   drs_evaluations: DrsEvaluationsTable;
   audit_logs: AuditLogsTable;

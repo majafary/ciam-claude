@@ -22,7 +22,7 @@ import {
   AuthContext,
   AuthTransaction,
   Session,
-  RefreshToken,
+  Token,
   TrustedDevice,
   DrsEvaluation,
   AuditLog,
@@ -43,19 +43,19 @@ export class MockDatabase {
   sessions: Map<string, Session> = new Map();
 
   // Auto-increment ID tables
-  refresh_tokens: Map<number, RefreshToken> = new Map();
+  tokens: Map<number, Token> = new Map();
   trusted_devices: Map<number, TrustedDevice> = new Map();
   drs_evaluations: Map<number, DrsEvaluation> = new Map();
   audit_logs: Map<number, AuditLog> = new Map();
 
   // Auto-increment counters
-  private refreshTokenIdCounter = 1;
+  private tokenIdCounter = 1;
   private trustedDeviceIdCounter = 1;
   private drsEvaluationIdCounter = 1;
   private auditLogIdCounter = 1;
 
-  getNextRefreshTokenId(): number {
-    return this.refreshTokenIdCounter++;
+  getNextTokenId(): number {
+    return this.tokenIdCounter++;
   }
 
   getNextTrustedDeviceId(): number {
@@ -74,11 +74,11 @@ export class MockDatabase {
     this.auth_contexts.clear();
     this.auth_transactions.clear();
     this.sessions.clear();
-    this.refresh_tokens.clear();
+    this.tokens.clear();
     this.trusted_devices.clear();
     this.drs_evaluations.clear();
     this.audit_logs.clear();
-    this.refreshTokenIdCounter = 1;
+    this.tokenIdCounter = 1;
     this.trustedDeviceIdCounter = 1;
     this.drsEvaluationIdCounter = 1;
     this.auditLogIdCounter = 1;
@@ -258,8 +258,8 @@ export class MockInsertQueryBuilder<TB extends TableName> {
 
   private generateId(record: any): any {
     // Handle auto-increment ID generation for SERIAL columns
-    if (this.tableName === 'refresh_tokens' && !record.token_id) {
-      return this.db.getNextRefreshTokenId();
+    if (this.tableName === 'tokens' && !record.token_id) {
+      return this.db.getNextTokenId();
     }
     if (this.tableName === 'trusted_devices' && !record.device_id) {
       return this.db.getNextTrustedDeviceId();
@@ -279,7 +279,7 @@ export class MockInsertQueryBuilder<TB extends TableName> {
       auth_contexts: 'context_id',
       auth_transactions: 'transaction_id',
       sessions: 'session_id',
-      refresh_tokens: 'token_id',
+      tokens: 'token_id',
       trusted_devices: 'device_id',
       drs_evaluations: 'evaluation_id',
       audit_logs: 'log_id',
@@ -299,7 +299,7 @@ export class MockInsertQueryBuilder<TB extends TableName> {
       const generatedId = this.generateId(record);
       if (generatedId !== undefined) {
         const idMap: Record<string, string> = {
-          refresh_tokens: 'token_id',
+          tokens: 'token_id',
           trusted_devices: 'device_id',
           drs_evaluations: 'evaluation_id',
           audit_logs: 'log_id',

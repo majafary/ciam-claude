@@ -50,13 +50,13 @@ export class SessionRepository extends BaseRepository<
   }
 
   /**
-   * Find all sessions for a user
+   * Find all sessions for a user (by cupid)
    */
-  async findByUserId(
-    userId: string,
+  async findByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<Session[]> {
-    return this.findBy('user_id' as any, userId, trx);
+    return this.findBy('cupid' as any, cupid, trx);
   }
 
   /**
@@ -80,28 +80,28 @@ export class SessionRepository extends BaseRepository<
   }
 
   /**
-   * Find active sessions for a user
+   * Find active sessions for a user (by cupid)
    */
-  async findActiveByUserId(
-    userId: string,
+  async findActiveByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<Session[]> {
     try {
-      this.log('findActiveByUserId', { userId });
+      this.log('findActiveByCupid', { cupid });
 
       const now = new Date();
       const results = await this.getDb(trx)
         .selectFrom(this.tableName)
         .selectAll()
-        .where('user_id', '=', userId)
+        .where('cupid', '=', cupid)
         .where('is_active', '=', true)
         .where('expires_at', '>', now)
         .execute();
 
-      this.log('findActiveByUserId:result', { count: results.length });
+      this.log('findActiveByCupid:result', { count: results.length });
       return results as Session[];
     } catch (error) {
-      this.handleError('findActiveByUserId', error);
+      this.handleError('findActiveByCupid', error);
     }
   }
 
@@ -199,28 +199,28 @@ export class SessionRepository extends BaseRepository<
   }
 
   /**
-   * Deactivate all sessions for a user
+   * Deactivate all sessions for a user (by cupid)
    */
-  async deactivateAllForUser(
-    userId: string,
+  async deactivateAllForCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<number> {
     try {
-      this.log('deactivateAllForUser', { userId });
+      this.log('deactivateAllForCupid', { cupid });
 
       const results = await this.getDb(trx)
         .updateTable(this.tableName)
         .set({
           is_active: false,
         } as any)
-        .where('user_id', '=', userId)
+        .where('cupid', '=', cupid)
         .execute();
 
       const count = results.length;
-      this.log('deactivateAllForUser:result', { count });
+      this.log('deactivateAllForCupid:result', { count });
       return count;
     } catch (error) {
-      this.handleError('deactivateAllForUser', error);
+      this.handleError('deactivateAllForCupid', error);
     }
   }
 
@@ -279,7 +279,7 @@ export class SessionRepository extends BaseRepository<
     active: number;
     expired: number;
     inactive: number;
-    byUser: Record<string, number>;
+    byCupid: Record<string, number>;
   }> {
     try {
       this.log('getStats');
@@ -287,9 +287,9 @@ export class SessionRepository extends BaseRepository<
       const all = await this.findAll(trx);
       const now = new Date();
 
-      const byUser: Record<string, number> = {};
+      const byCupid: Record<string, number> = {};
       all.forEach((session) => {
-        byUser[session.user_id] = (byUser[session.user_id] || 0) + 1;
+        byCupid[session.cupid] = (byCupid[session.cupid] || 0) + 1;
       });
 
       const stats = {
@@ -297,7 +297,7 @@ export class SessionRepository extends BaseRepository<
         active: all.filter((s) => s.is_active && new Date(s.expires_at) > now).length,
         expired: all.filter((s) => new Date(s.expires_at) <= now).length,
         inactive: all.filter((s) => !s.is_active).length,
-        byUser,
+        byCupid,
       };
 
       this.log('getStats:result', stats);

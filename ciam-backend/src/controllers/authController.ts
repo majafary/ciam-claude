@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { validateCredentials, getUserById } from '../services/userService';
-import { createSession, revokeSession, revokeAllUserSessions } from '../services/sessionService';
-import { createRefreshToken, validateRefreshToken, rotateRefreshToken, revokeAllUserRefreshTokens, revokeRefreshToken, getRefreshTokenInfo } from '../services/tokenService';
+import { createSession, revokeSession } from '../services/sessionService';
+import { createSessionTokens, validateRefreshToken, rotateRefreshToken, revokeByCupid, revokeSessionTokens } from '../services/tokenService';
 import { generateAccessToken, generateIdToken, getRefreshTokenCookieOptions, verifyAccessToken, decodeToken } from '../utils/jwt';
 import { handleAuthError, handleInternalError, sendErrorResponse, createApiError } from '../utils/errors';
 import { logAuthEvent, logSecurityEvent } from '../utils/logger';
@@ -9,6 +9,8 @@ import { LoginRequest, LoginSuccessResponse, MFARequiredResponse, ESignRequiredR
 import { getESignDocumentById, needsESign, recordESignAcceptance } from '../services/esignService';
 import { getMFATransaction } from '../services/mfaService';
 import { isDeviceTrusted } from './deviceController';
+import { withTransaction } from '../database/transactions';
+import { repositories } from '../repositories';
 
 /**
  * User login endpoint
@@ -116,16 +118,19 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             return;
           }
 
-          // Generate tokens directly
-          const accessToken = generateAccessToken(scenario.user.id, session.sessionId, scenario.user.roles);
-          const idToken = generateIdToken(scenario.user.id, session.sessionId, {
-            preferred_username: scenario.user.username,
-            email: scenario.user.email,
-            email_verified: true,
-            given_name: scenario.user.given_name,
-            family_name: scenario.user.family_name
-          });
-          const refreshToken = await createRefreshToken(scenario.user.id, session.sessionId);
+          // Generate all tokens atomically
+          const tokens = await createSessionTokens(
+            session.sessionId,
+            scenario.user.id,
+            scenario.user.roles,
+            {
+              preferred_username: scenario.user.username,
+              email: scenario.user.email,
+              email_verified: true,
+              given_name: scenario.user.given_name,
+              family_name: scenario.user.family_name
+            }
+          );
 
           logAuthEvent('login_success', scenario.user.id, {
             username,
@@ -135,14 +140,14 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           });
 
           // Set refresh token cookie
-          res.cookie('refresh_token', refreshToken.token, getRefreshTokenCookieOptions());
+          res.cookie('refresh_token', tokens.refreshToken, getRefreshTokenCookieOptions());
 
           const successResponse: LoginSuccessResponse = {
             responseTypeCode: 'SUCCESS',
-            access_token: accessToken,
-            id_token: idToken,
+            access_token: tokens.accessToken,
+            id_token: tokens.idToken,
             token_type: 'Bearer',
-            expires_in: 900, // 15 minutes
+            expires_in: tokens.expiresIn,
             context_id: session.sessionId,
             device_bound: true
           };
@@ -286,17 +291,20 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
       acceptance_timestamp
     );
 
-    // Generate tokens
+    // Generate all tokens atomically
     const sessionId = transaction.sessionId || `sess-${Date.now()}`;
-    const accessToken = generateAccessToken(userId, sessionId, user.roles);
-    const idToken = generateIdToken(userId, sessionId, {
-      preferred_username: user.username,
-      email: user.email,
-      email_verified: true,
-      given_name: user.given_name,
-      family_name: user.family_name
-    });
-    const refreshToken = await createRefreshToken(userId, sessionId);
+    const tokens = await createSessionTokens(
+      sessionId,
+      userId,
+      user.roles,
+      {
+        preferred_username: user.username,
+        email: user.email,
+        email_verified: true,
+        given_name: user.given_name,
+        family_name: user.family_name
+      }
+    );
 
     // Check device trust
     const deviceBound = await isDeviceTrusted(userId, transaction_id);
@@ -309,14 +317,14 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
     });
 
     // Set refresh token cookie
-    res.cookie('refresh_token', refreshToken.token, getRefreshTokenCookieOptions());
+    res.cookie('refresh_token', tokens.refreshToken, getRefreshTokenCookieOptions());
 
     const response: ESignAcceptResponse = {
       responseTypeCode: 'SUCCESS',
-      access_token: accessToken,
-      id_token: idToken,
+      access_token: tokens.accessToken,
+      id_token: tokens.idToken,
       token_type: 'Bearer',
-      expires_in: 900,
+      expires_in: tokens.expiresIn,
       context_id: context_id,
       transaction_id: transaction_id,
       esign_accepted: true,
@@ -338,6 +346,9 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
 /**
  * User logout endpoint
  * POST /auth/logout
+ *
+ * Transaction Management: Wraps session revocation, token revocation, and audit logging
+ * in a single transaction to ensure atomicity per Scenario 7
  */
 export const logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -351,17 +362,31 @@ export const logout = async (req: AuthenticatedRequest, res: Response): Promise<
     });
 
     if (sessionId) {
-      // Revoke session
-      await revokeSession(sessionId);
+      // TRANSACTION: Atomic session revocation, all tokens revocation (ACCESS, REFRESH, ID), and audit logging
+      await withTransaction(async (trx) => {
+        // Revoke session within transaction
+        await repositories.session.deactivate(sessionId, trx);
 
-      // Revoke refresh tokens for this session
-      const refreshToken = req.cookies?.refresh_token;
-      if (refreshToken) {
-        const validation = await validateRefreshToken(refreshToken);
-        if (validation.valid && validation.refreshToken?.sessionId === sessionId) {
-          await rotateRefreshToken(refreshToken, userId || '', sessionId);
-        }
-      }
+        // Revoke all tokens for this session within transaction (ACCESS, REFRESH, ID)
+        await repositories.token.revokeAllForSession(sessionId, trx);
+
+        // Log audit event within transaction
+        await repositories.auditLog.create({
+          category: 'SESSION',
+          action: 'TOKEN_REVOKED',
+          user_id: req.user?.sub || null,
+          context_id: null,
+          ip_address: req.ip || null,
+          user_agent: req.get('User-Agent') || null,
+          details: {
+            event_type: 'SESSION_REVOKED',
+            severity: 'INFO',
+            session_id: sessionId,
+            reason: 'user_logout'
+          },
+          created_at: new Date(),
+        }, trx);
+      });
     }
 
     // Clear refresh token cookie
@@ -390,6 +415,9 @@ export const logout = async (req: AuthenticatedRequest, res: Response): Promise<
 /**
  * Token refresh endpoint
  * POST /auth/refresh
+ *
+ * Transaction Management: Wraps token rotation, session update, and audit logging
+ * in a single transaction to ensure atomicity per Scenario 6
  */
 export const refreshToken = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -415,10 +443,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       ip: req.ip
     });
 
-    // Validate refresh token
+    // Validate refresh token (read-only operation, outside transaction)
     const validation = await validateRefreshToken(refreshToken);
 
-    if (!validation.valid || !validation.refreshToken) {
+    if (!validation.valid || !validation.sessionId) {
       logAuthEvent('token_refresh_failure', undefined, {
         reason: validation.error,
         ip: req.ip
@@ -437,12 +465,30 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const { userId, sessionId } = validation.refreshToken;
+    const sessionId = validation.sessionId;
 
-    // Get user information
-    const user = await getUserById(userId);
+    // Get session to obtain cupid (read-only operation, outside transaction)
+    const session = await repositories.session.findById(sessionId);
+    if (!session || !session.is_active) {
+      logAuthEvent('token_refresh_failure', undefined, {
+        reason: 'session_invalid',
+        sessionId,
+        ip: req.ip
+      });
+
+      sendErrorResponse(res, 401, createApiError(
+        'CIAM_E01_02_002',
+        'Session invalid or expired'
+      ));
+      return;
+    }
+
+    const cupid = session.cupid;
+
+    // Get user information (read-only operation, outside transaction)
+    const user = await getUserById(cupid);
     if (!user) {
-      logAuthEvent('token_refresh_failure', userId, {
+      logAuthEvent('token_refresh_failure', cupid, {
         reason: 'user_not_found',
         ip: req.ip
       });
@@ -456,13 +502,12 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
     // Check if user account is locked
     if (user.isLocked) {
-      logAuthEvent('token_refresh_failure', userId, {
+      logAuthEvent('token_refresh_failure', cupid, {
         reason: 'account_locked',
         ip: req.ip
       });
 
-      await revokeAllUserRefreshTokens(userId);
-      await revokeAllUserSessions(userId);
+      await revokeByCupid(cupid);
 
       sendErrorResponse(res, 401, createApiError(
         'CIAM_E01_01_002',
@@ -471,43 +516,64 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Rotate refresh token
-    const rotation = await rotateRefreshToken(refreshToken, userId, sessionId);
-
-    if (!rotation.success || !rotation.newRefreshToken) {
-      logAuthEvent('token_refresh_failure', userId, {
-        reason: rotation.error,
-        ip: req.ip
-      });
-
-      logSecurityEvent('refresh_token_rotation_failed', {
-        userId,
+    // TRANSACTION: Atomic token rotation (all 3 tokens), session update, and audit logging
+    const result = await withTransaction(async (trx) => {
+      // Rotate refresh token and generate new ACCESS/ID tokens
+      const rotation = await rotateRefreshToken(
+        refreshToken,
         sessionId,
-        error: rotation.error,
-        ip: req.ip
-      }, 'high');
+        cupid,           // cupid used ONLY for JWT payload
+        user.roles,
+        {
+          preferred_username: user.username,
+          email: user.email,
+          email_verified: true,
+          given_name: user.given_name,
+          family_name: user.family_name
+        },
+        trx
+      );
 
-      sendErrorResponse(res, 401, createApiError(
-        'CIAM_E01_02_002',
-        rotation.error || 'Token refresh failed'
-      ));
-      return;
-    }
+      if (!rotation.success || !rotation.newRefreshToken) {
+        throw new Error(rotation.error || 'Token refresh failed');
+      }
 
-    // Generate new access token
-    const accessToken = generateAccessToken(userId, sessionId, user.roles);
+      // Update session activity within transaction
+      await repositories.session.updateLastSeen(sessionId, trx);
 
-    logAuthEvent('token_refresh_success', userId, {
+      // Log audit event within transaction
+      await repositories.auditLog.create({
+        category: 'AUTH',
+        action: 'TOKEN_REFRESHED',
+        user_id: cupid,
+        context_id: null,
+        ip_address: req.ip || null,
+        user_agent: req.get('User-Agent') || null,
+        details: {
+          event_type: 'TOKEN_REFRESHED',
+          severity: 'INFO',
+          session_id: sessionId,
+          token_rotation: true,
+          all_tokens_refreshed: true
+        },
+        created_at: new Date(),
+      }, trx);
+
+      return rotation;
+    });
+
+    logAuthEvent('token_refresh_success', cupid, {
       sessionId,
       ip: req.ip
     });
 
     // Set new refresh token cookie
-    res.cookie('refresh_token', rotation.newRefreshToken.token, getRefreshTokenCookieOptions());
+    res.cookie('refresh_token', result.newRefreshToken!, getRefreshTokenCookieOptions());
 
     res.json({
       success: true,
-      access_token: accessToken,
+      access_token: result.newAccessToken!,
+      id_token: result.newIdToken!,
       token_type: 'Bearer',
       expires_in: 900
     });
@@ -538,10 +604,11 @@ export const revokeToken = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // Try to revoke as refresh token first
-    const revoked = await revokeRefreshToken(token);
+    // Try to revoke token by hash
+    const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
+    const tokenRecord = await repositories.token.revokeByHash(tokenHash);
 
-    if (revoked) {
+    if (tokenRecord) {
       logAuthEvent('token_revoked', undefined, {
         tokenType: token_type_hint || 'refresh_token',
         ip: req.ip
@@ -602,18 +669,23 @@ export const introspectToken = async (req: Request, res: Response): Promise<void
 
     // Try refresh token if access token check failed
     if (!introspectionResponse.active && (!token_type_hint || token_type_hint === 'refresh_token')) {
-      const refreshTokenInfo = await getRefreshTokenInfo(token);
-      if (refreshTokenInfo.active && refreshTokenInfo.userId) {
-        const user = await getUserById(refreshTokenInfo.userId);
-        if (user && !user.isLocked) {
-          introspectionResponse = {
-            active: true,
-            token_type: 'refresh_token',
-            sub: refreshTokenInfo.userId,
-            exp: refreshTokenInfo.expiresAt ? Math.floor(refreshTokenInfo.expiresAt.getTime() / 1000) : undefined,
-            iat: refreshTokenInfo.createdAt ? Math.floor(refreshTokenInfo.createdAt.getTime() / 1000) : undefined,
-            username: user.username
-          };
+      const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
+      const tokenRecord = await repositories.token.findByHash(tokenHash);
+
+      if (tokenRecord && tokenRecord.status === 'ACTIVE' && tokenRecord.expires_at > new Date()) {
+        const session = await repositories.session.findById(tokenRecord.session_id);
+        if (session) {
+          const user = await getUserById(session.cupid);
+          if (user && !user.isLocked) {
+            introspectionResponse = {
+              active: true,
+              token_type: 'refresh_token',
+              sub: session.cupid,
+              exp: Math.floor(tokenRecord.expires_at.getTime() / 1000),
+              iat: Math.floor(tokenRecord.created_at.getTime() / 1000),
+              username: user.username
+            };
+          }
         }
       }
     }

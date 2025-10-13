@@ -12,7 +12,7 @@
 import { AuthContextRepository } from './AuthContextRepository';
 import { AuthTransactionRepository } from './AuthTransactionRepository';
 import { SessionRepository } from './SessionRepository';
-import { RefreshTokenRepository } from './RefreshTokenRepository';
+import { TokenRepository } from './TokenRepository';
 import { TrustedDeviceRepository } from './TrustedDeviceRepository';
 import { DrsEvaluationRepository } from './DrsEvaluationRepository';
 import { AuditLogRepository} from './AuditLogRepository';
@@ -30,7 +30,7 @@ export class RepositoryFactory {
   public readonly authContext: AuthContextRepository;
   public readonly authTransaction: AuthTransactionRepository;
   public readonly session: SessionRepository;
-  public readonly refreshToken: RefreshTokenRepository;
+  public readonly token: TokenRepository;
   public readonly trustedDevice: TrustedDeviceRepository;
   public readonly drsEvaluation: DrsEvaluationRepository;
   public readonly auditLog: AuditLogRepository;
@@ -40,7 +40,7 @@ export class RepositoryFactory {
     this.authContext = new AuthContextRepository();
     this.authTransaction = new AuthTransactionRepository();
     this.session = new SessionRepository();
-    this.refreshToken = new RefreshTokenRepository();
+    this.token = new TokenRepository();
     this.trustedDevice = new TrustedDeviceRepository();
     this.drsEvaluation = new DrsEvaluationRepository();
     this.auditLog = new AuditLogRepository();
@@ -83,7 +83,7 @@ export {
   AuthContextRepository,
   AuthTransactionRepository,
   SessionRepository,
-  RefreshTokenRepository,
+  TokenRepository,
   TrustedDeviceRepository,
   DrsEvaluationRepository,
   AuditLogRepository,

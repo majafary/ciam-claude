@@ -270,6 +270,8 @@ export interface OIDCConfiguration {
   code_challenge_methods_supported: string[];
 }
 
+import { Request } from 'express';
+
 // Express.js extensions
 declare global {
   namespace Express {
@@ -281,7 +283,7 @@ declare global {
 }
 
 // Utility types
-export type AuthenticatedRequest = Express.Request & {
+export type AuthenticatedRequest = Omit<Request, 'user'> & {
   user: JWTPayload;
 };
 

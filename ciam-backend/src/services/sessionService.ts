@@ -16,7 +16,7 @@ import { Session as DBSession } from '../database/types';
 const toSession = (dbSession: DBSession): Session => {
   return {
     sessionId: dbSession.session_id,
-    userId: dbSession.user_id,
+    userId: dbSession.cupid,
     deviceId: dbSession.device_id || generateDeviceId(dbSession.user_agent || undefined),
     createdAt: dbSession.created_at,
     lastSeenAt: dbSession.last_seen_at,
@@ -43,7 +43,7 @@ export const createSession = async (
 
   const dbSession = await repositories.session.create({
     session_id: sessionId,
-    user_id: userId,
+    cupid: userId,
     context_id: contextId || null,
     device_id: deviceId,
     created_at: now,
@@ -96,7 +96,7 @@ export const updateSessionActivity = async (sessionId: string): Promise<void> =>
  * Get all active sessions for a user
  */
 export const getUserSessions = async (userId: string): Promise<SessionInfo[]> => {
-  const dbSessions = await repositories.session.findActiveByUserId(userId);
+  const dbSessions = await repositories.session.findActiveByCupid(userId);
 
   const userSessions: SessionInfo[] = await Promise.all(
     dbSessions.map(async (dbSession) => ({
@@ -127,7 +127,7 @@ export const revokeSession = async (sessionId: string): Promise<boolean> => {
  * Revoke all sessions for a user
  */
 export const revokeAllUserSessions = async (userId: string): Promise<number> => {
-  const count = await repositories.session.deactivateAllForUser(userId);
+  const count = await repositories.session.deactivateAllForCupid(userId);
   return count;
 };
 
@@ -135,7 +135,7 @@ export const revokeAllUserSessions = async (userId: string): Promise<number> => 
  * Revoke all sessions except the current one
  */
 export const revokeOtherUserSessions = async (userId: string, currentSessionId: string): Promise<number> => {
-  const allSessions = await repositories.session.findActiveByUserId(userId);
+  const allSessions = await repositories.session.findActiveByCupid(userId);
 
   let revokedCount = 0;
   for (const session of allSessions) {
@@ -184,7 +184,7 @@ export const getSessionStats = async (): Promise<{
   uniqueUsers: number;
 }> => {
   const stats = await repositories.session.getStats();
-  const uniqueUsers = Object.keys(stats.byUser).length;
+  const uniqueUsers = Object.keys(stats.byCupid).length;
 
   return {
     totalSessions: stats.total,
@@ -260,7 +260,7 @@ export const getSessionByUserAndDevice = async (
   userId: string,
   deviceId: string
 ): Promise<Session | null> => {
-  const sessions = await repositories.session.findActiveByUserId(userId);
+  const sessions = await repositories.session.findActiveByCupid(userId);
 
   for (const dbSession of sessions) {
     if (dbSession.device_id === deviceId) {

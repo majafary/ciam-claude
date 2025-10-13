@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../types';
 import logger from './logger';
 
@@ -362,9 +362,9 @@ export const handleInternalError = (
  */
 export const errorHandler = (
   error: Error,
-  req: Express.Request,
+  req: Request,
   res: Response,
-  next: Express.NextFunction
+  next: NextFunction
 ): void => {
   logger.error('Unhandled error', {
     error: error.message,

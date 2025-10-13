@@ -151,3 +151,9 @@ auth-debug.txt
 *.pem
 *.key
 !*.key.example
+
+# Playwright - Regression Testing
+ciam-ui/test-results/
+playwright-report/
+test-results/
+

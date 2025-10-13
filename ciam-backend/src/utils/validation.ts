@@ -14,7 +14,7 @@ export const handleValidationErrors = (
 
   if (!errors.isEmpty()) {
     const error: ApiError = {
-      code: 'VALIDATION_ERROR',
+      error_code: 'VALIDATION_ERROR',
       message: 'Invalid input data',
       timestamp: new Date().toISOString(),
       details: {

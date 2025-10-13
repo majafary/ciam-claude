@@ -1,15 +1,17 @@
 /**
  * Token Service
  *
- * Handles refresh token lifecycle using RefreshTokenRepository
- * Refactored to use repository pattern with database persistence
+ * Handles all token types (ACCESS, REFRESH, ID) using TokenRepository
+ * Supports transaction-aware operations for atomic session + tokens creation
+ *
+ * KEY DESIGN: cupid is used ONLY for JWT payload generation, NOT for database operations
+ * Database operations use session_id only (normalized design)
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { RefreshToken } from '../types';
-import { generateRefreshToken } from '../utils/jwt';
+import { generateAccessToken, generateRefreshToken as generateRefreshJWT, generateIdToken } from '../utils/jwt';
 import { repositories } from '../repositories';
-import { RefreshToken as DBRefreshToken } from '../database/types';
+import { Token, TokenType } from '../database/types';
 import * as crypto from 'crypto';
 
 /**
@@ -20,331 +22,291 @@ const hashToken = (token: string): string => {
 };
 
 /**
- * Type mapping: RefreshToken (DB) → RefreshToken (Service)
+ * Create all three tokens (ACCESS, REFRESH, ID) atomically for a session
+ *
+ * @param sessionId - Session ID (database reference)
+ * @param cupid - User identifier (ONLY for JWT payload, NOT stored in tokens table)
+ * @param roles - User roles for access token
+ * @param trx - Transaction object for atomic operations
  */
-const toRefreshToken = (dbToken: DBRefreshToken, rawToken?: string): RefreshToken => {
+export const createSessionTokens = async (
+  sessionId: string,
+  cupid: string,
+  roles: string[],
+  userProfile?: {
+    preferred_username?: string;
+    email?: string;
+    email_verified?: boolean;
+    given_name?: string;
+    family_name?: string;
+  },
+  trx?: any
+): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  idToken: string;
+  expiresIn: number;
+}> => {
+  const now = new Date();
+
+  // Generate ACCESS token (15 min)
+  const accessToken = generateAccessToken(cupid, sessionId, roles);
+  const accessTokenHash = hashToken(accessToken);
+  const accessExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
+
+  await repositories.token.create({
+    session_id: sessionId,  // ✅ Uses session_id only
+    parent_token_id: null,
+    token_type: 'ACCESS',
+    token_value: accessToken,
+    token_value_hash: accessTokenHash,
+    status: 'ACTIVE',
+    created_at: now,
+    expires_at: accessExpiresAt,
+    revoked_at: null,
+  }, trx);
+
+  // Generate REFRESH token (14 days)
+  const refreshToken = generateRefreshJWT();
+  const refreshTokenHash = hashToken(refreshToken);
+  const refreshExpiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+  await repositories.token.create({
+    session_id: sessionId,  // ✅ Uses session_id only
+    parent_token_id: null,
+    token_type: 'REFRESH',
+    token_value: refreshToken,
+    token_value_hash: refreshTokenHash,
+    status: 'ACTIVE',
+    created_at: now,
+    expires_at: refreshExpiresAt,
+    revoked_at: null,
+  }, trx);
+
+  // Generate ID token (15 min)
+  const idToken = generateIdToken(cupid, sessionId, userProfile || {});
+  const idTokenHash = hashToken(idToken);
+  const idExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
+
+  await repositories.token.create({
+    session_id: sessionId,  // ✅ Uses session_id only
+    parent_token_id: null,
+    token_type: 'ID',
+    token_value: idToken,
+    token_value_hash: idTokenHash,
+    status: 'ACTIVE',
+    created_at: now,
+    expires_at: idExpiresAt,
+    revoked_at: null,
+  }, trx);
+
+  console.log(`Created 3 tokens (ACCESS, REFRESH, ID) for session ${sessionId}`);
+
   return {
-    tokenId: dbToken.token_id.toString(),
-    userId: dbToken.user_id,
-    sessionId: dbToken.session_id,
-    token: rawToken || dbToken.token_hash, // Use raw token if available, otherwise hash
-    expiresAt: dbToken.expires_at,
-    createdAt: dbToken.created_at,
-    isRevoked: dbToken.is_revoked,
+    accessToken,
+    refreshToken,
+    idToken,
+    expiresIn: 900, // 15 minutes
   };
 };
 
 /**
- * Create and store refresh token
+ * Validate refresh token - NO cupid parameter
  */
-export const createRefreshToken = async (
-  userId: string,
-  sessionId: string,
-  parentTokenId?: number
-): Promise<RefreshToken> => {
-  const token = generateRefreshToken();
-  const tokenHash = hashToken(token);
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days
-
-  const dbToken = await repositories.refreshToken.create({
-    user_id: userId,
-    session_id: sessionId,
-    token_hash: tokenHash,
-    parent_token_id: parentTokenId || null,
-    created_at: now,
-    expires_at: expiresAt,
-    is_revoked: false,
-    revoked_at: null,
-  });
-
-  console.log(`Created refresh token ${dbToken.token_id} for user ${userId}`);
-
-  // Return with raw token (not stored in DB)
-  return toRefreshToken(dbToken, token);
-};
-
-/**
- * Validate refresh token
- */
-export const validateRefreshToken = async (token: string): Promise<{
+export const validateRefreshToken = async (
+  token: string,
+  trx?: any
+): Promise<{
   valid: boolean;
-  refreshToken?: RefreshToken;
+  tokenRecord?: Token;
+  sessionId?: string;
   error?: string;
 }> => {
   const tokenHash = hashToken(token);
-  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
+  const tokenRecord = await repositories.token.findByHash(tokenHash, trx);
 
-  if (!dbToken) {
-    return {
-      valid: false,
-      error: 'Refresh token not found'
-    };
+  if (!tokenRecord) {
+    return { valid: false, error: 'Token not found' };
   }
 
-  const refreshToken = toRefreshToken(dbToken, token);
-
-  if (dbToken.is_revoked) {
-    return {
-      valid: false,
-      refreshToken,
-      error: 'Refresh token has been revoked'
-    };
+  if (tokenRecord.token_type !== 'REFRESH') {
+    return { valid: false, error: 'Not a refresh token' };
   }
 
-  if (dbToken.expires_at < new Date()) {
-    // Automatically revoke expired token
-    await repositories.refreshToken.revoke(dbToken.token_id);
-    refreshToken.isRevoked = true;
-    return {
-      valid: false,
-      refreshToken,
-      error: 'Refresh token has expired'
-    };
+  if (tokenRecord.status === 'REVOKED') {
+    return { valid: false, tokenRecord, error: 'Token revoked' };
+  }
+
+  if (tokenRecord.status === 'ROTATED') {
+    return { valid: false, tokenRecord, error: 'Token already rotated' };
+  }
+
+  if (tokenRecord.expires_at < new Date()) {
+    await repositories.token.revoke(tokenRecord.token_id, trx);
+    return { valid: false, tokenRecord, error: 'Token expired' };
   }
 
   return {
     valid: true,
-    refreshToken
+    tokenRecord,
+    sessionId: tokenRecord.session_id,
   };
 };
 
 /**
- * Rotate refresh token (issue new one and revoke old one)
+ * Rotate refresh token and generate new ACCESS/ID tokens
+ *
+ * @param oldToken - Current refresh token
+ * @param sessionId - Session ID (from token validation)
+ * @param cupid - User identifier (ONLY for JWT payload generation)
+ * @param roles - User roles for new access token
+ * @param trx - Transaction object
  */
 export const rotateRefreshToken = async (
   oldToken: string,
-  userId: string,
-  sessionId: string
+  sessionId: string,
+  cupid: string,
+  roles: string[],
+  userProfile?: {
+    preferred_username?: string;
+    email?: string;
+    email_verified?: boolean;
+    given_name?: string;
+    family_name?: string;
+  },
+  trx?: any
 ): Promise<{
   success: boolean;
-  newRefreshToken?: RefreshToken;
+  newRefreshToken?: string;
+  newAccessToken?: string;
+  newIdToken?: string;
   error?: string;
 }> => {
-  const validation = await validateRefreshToken(oldToken);
+  const validation = await validateRefreshToken(oldToken, trx);
 
   if (!validation.valid) {
-    // If token reuse is detected, revoke all user sessions for security
-    if (validation.refreshToken && validation.error === 'Refresh token has been revoked') {
-      await revokeAllUserRefreshTokens(userId);
+    // Token reuse detection - revoke all tokens for session
+    if (validation.tokenRecord && validation.error === 'Token already rotated') {
+      await repositories.token.revokeAllForSession(sessionId, trx);
       return {
         success: false,
-        error: 'Token reuse detected - all sessions revoked for security'
+        error: 'Token reuse detected - all session tokens revoked',
       };
     }
 
-    return {
-      success: false,
-      error: validation.error
-    };
+    return { success: false, error: validation.error };
   }
 
-  // Get parent token ID for rotation chain
-  const tokenHash = hashToken(oldToken);
-  const oldDbToken = await repositories.refreshToken.findByHash(tokenHash);
-  const parentTokenId = oldDbToken?.token_id;
+  // Mark old token as rotated
+  await repositories.token.markRotated(validation.tokenRecord!.token_id, trx);
 
-  // Revoke old token
-  await revokeRefreshToken(oldToken);
+  const now = new Date();
 
-  // Create new token with parent reference
-  const newRefreshToken = await createRefreshToken(userId, sessionId, parentTokenId);
+  // Create new refresh token with parent reference
+  const newRefreshJWT = generateRefreshJWT();
+  const refreshTokenHash = hashToken(newRefreshJWT);
+  const refreshExpiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+  await repositories.token.create({
+    session_id: sessionId,  // ✅ Uses session_id only
+    parent_token_id: validation.tokenRecord!.token_id,
+    token_type: 'REFRESH',
+    token_value: newRefreshJWT,
+    token_value_hash: refreshTokenHash,
+    status: 'ACTIVE',
+    created_at: now,
+    expires_at: refreshExpiresAt,
+    revoked_at: null,
+  }, trx);
+
+  // Generate new access token
+  const newAccessToken = generateAccessToken(cupid, sessionId, roles);
+  const accessTokenHash = hashToken(newAccessToken);
+  const accessExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
+
+  await repositories.token.create({
+    session_id: sessionId,
+    parent_token_id: null,
+    token_type: 'ACCESS',
+    token_value: newAccessToken,
+    token_value_hash: accessTokenHash,
+    status: 'ACTIVE',
+    created_at: now,
+    expires_at: accessExpiresAt,
+    revoked_at: null,
+  }, trx);
+
+  // Generate new ID token
+  const newIdToken = generateIdToken(cupid, sessionId, userProfile || {});
+  const idTokenHash = hashToken(newIdToken);
+  const idExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
+
+  await repositories.token.create({
+    session_id: sessionId,
+    parent_token_id: null,
+    token_type: 'ID',
+    token_value: newIdToken,
+    token_value_hash: idTokenHash,
+    status: 'ACTIVE',
+    created_at: now,
+    expires_at: idExpiresAt,
+    revoked_at: null,
+  }, trx);
+
+  console.log(`Rotated refresh token and generated new ACCESS/ID tokens for session ${sessionId}`);
 
   return {
     success: true,
-    newRefreshToken
+    newRefreshToken: newRefreshJWT,
+    newAccessToken,
+    newIdToken,
   };
 };
 
 /**
- * Revoke refresh token
+ * Revoke all tokens for a session - NO cupid
  */
-export const revokeRefreshToken = async (token: string): Promise<boolean> => {
-  const tokenHash = hashToken(token);
-  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
-
-  if (dbToken) {
-    await repositories.refreshToken.revoke(dbToken.token_id);
-    return true;
-  }
-
-  return false;
+export const revokeSessionTokens = async (
+  sessionId: string,
+  trx?: any
+): Promise<number> => {
+  return await repositories.token.revokeAllForSession(sessionId, trx);
 };
 
 /**
- * Revoke all refresh tokens for a user
+ * Revoke all tokens for a user (by cupid) - uses JOIN to sessions
  */
-export const revokeAllUserRefreshTokens = async (userId: string): Promise<number> => {
-  const tokens = await repositories.refreshToken.findByUserId(userId);
-  let revokedCount = 0;
-
-  for (const token of tokens) {
-    if (!token.is_revoked) {
-      await repositories.refreshToken.revoke(token.token_id);
-      revokedCount++;
-    }
-  }
-
-  return revokedCount;
+export const revokeByCupid = async (
+  cupid: string,
+  trx?: any
+): Promise<number> => {
+  return await repositories.token.revokeByCupid(cupid, trx);
 };
 
 /**
- * Revoke all refresh tokens for a session
+ * Clean up expired tokens
  */
-export const revokeSessionRefreshTokens = async (sessionId: string): Promise<number> => {
-  const count = await repositories.refreshToken.revokeAllForSession(sessionId);
-  return count;
+export const cleanupExpiredTokens = async (trx?: any): Promise<number> => {
+  const expiredCount = await repositories.token.expireOldTokens(trx);
+  const deletedCount = await repositories.token.deleteExpiredAndRevoked(trx);
+  console.log(`Expired ${expiredCount} tokens, deleted ${deletedCount} old tokens`);
+  return expiredCount;
 };
 
 /**
- * Get refresh token by session ID
+ * Get token statistics
  */
-export const getRefreshTokenBySession = async (sessionId: string): Promise<RefreshToken | null> => {
-  const tokens = await repositories.refreshToken.findBySessionId(sessionId);
-
-  for (const dbToken of tokens) {
-    if (!dbToken.is_revoked && dbToken.expires_at > new Date()) {
-      return toRefreshToken(dbToken);
-    }
-  }
-
-  return null;
+export const getTokenStats = async (trx?: any) => {
+  return await repositories.token.getStats(trx);
 };
 
 /**
- * Get user's active refresh tokens
+ * Get active token by session and type
  */
-export const getUserRefreshTokens = async (userId: string): Promise<RefreshToken[]> => {
-  const dbTokens = await repositories.refreshToken.findByUserId(userId);
-  const now = new Date();
-
-  return dbTokens
-    .filter((t) => !t.is_revoked && t.expires_at > now)
-    .map((t) => toRefreshToken(t));
-};
-
-/**
- * Clean up expired refresh tokens
- */
-export const cleanupExpiredRefreshTokens = async (): Promise<number> => {
-  // Find and revoke expired tokens
-  const expiredTokens = await repositories.refreshToken.findExpired();
-  let count = 0;
-
-  for (const token of expiredTokens) {
-    if (!token.is_revoked) {
-      await repositories.refreshToken.revoke(token.token_id);
-      count++;
-    }
-  }
-
-  console.log(`Revoked ${count} expired refresh tokens`);
-
-  // Delete expired and revoked tokens
-  const deletedCount = await repositories.refreshToken.deleteExpiredAndRevoked();
-  console.log(`Deleted ${deletedCount} expired and revoked refresh tokens`);
-
-  return count;
-};
-
-/**
- * Get refresh token statistics
- */
-export const getRefreshTokenStats = async (): Promise<{
-  totalTokens: number;
-  activeTokens: number;
-  revokedTokens: number;
-  expiredTokens: number;
-  uniqueUsers: number;
-}> => {
-  const stats = await repositories.refreshToken.getStats();
-
-  // Calculate unique users from all tokens
-  const allTokens = await repositories.refreshToken.findAll();
-  const uniqueUsers = new Set(allTokens.map(t => t.user_id)).size;
-
-  return {
-    totalTokens: stats.total,
-    activeTokens: stats.valid,
-    revokedTokens: stats.revoked,
-    expiredTokens: stats.expired,
-    uniqueUsers,
-  };
-};
-
-/**
- * Check if refresh token belongs to user
- */
-export const isTokenOwner = async (token: string, userId: string): Promise<boolean> => {
-  const tokenHash = hashToken(token);
-  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
-  return dbToken?.user_id === userId;
-};
-
-/**
- * Get refresh token info (for introspection)
- */
-export const getRefreshTokenInfo = async (token: string): Promise<{
-  active: boolean;
-  userId?: string;
-  sessionId?: string;
-  expiresAt?: Date;
-  createdAt?: Date;
-}> => {
-  const validation = await validateRefreshToken(token);
-
-  if (!validation.valid || !validation.refreshToken) {
-    return { active: false };
-  }
-
-  return {
-    active: true,
-    userId: validation.refreshToken.userId,
-    sessionId: validation.refreshToken.sessionId,
-    expiresAt: validation.refreshToken.expiresAt,
-    createdAt: validation.refreshToken.createdAt
-  };
-};
-
-/**
- * Detect token reuse pattern (security feature)
- */
-export const detectTokenReuse = async (token: string): Promise<{
-  reuseDetected: boolean;
-  userId?: string;
-  riskLevel: 'low' | 'medium' | 'high';
-  details?: Record<string, unknown>;
-}> => {
-  const tokenHash = hashToken(token);
-  const dbToken = await repositories.refreshToken.findByHash(tokenHash);
-
-  if (!dbToken) {
-    return {
-      reuseDetected: false,
-      riskLevel: 'low'
-    };
-  }
-
-  // If trying to use a revoked token, it's definitely reuse
-  if (dbToken.is_revoked) {
-    return {
-      reuseDetected: true,
-      userId: dbToken.user_id,
-      riskLevel: 'high',
-      details: {
-        reason: 'revoked_token_reuse',
-        originalExpiry: dbToken.expires_at,
-        revokedAt: dbToken.revoked_at || new Date(),
-      }
-    };
-  }
-
-  // Additional reuse detection logic could be implemented here
-  // For example, checking for rapid successive uses from different IPs
-
-  return {
-    reuseDetected: false,
-    userId: dbToken.user_id,
-    riskLevel: 'low'
-  };
+export const getActiveTokenBySessionAndType = async (
+  sessionId: string,
+  tokenType: TokenType,
+  trx?: any
+): Promise<Token | undefined> => {
+  return await repositories.token.findActiveBySessionAndType(sessionId, tokenType, trx);
 };

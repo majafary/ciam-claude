@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -129,7 +129,7 @@ app.get('/.well-known/jwks.json', getJWKS);
 
 // Authentication endpoints
 app.post('/auth/login', authRateLimit, validateLoginRequest, login);
-app.post('/auth/logout', authenticateToken, logout);
+app.post('/auth/logout', authenticateToken, logout as RequestHandler);
 app.post('/auth/refresh', tokenRefreshRateLimit, requireRefreshToken, validateTokenRefreshRequest, refreshToken);
 
 // MFA endpoints (v3)
@@ -154,8 +154,8 @@ app.post('/auth/device/bind', bindDevice);
 
 // Session management endpoints
 app.get('/auth/sessions/:session_id/verify', validateSessionIdParam, verifySessionEndpoint);
-app.get('/auth/sessions', sessionRateLimit, authenticateToken, listUserSessions);
-app.delete('/auth/sessions/:session_id', sessionRateLimit, authenticateToken, validateSessionIdParam, revokeSessionEndpoint);
+app.get('/auth/sessions', sessionRateLimit, authenticateToken, listUserSessions as RequestHandler);
+app.delete('/auth/sessions/:session_id', sessionRateLimit, authenticateToken, validateSessionIdParam, revokeSessionEndpoint as RequestHandler);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

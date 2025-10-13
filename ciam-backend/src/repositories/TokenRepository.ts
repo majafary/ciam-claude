@@ -1,40 +1,44 @@
 /**
- * Refresh Token Repository
+ * Token Repository
  *
- * Manages refresh tokens for token rotation
+ * Manages all token types (ACCESS, REFRESH, ID)
  *
  * Key Responsibilities:
- * - Store refresh token hashes (never store plaintext!)
+ * - Store token hashes (never store plaintext in production!)
  * - Track token rotation chain (parent_token_id)
  * - Detect token reuse attacks
  * - Revoke tokens and entire rotation chains
- * - Link tokens to sessions
+ * - Link tokens to sessions (NO direct user reference)
+ * - Support all token types: ACCESS, REFRESH, ID
+ * - Status-based lifecycle: ACTIVE, ROTATED, REVOKED, EXPIRED
  */
 
 import { Transaction } from 'kysely';
 import { BaseRepository } from './BaseRepository';
 import {
   Database,
-  RefreshToken,
-  NewRefreshToken,
-  RefreshTokenUpdate,
+  Token,
+  NewToken,
+  TokenUpdate,
+  TokenType,
+  TokenStatus,
 } from '../database/types';
 
-export class RefreshTokenRepository extends BaseRepository<
-  'refresh_tokens',
-  RefreshToken,
-  NewRefreshToken,
-  RefreshTokenUpdate
+export class TokenRepository extends BaseRepository<
+  'tokens',
+  Token,
+  NewToken,
+  TokenUpdate
 > {
   constructor() {
-    super('refresh_tokens');
+    super('tokens');
   }
 
   protected getPrimaryKeyColumn(): string {
     return 'token_id';
   }
 
-  protected getPrimaryKeyValue(record: RefreshToken): number {
+  protected getPrimaryKeyValue(record: Token): number {
     return record.token_id;
   }
 
@@ -44,18 +48,8 @@ export class RefreshTokenRepository extends BaseRepository<
   async findByHash(
     tokenHash: string,
     trx?: Transaction<Database> | any
-  ): Promise<RefreshToken | undefined> {
-    return this.findOneBy('token_hash' as any, tokenHash, trx);
-  }
-
-  /**
-   * Find all tokens for a user
-   */
-  async findByUserId(
-    userId: string,
-    trx?: Transaction<Database> | any
-  ): Promise<RefreshToken[]> {
-    return this.findBy('user_id' as any, userId, trx);
+  ): Promise<Token | undefined> {
+    return this.findOneBy('token_value_hash' as any, tokenHash, trx);
   }
 
   /**
@@ -64,17 +58,45 @@ export class RefreshTokenRepository extends BaseRepository<
   async findBySessionId(
     sessionId: string,
     trx?: Transaction<Database> | any
-  ): Promise<RefreshToken[]> {
+  ): Promise<Token[]> {
     return this.findBy('session_id' as any, sessionId, trx);
   }
 
   /**
-   * Find valid (non-revoked, non-expired) tokens for a session
+   * Find active token by session and type
+   */
+  async findActiveBySessionAndType(
+    sessionId: string,
+    tokenType: TokenType,
+    trx?: Transaction<Database> | any
+  ): Promise<Token | undefined> {
+    try {
+      this.log('findActiveBySessionAndType', { sessionId, tokenType });
+
+      const now = new Date();
+      const result = await this.getDb(trx)
+        .selectFrom(this.tableName)
+        .selectAll()
+        .where('session_id', '=', sessionId)
+        .where('token_type', '=', tokenType)
+        .where('status', '=', 'ACTIVE')
+        .where('expires_at', '>', now)
+        .executeTakeFirst();
+
+      this.log('findActiveBySessionAndType:result', { found: !!result });
+      return result as Token | undefined;
+    } catch (error) {
+      this.handleError('findActiveBySessionAndType', error);
+    }
+  }
+
+  /**
+   * Find valid (active, non-expired) tokens for a session
    */
   async findValidBySessionId(
     sessionId: string,
     trx?: Transaction<Database> | any
-  ): Promise<RefreshToken[]> {
+  ): Promise<Token[]> {
     try {
       this.log('findValidBySessionId', { sessionId });
 
@@ -83,12 +105,12 @@ export class RefreshTokenRepository extends BaseRepository<
         .selectFrom(this.tableName)
         .selectAll()
         .where('session_id', '=', sessionId)
-        .where('is_revoked', '=', false)
+        .where('status', '=', 'ACTIVE')
         .where('expires_at', '>', now)
         .execute();
 
       this.log('findValidBySessionId:result', { count: results.length });
-      return results as RefreshToken[];
+      return results as Token[];
     } catch (error) {
       this.handleError('findValidBySessionId', error);
     }
@@ -100,11 +122,11 @@ export class RefreshTokenRepository extends BaseRepository<
   async findRotationChain(
     tokenId: number,
     trx?: Transaction<Database> | any
-  ): Promise<RefreshToken[]> {
+  ): Promise<Token[]> {
     try {
       this.log('findRotationChain', { tokenId });
 
-      const chain: RefreshToken[] = [];
+      const chain: Token[] = [];
       const token = await this.findById(tokenId, trx);
 
       if (!token) {
@@ -133,16 +155,16 @@ export class RefreshTokenRepository extends BaseRepository<
   async revoke(
     tokenId: number,
     trx?: Transaction<Database> | any
-  ): Promise<RefreshToken | undefined> {
+  ): Promise<Token | undefined> {
     try {
       this.log('revoke', { tokenId });
 
       const result = await this.update(
         tokenId,
         {
-          is_revoked: true,
+          status: 'REVOKED',
           revoked_at: new Date(),
-        } as RefreshTokenUpdate,
+        } as TokenUpdate,
         trx
       );
 
@@ -154,12 +176,38 @@ export class RefreshTokenRepository extends BaseRepository<
   }
 
   /**
+   * Mark token as rotated (for refresh token rotation)
+   */
+  async markRotated(
+    tokenId: number,
+    trx?: Transaction<Database> | any
+  ): Promise<Token | undefined> {
+    try {
+      this.log('markRotated', { tokenId });
+
+      const result = await this.update(
+        tokenId,
+        {
+          status: 'ROTATED',
+          revoked_at: new Date(),
+        } as TokenUpdate,
+        trx
+      );
+
+      this.log('markRotated:result', { rotated: !!result });
+      return result;
+    } catch (error) {
+      this.handleError('markRotated', error);
+    }
+  }
+
+  /**
    * Revoke by hash (for token reuse detection)
    */
   async revokeByHash(
     tokenHash: string,
     trx?: Transaction<Database> | any
-  ): Promise<RefreshToken | undefined> {
+  ): Promise<Token | undefined> {
     try {
       this.log('revokeByHash');
 
@@ -189,7 +237,7 @@ export class RefreshTokenRepository extends BaseRepository<
       let revokedCount = 0;
 
       for (const token of chain) {
-        if (!token.is_revoked) {
+        if (token.status !== 'REVOKED') {
           await this.revoke(token.token_id, trx);
           revokedCount++;
         }
@@ -215,11 +263,11 @@ export class RefreshTokenRepository extends BaseRepository<
       const results = await this.getDb(trx)
         .updateTable(this.tableName)
         .set({
-          is_revoked: true,
+          status: 'REVOKED',
           revoked_at: new Date(),
         } as any)
         .where('session_id', '=', sessionId)
-        .where('is_revoked', '=', false)
+        .where('status', '!=', 'REVOKED')
         .execute();
 
       const count = results.length;
@@ -231,37 +279,42 @@ export class RefreshTokenRepository extends BaseRepository<
   }
 
   /**
-   * Revoke all tokens for a user
+   * Revoke all tokens for a user (by cupid) - uses JOIN to sessions
+   * This is the NORMALIZED approach - NO cupid in tokens table
    */
-  async revokeAllForUser(
-    userId: string,
+  async revokeByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<number> {
     try {
-      this.log('revokeAllForUser', { userId });
+      this.log('revokeByCupid', { cupid });
 
-      const results = await this.getDb(trx)
+      const result = await this.getDb(trx)
         .updateTable(this.tableName)
         .set({
-          is_revoked: true,
+          status: 'REVOKED',
           revoked_at: new Date(),
         } as any)
-        .where('user_id', '=', userId)
-        .where('is_revoked', '=', false)
-        .execute();
+        .where('session_id', 'in', (eb: any) =>
+          eb.selectFrom('sessions')
+            .select('session_id')
+            .where('cupid', '=', cupid)
+        )
+        .where('status', '!=', 'REVOKED')
+        .executeTakeFirst();
 
-      const count = results.length;
-      this.log('revokeAllForUser:result', { count });
+      const count = Number(result.numUpdatedRows || 0);
+      this.log('revokeByCupid:result', { count });
       return count;
     } catch (error) {
-      this.handleError('revokeAllForUser', error);
+      this.handleError('revokeByCupid', error);
     }
   }
 
   /**
    * Find expired tokens
    */
-  async findExpired(trx?: Transaction<Database> | any): Promise<RefreshToken[]> {
+  async findExpired(trx?: Transaction<Database> | any): Promise<Token[]> {
     try {
       this.log('findExpired');
 
@@ -270,12 +323,38 @@ export class RefreshTokenRepository extends BaseRepository<
         .selectFrom(this.tableName)
         .selectAll()
         .where('expires_at', '<=', now)
+        .where('status', '=', 'ACTIVE')
         .execute();
 
       this.log('findExpired:result', { count: results.length });
-      return results as RefreshToken[];
+      return results as Token[];
     } catch (error) {
       this.handleError('findExpired', error);
+    }
+  }
+
+  /**
+   * Expire old tokens (mark status as EXPIRED)
+   */
+  async expireOldTokens(trx?: Transaction<Database> | any): Promise<number> {
+    try {
+      this.log('expireOldTokens');
+
+      const now = new Date();
+      const result = await this.getDb(trx)
+        .updateTable(this.tableName)
+        .set({
+          status: 'EXPIRED',
+        } as any)
+        .where('expires_at', '<=', now)
+        .where('status', '=', 'ACTIVE')
+        .executeTakeFirst();
+
+      const count = Number(result.numUpdatedRows || 0);
+      this.log('expireOldTokens:result', { count });
+      return count;
+    } catch (error) {
+      this.handleError('expireOldTokens', error);
     }
   }
 
@@ -286,13 +365,12 @@ export class RefreshTokenRepository extends BaseRepository<
     try {
       this.log('deleteExpiredAndRevoked');
 
-      const now = new Date();
       const results = await this.getDb(trx)
         .deleteFrom(this.tableName)
         .where((eb: any) =>
           eb.or([
-            eb('expires_at', '<=', now),
-            eb('is_revoked', '=', true),
+            eb('status', '=', 'EXPIRED'),
+            eb('status', '=', 'REVOKED'),
           ])
         )
         .execute();
@@ -310,9 +388,11 @@ export class RefreshTokenRepository extends BaseRepository<
    */
   async getStats(trx?: Transaction<Database> | any): Promise<{
     total: number;
-    valid: number;
+    active: number;
+    rotated: number;
     revoked: number;
     expired: number;
+    byType: Record<TokenType, number>;
     withParent: number;
     roots: number;
   }> {
@@ -322,11 +402,23 @@ export class RefreshTokenRepository extends BaseRepository<
       const all = await this.findAll(trx);
       const now = new Date();
 
+      const byType: Record<TokenType, number> = {
+        ACCESS: 0,
+        REFRESH: 0,
+        ID: 0,
+      };
+
+      all.forEach((token) => {
+        byType[token.token_type]++;
+      });
+
       const stats = {
         total: all.length,
-        valid: all.filter((t) => !t.is_revoked && new Date(t.expires_at) > now).length,
-        revoked: all.filter((t) => t.is_revoked).length,
-        expired: all.filter((t) => new Date(t.expires_at) <= now).length,
+        active: all.filter((t) => t.status === 'ACTIVE' && new Date(t.expires_at) > now).length,
+        rotated: all.filter((t) => t.status === 'ROTATED').length,
+        revoked: all.filter((t) => t.status === 'REVOKED').length,
+        expired: all.filter((t) => t.status === 'EXPIRED').length,
+        byType,
         withParent: all.filter((t) => t.parent_token_id !== null).length,
         roots: all.filter((t) => t.parent_token_id === null).length,
       };

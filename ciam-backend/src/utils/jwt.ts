@@ -39,9 +39,9 @@ export const generateAccessToken = (
   };
 
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRY,
+    expiresIn: JWT_EXPIRY as string,
     algorithm: 'HS256'
-  });
+  } as jwt.SignOptions);
 };
 
 /**
