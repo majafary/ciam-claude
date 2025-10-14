@@ -16,14 +16,14 @@ import { Session as DBSession } from '../database/types';
 const toSession = (dbSession: DBSession): Session => {
   return {
     sessionId: dbSession.session_id,
-    userId: dbSession.cupid,
+    cupid: dbSession.cupid,
     deviceId: dbSession.device_id || generateDeviceId(dbSession.user_agent || undefined),
     createdAt: dbSession.created_at,
     lastSeenAt: dbSession.last_seen_at,
     expiresAt: dbSession.expires_at,
     ip: dbSession.ip_address || undefined,
     userAgent: dbSession.user_agent || undefined,
-    isActive: dbSession.is_active,
+    isActive: dbSession.status === 'ACTIVE',
   };
 };
 
@@ -51,7 +51,7 @@ export const createSession = async (
     expires_at: expiresAt,
     ip_address: ip || null,
     user_agent: userAgent || null,
-    is_active: true,
+    status: 'ACTIVE',
   });
 
   console.log(`Created session ${sessionId} for user ${userId}`);
@@ -116,18 +116,18 @@ export const getUserSessions = async (userId: string): Promise<SessionInfo[]> =>
 };
 
 /**
- * Revoke a specific session
+ * Revoke a specific session (user-initiated logout)
  */
 export const revokeSession = async (sessionId: string): Promise<boolean> => {
-  const result = await repositories.session.deactivate(sessionId);
+  const result = await repositories.session.logout(sessionId);
   return !!result;
 };
 
 /**
- * Revoke all sessions for a user
+ * Revoke all sessions for a user (security operation)
  */
-export const revokeAllUserSessions = async (userId: string): Promise<number> => {
-  const count = await repositories.session.deactivateAllForCupid(userId);
+export const revokeAllUserSessions = async (userId: string, revokedBy: string = 'system', reason: string = 'user_requested'): Promise<number> => {
+  const count = await repositories.session.revokeAllForCupid(userId, revokedBy, reason);
   return count;
 };
 
@@ -140,7 +140,7 @@ export const revokeOtherUserSessions = async (userId: string, currentSessionId: 
   let revokedCount = 0;
   for (const session of allSessions) {
     if (session.session_id !== currentSessionId) {
-      await repositories.session.deactivate(session.session_id);
+      await repositories.session.logout(session.session_id);
       revokedCount++;
     }
   }
@@ -163,7 +163,7 @@ export const cleanupExpiredSessions = async (): Promise<number> => {
 export const extendSession = async (sessionId: string, additionalHours: number = 24): Promise<boolean> => {
   const dbSession = await repositories.session.findById(sessionId);
 
-  if (dbSession && dbSession.is_active) {
+  if (dbSession && dbSession.status === 'ACTIVE') {
     const newExpiresAt = new Date(dbSession.expires_at.getTime() + additionalHours * 60 * 60 * 1000);
     await repositories.session.update(sessionId, {
       expires_at: newExpiresAt,
@@ -250,7 +250,7 @@ const getLocationFromIP = async (ip?: string): Promise<string | undefined> => {
  */
 export const isSessionOwner = async (sessionId: string, userId: string): Promise<boolean> => {
   const session = await getSessionById(sessionId);
-  return session?.userId === userId;
+  return session?.cupid === userId;
 };
 
 /**

@@ -17,6 +17,7 @@ import {
   TrustedDevice,
   NewTrustedDevice,
   TrustedDeviceUpdate,
+  DeviceStatus,
 } from '../database/types';
 
 export class TrustedDeviceRepository extends BaseRepository<
@@ -33,25 +34,25 @@ export class TrustedDeviceRepository extends BaseRepository<
     return 'device_id';
   }
 
-  protected getPrimaryKeyValue(record: TrustedDevice): number {
+  protected getPrimaryKeyValue(record: TrustedDevice): string {
     return record.device_id;
   }
 
   /**
-   * Find device by fingerprint hash for a user
+   * Find device by fingerprint hash for a user (by cupid)
    */
   async findByFingerprintHash(
-    userId: string,
+    cupid: string,
     fingerprintHash: string,
     trx?: Transaction<Database> | any
   ): Promise<TrustedDevice | undefined> {
     try {
-      this.log('findByFingerprintHash', { userId });
+      this.log('findByFingerprintHash', { cupid });
 
       const result = await this.getDb(trx)
         .selectFrom(this.tableName)
         .selectAll()
-        .where('user_id', '=', userId)
+        .where('cupid', '=', cupid)
         .where('device_fingerprint_hash', '=', fingerprintHash)
         .executeTakeFirst();
 
@@ -63,38 +64,73 @@ export class TrustedDeviceRepository extends BaseRepository<
   }
 
   /**
-   * Find all trusted devices for a user
+   * Find all trusted devices for a user (by cupid)
    */
-  async findByUserId(
-    userId: string,
+  async findByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<TrustedDevice[]> {
-    return this.findBy('user_id' as any, userId, trx);
+    return this.findBy('cupid' as any, cupid, trx);
   }
 
   /**
-   * Find active (non-expired) trusted devices for a user
+   * Find all trusted devices for a customer (by guid)
    */
-  async findActiveByUserId(
-    userId: string,
+  async findByGuid(
+    guid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<TrustedDevice[]> {
+    return this.findBy('guid' as any, guid, trx);
+  }
+
+  /**
+   * Find devices by cupid and guid (combined lookup)
+   */
+  async findByCupidAndGuid(
+    cupid: string,
+    guid: string,
     trx?: Transaction<Database> | any
   ): Promise<TrustedDevice[]> {
     try {
-      this.log('findActiveByUserId', { userId });
+      this.log('findByCupidAndGuid', { cupid, guid });
+
+      const results = await this.getDb(trx)
+        .selectFrom(this.tableName)
+        .selectAll()
+        .where('cupid', '=', cupid)
+        .where('guid', '=', guid)
+        .execute();
+
+      this.log('findByCupidAndGuid:result', { count: results.length });
+      return results as TrustedDevice[];
+    } catch (error) {
+      this.handleError('findByCupidAndGuid', error);
+    }
+  }
+
+  /**
+   * Find active (non-expired) trusted devices for a user (by cupid)
+   */
+  async findActiveByCupid(
+    cupid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<TrustedDevice[]> {
+    try {
+      this.log('findActiveByCupid', { cupid });
 
       const now = new Date();
       const results = await this.getDb(trx)
         .selectFrom(this.tableName)
         .selectAll()
-        .where('user_id', '=', userId)
-        .where('is_active', '=', true)
+        .where('cupid', '=', cupid)
+        .where('status', '=', 'ACTIVE')
         .where('expires_at', '>', now)
         .execute();
 
-      this.log('findActiveByUserId:result', { count: results.length });
+      this.log('findActiveByCupid:result', { count: results.length });
       return results as TrustedDevice[];
     } catch (error) {
-      this.handleError('findActiveByUserId', error);
+      this.handleError('findActiveByCupid', error);
     }
   }
 
@@ -102,20 +138,20 @@ export class TrustedDeviceRepository extends BaseRepository<
    * Check if device is trusted (active and not expired)
    */
   async isTrusted(
-    userId: string,
+    cupid: string,
     fingerprintHash: string,
     trx?: Transaction<Database> | any
   ): Promise<boolean> {
     try {
-      this.log('isTrusted', { userId });
+      this.log('isTrusted', { cupid });
 
-      const device = await this.findByFingerprintHash(userId, fingerprintHash, trx);
+      const device = await this.findByFingerprintHash(cupid, fingerprintHash, trx);
       if (!device) {
         return false;
       }
 
       const now = new Date();
-      const trusted = device.is_active && new Date(device.expires_at) > now;
+      const trusted = device.status === 'ACTIVE' && new Date(device.expires_at) > now;
 
       this.log('isTrusted:result', { trusted });
       return trusted;
@@ -128,7 +164,7 @@ export class TrustedDeviceRepository extends BaseRepository<
    * Update last used timestamp
    */
   async updateLastUsed(
-    deviceId: number,
+    deviceId: string,
     trx?: Transaction<Database> | any
   ): Promise<TrustedDevice | undefined> {
     try {
@@ -150,53 +186,81 @@ export class TrustedDeviceRepository extends BaseRepository<
   }
 
   /**
-   * Deactivate a trusted device
+   * Revoke a trusted device
    */
-  async deactivate(
-    deviceId: number,
+  async revoke(
+    deviceId: string,
     trx?: Transaction<Database> | any
   ): Promise<TrustedDevice | undefined> {
     try {
-      this.log('deactivate', { deviceId });
+      this.log('revoke', { deviceId });
 
       const result = await this.update(
         deviceId,
         {
-          is_active: false,
+          status: 'REVOKED',
+          revoked_at: new Date(),
         } as TrustedDeviceUpdate,
         trx
       );
 
-      this.log('deactivate:result', { updated: !!result });
+      this.log('revoke:result', { updated: !!result });
       return result;
     } catch (error) {
-      this.handleError('deactivate', error);
+      this.handleError('revoke', error);
     }
   }
 
   /**
-   * Deactivate all devices for a user (security operation)
+   * Expire a trusted device
    */
-  async deactivateAllForUser(
-    userId: string,
+  async expire(
+    deviceId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<TrustedDevice | undefined> {
+    try {
+      this.log('expire', { deviceId });
+
+      const result = await this.update(
+        deviceId,
+        {
+          status: 'EXPIRED',
+        } as TrustedDeviceUpdate,
+        trx
+      );
+
+      this.log('expire:result', { updated: !!result });
+      return result;
+    } catch (error) {
+      this.handleError('expire', error);
+    }
+  }
+
+  /**
+   * Revoke all devices for a user (security operation)
+   */
+  async revokeAllForCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<number> {
     try {
-      this.log('deactivateAllForUser', { userId });
+      this.log('revokeAllForCupid', { cupid });
 
       const results = await this.getDb(trx)
         .updateTable(this.tableName)
         .set({
-          is_active: false,
+          status: 'REVOKED',
+          revoked_at: new Date(),
         } as any)
-        .where('user_id', '=', userId)
+        .where('cupid', '=', cupid)
+        .where('status', '=', 'ACTIVE')
         .execute();
 
       const count = results.length;
-      this.log('deactivateAllForUser:result', { count });
+      this.log('revokeAllForCupid:result', { count });
       return count;
     } catch (error) {
-      this.handleError('deactivateAllForUser', error);
+      this.handleError('revokeAllForCupid', error);
     }
   }
 
@@ -222,28 +286,27 @@ export class TrustedDeviceRepository extends BaseRepository<
   }
 
   /**
-   * Delete expired and inactive devices (cleanup operation)
+   * Delete expired and revoked devices (cleanup operation)
    */
-  async deleteExpiredAndInactive(trx?: Transaction<Database> | any): Promise<number> {
+  async deleteExpiredAndRevoked(trx?: Transaction<Database> | any): Promise<number> {
     try {
-      this.log('deleteExpiredAndInactive');
+      this.log('deleteExpiredAndRevoked');
 
-      const now = new Date();
       const results = await this.getDb(trx)
         .deleteFrom(this.tableName)
         .where((eb: any) =>
           eb.or([
-            eb('expires_at', '<=', now),
-            eb('is_active', '=', false),
+            eb('status', '=', 'EXPIRED'),
+            eb('status', '=', 'REVOKED'),
           ])
         )
         .execute();
 
       const count = results.length;
-      this.log('deleteExpiredAndInactive:result', { count });
+      this.log('deleteExpiredAndRevoked:result', { count });
       return count;
     } catch (error) {
-      this.handleError('deleteExpiredAndInactive', error);
+      this.handleError('deleteExpiredAndRevoked', error);
     }
   }
 
@@ -254,26 +317,36 @@ export class TrustedDeviceRepository extends BaseRepository<
     total: number;
     active: number;
     expired: number;
-    inactive: number;
-    byUser: Record<string, number>;
+    revoked: number;
+    byStatus: Record<DeviceStatus, number>;
+    byCupid: Record<string, number>;
+    byGuid: Record<string, number>;
   }> {
     try {
       this.log('getStats');
 
       const all = await this.findAll(trx);
-      const now = new Date();
 
-      const byUser: Record<string, number> = {};
+      const byCupid: Record<string, number> = {};
+      const byGuid: Record<string, number> = {};
+
       all.forEach((device) => {
-        byUser[device.user_id] = (byUser[device.user_id] || 0) + 1;
+        byCupid[device.cupid] = (byCupid[device.cupid] || 0) + 1;
+        byGuid[device.guid] = (byGuid[device.guid] || 0) + 1;
       });
 
       const stats = {
         total: all.length,
-        active: all.filter((d) => d.is_active && new Date(d.expires_at) > now).length,
-        expired: all.filter((d) => new Date(d.expires_at) <= now).length,
-        inactive: all.filter((d) => !d.is_active).length,
-        byUser,
+        active: all.filter((d) => d.status === 'ACTIVE').length,
+        expired: all.filter((d) => d.status === 'EXPIRED').length,
+        revoked: all.filter((d) => d.status === 'REVOKED').length,
+        byStatus: {
+          ACTIVE: all.filter((d) => d.status === 'ACTIVE').length,
+          EXPIRED: all.filter((d) => d.status === 'EXPIRED').length,
+          REVOKED: all.filter((d) => d.status === 'REVOKED').length,
+        },
+        byCupid,
+        byGuid,
       };
 
       this.log('getStats:result', stats);

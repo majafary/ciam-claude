@@ -31,11 +31,11 @@ export class AuditLogRepository extends BaseRepository<
   }
 
   protected getPrimaryKeyColumn(): string {
-    return 'log_id';
+    return 'audit_id';
   }
 
-  protected getPrimaryKeyValue(record: AuditLog): number {
-    return record.log_id;
+  protected getPrimaryKeyValue(record: AuditLog): string {
+    return record.audit_id;
   }
 
   /**
@@ -61,13 +61,13 @@ export class AuditLogRepository extends BaseRepository<
   }
 
   /**
-   * Find logs by user ID
+   * Find logs by cupid (user identifier)
    */
-  async findByUserId(
-    userId: string,
+  async findByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<AuditLog[]> {
-    return this.findBy('user_id' as any, userId, trx);
+    return this.findBy('cupid' as any, cupid, trx);
   }
 
   /**
@@ -142,26 +142,26 @@ export class AuditLogRepository extends BaseRepository<
   }
 
   /**
-   * Find failed login attempts for a user
+   * Find failed login attempts for a user (by cupid)
    */
-  async findFailedLoginsByUser(
-    userId: string,
+  async findFailedLoginsByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<AuditLog[]> {
     try {
-      this.log('findFailedLoginsByUser', { userId });
+      this.log('findFailedLoginsByCupid', { cupid });
 
       const results = await this.getDb(trx)
         .selectFrom(this.tableName)
         .selectAll()
-        .where('user_id', '=', userId)
+        .where('cupid', '=', cupid)
         .where('action', '=', 'LOGIN_FAILURE')
         .execute();
 
-      this.log('findFailedLoginsByUser:result', { count: results.length });
+      this.log('findFailedLoginsByCupid:result', { count: results.length });
       return results as AuditLog[];
     } catch (error) {
-      this.handleError('findFailedLoginsByUser', error);
+      this.handleError('findFailedLoginsByCupid', error);
     }
   }
 

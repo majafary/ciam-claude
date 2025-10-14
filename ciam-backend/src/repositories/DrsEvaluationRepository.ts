@@ -35,7 +35,7 @@ export class DrsEvaluationRepository extends BaseRepository<
     return 'evaluation_id';
   }
 
-  protected getPrimaryKeyValue(record: DrsEvaluation): number {
+  protected getPrimaryKeyValue(record: DrsEvaluation): string {
     return record.evaluation_id;
   }
 
@@ -57,6 +57,51 @@ export class DrsEvaluationRepository extends BaseRepository<
     trx?: Transaction<Database> | any
   ): Promise<DrsEvaluation[]> {
     return this.findBy('context_id' as any, contextId, trx);
+  }
+
+  /**
+   * Find evaluations by cupid (user identifier)
+   */
+  async findByCupid(
+    cupid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<DrsEvaluation[]> {
+    return this.findBy('cupid' as any, cupid, trx);
+  }
+
+  /**
+   * Find evaluations by guid (customer identifier)
+   */
+  async findByGuid(
+    guid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<DrsEvaluation[]> {
+    return this.findBy('guid' as any, guid, trx);
+  }
+
+  /**
+   * Find evaluations by cupid and guid (combined lookup)
+   */
+  async findByCupidAndGuid(
+    cupid: string,
+    guid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<DrsEvaluation[]> {
+    try {
+      this.log('findByCupidAndGuid', { cupid, guid });
+
+      const results = await this.getDb(trx)
+        .selectFrom(this.tableName)
+        .selectAll()
+        .where('cupid', '=', cupid)
+        .where('guid', '=', guid)
+        .execute();
+
+      this.log('findByCupidAndGuid:result', { count: results.length });
+      return results as DrsEvaluation[];
+    } catch (error) {
+      this.handleError('findByCupidAndGuid', error);
+    }
   }
 
   /**

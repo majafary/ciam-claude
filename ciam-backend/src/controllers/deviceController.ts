@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { getMFATransaction } from '../services/mfaService';
 import { trustDevice, isDeviceTrusted as checkDeviceTrusted } from '../services/deviceService';
+import { getUserById } from '../services/userService';
 import { handleInternalError, sendErrorResponse, createApiError } from '../utils/errors';
 import { logAuthEvent } from '../utils/logger';
 
@@ -48,11 +49,18 @@ export const bindDevice = async (req: Request, res: Response): Promise<void> => 
     const userId = transaction.userId;
     const deviceFingerprint = transaction_id; // Using transaction_id as device identifier
 
+    // Get user to obtain guid
+    const user = await getUserById(userId);
+    if (!user) {
+      handleInternalError(res, new Error('User not found'));
+      return;
+    }
+
     // Check if device is already trusted
     const alreadyTrusted = await checkDeviceTrusted(userId, deviceFingerprint);
 
     // Trust the device (will update last_used_at if already exists)
-    const device = await trustDevice(userId, deviceFingerprint, undefined, 30);
+    const device = await trustDevice(userId, user.guid, deviceFingerprint, undefined, 30);
 
     if (!alreadyTrusted) {
       logAuthEvent('device_bound', userId, {

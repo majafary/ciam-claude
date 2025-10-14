@@ -50,13 +50,48 @@ export class AuthContextRepository extends BaseRepository<
   }
 
   /**
-   * Find all contexts for a user
+   * Find all contexts for a user (by cupid)
    */
-  async findByUserId(
-    userId: string,
+  async findByCupid(
+    cupid: string,
     trx?: Transaction<Database> | any
   ): Promise<AuthContext[]> {
-    return this.findBy('user_id' as any, userId, trx);
+    return this.findBy('cupid' as any, cupid, trx);
+  }
+
+  /**
+   * Find all contexts for a customer (by guid)
+   */
+  async findByGuid(
+    guid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<AuthContext[]> {
+    return this.findBy('guid' as any, guid, trx);
+  }
+
+  /**
+   * Find contexts by cupid and guid (combined lookup)
+   */
+  async findByCupidAndGuid(
+    cupid: string,
+    guid: string,
+    trx?: Transaction<Database> | any
+  ): Promise<AuthContext[]> {
+    try {
+      this.log('findByCupidAndGuid', { cupid, guid });
+
+      const results = await this.getDb(trx)
+        .selectFrom(this.tableName)
+        .selectAll()
+        .where('cupid', '=', cupid)
+        .where('guid', '=', guid)
+        .execute();
+
+      this.log('findByCupidAndGuid:result', { count: results.length });
+      return results as AuthContext[];
+    } catch (error) {
+      this.handleError('findByCupidAndGuid', error);
+    }
   }
 
   /**
@@ -121,32 +156,6 @@ export class AuthContextRepository extends BaseRepository<
     }
   }
 
-  /**
-   * Update user ID for a context (after successful authentication)
-   */
-  async assignUserId(
-    contextId: string,
-    userId: string,
-    trx?: Transaction<Database> | any
-  ): Promise<AuthContext | undefined> {
-    try {
-      this.log('assignUserId', { contextId, userId });
-
-      const result = await this.update(
-        contextId,
-        {
-          user_id: userId,
-          updated_at: new Date(),
-        } as AuthContextUpdate,
-        trx
-      );
-
-      this.log('assignUserId:result', { updated: !!result });
-      return result;
-    } catch (error) {
-      this.handleError('assignUserId', error);
-    }
-  }
 
   /**
    * Update device fingerprint for a context
@@ -228,8 +237,8 @@ export class AuthContextRepository extends BaseRepository<
     total: number;
     active: number;
     expired: number;
-    withUser: number;
-    withoutUser: number;
+    byCupid: Record<string, number>;
+    byGuid: Record<string, number>;
   }> {
     try {
       this.log('getStats');
@@ -237,12 +246,20 @@ export class AuthContextRepository extends BaseRepository<
       const all = await this.findAll(trx);
       const now = new Date();
 
+      const byCupid: Record<string, number> = {};
+      const byGuid: Record<string, number> = {};
+
+      all.forEach((context) => {
+        byCupid[context.cupid] = (byCupid[context.cupid] || 0) + 1;
+        byGuid[context.guid] = (byGuid[context.guid] || 0) + 1;
+      });
+
       const stats = {
         total: all.length,
         active: all.filter((c) => new Date(c.expires_at) > now).length,
         expired: all.filter((c) => new Date(c.expires_at) <= now).length,
-        withUser: all.filter((c) => c.user_id !== null).length,
-        withoutUser: all.filter((c) => c.user_id === null).length,
+        byCupid,
+        byGuid,
       };
 
       this.log('getStats:result', stats);

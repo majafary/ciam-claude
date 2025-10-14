@@ -38,7 +38,7 @@ export class TokenRepository extends BaseRepository<
     return 'token_id';
   }
 
-  protected getPrimaryKeyValue(record: Token): number {
+  protected getPrimaryKeyValue(record: Token): string {
     return record.token_id;
   }
 
@@ -120,7 +120,7 @@ export class TokenRepository extends BaseRepository<
    * Find token rotation chain (all descendants)
    */
   async findRotationChain(
-    tokenId: number,
+    tokenId: string,
     trx?: Transaction<Database> | any
   ): Promise<Token[]> {
     try {
@@ -153,7 +153,7 @@ export class TokenRepository extends BaseRepository<
    * Revoke a token
    */
   async revoke(
-    tokenId: number,
+    tokenId: string,
     trx?: Transaction<Database> | any
   ): Promise<Token | undefined> {
     try {
@@ -179,7 +179,7 @@ export class TokenRepository extends BaseRepository<
    * Mark token as rotated (for refresh token rotation)
    */
   async markRotated(
-    tokenId: number,
+    tokenId: string,
     trx?: Transaction<Database> | any
   ): Promise<Token | undefined> {
     try {
@@ -227,7 +227,7 @@ export class TokenRepository extends BaseRepository<
    * Used when token reuse is detected
    */
   async revokeChain(
-    tokenId: number,
+    tokenId: string,
     trx?: Transaction<Database> | any
   ): Promise<number> {
     try {

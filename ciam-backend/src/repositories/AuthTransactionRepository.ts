@@ -25,7 +25,7 @@ import {
   AuthTransaction,
   NewAuthTransaction,
   AuthTransactionUpdate,
-  TransactionType,
+  TransactionPhase,
   TransactionStatus,
 } from '../database/types';
 
@@ -68,13 +68,13 @@ export class AuthTransactionRepository extends BaseRepository<
   }
 
   /**
-   * Find transactions by type (MFA, ESIGN, DEVICE_BIND)
+   * Find transactions by phase (MFA, ESIGN, DEVICE_BIND)
    */
-  async findByType(
-    type: TransactionType,
+  async findByPhase(
+    phase: TransactionPhase,
     trx?: Transaction<Database> | any
   ): Promise<AuthTransaction[]> {
-    return this.findBy('transaction_type' as any, type, trx);
+    return this.findBy('phase' as any, phase, trx);
   }
 
   /**
@@ -358,7 +358,7 @@ export class AuthTransactionRepository extends BaseRepository<
         .selectFrom(this.tableName)
         .selectAll()
         .where('context_id', '=', contextId)
-        .where('transaction_type', '=', 'MFA')
+        .where('phase', '=', 'MFA')
         .execute();
 
       this.log('findMFAByContext:result', { count: results.length });
@@ -382,7 +382,7 @@ export class AuthTransactionRepository extends BaseRepository<
         .selectFrom(this.tableName)
         .selectAll()
         .where('context_id', '=', contextId)
-        .where('transaction_type', '=', 'ESIGN')
+        .where('phase', '=', 'ESIGN')
         .execute();
 
       this.log('findESignByContext:result', { count: results.length });
@@ -406,7 +406,7 @@ export class AuthTransactionRepository extends BaseRepository<
         .selectFrom(this.tableName)
         .selectAll()
         .where('context_id', '=', contextId)
-        .where('transaction_type', '=', 'DEVICE_BIND')
+        .where('phase', '=', 'DEVICE_BIND')
         .execute();
 
       this.log('findDeviceBindByContext:result', { count: results.length });
@@ -421,7 +421,7 @@ export class AuthTransactionRepository extends BaseRepository<
    */
   async getStats(trx?: Transaction<Database> | any): Promise<{
     total: number;
-    byType: Record<TransactionType, number>;
+    byPhase: Record<TransactionPhase, number>;
     byStatus: Record<TransactionStatus, number>;
     pending: number;
     expired: number;
@@ -433,10 +433,10 @@ export class AuthTransactionRepository extends BaseRepository<
 
       const stats = {
         total: all.length,
-        byType: {
-          MFA: all.filter((t) => t.transaction_type === 'MFA').length,
-          ESIGN: all.filter((t) => t.transaction_type === 'ESIGN').length,
-          DEVICE_BIND: all.filter((t) => t.transaction_type === 'DEVICE_BIND').length,
+        byPhase: {
+          MFA: all.filter((t) => t.phase === 'MFA').length,
+          ESIGN: all.filter((t) => t.phase === 'ESIGN').length,
+          DEVICE_BIND: all.filter((t) => t.phase === 'DEVICE_BIND').length,
         },
         byStatus: {
           PENDING: all.filter((t) => t.transaction_status === 'PENDING').length,
@@ -444,6 +444,7 @@ export class AuthTransactionRepository extends BaseRepository<
           REJECTED: all.filter((t) => t.transaction_status === 'REJECTED').length,
           EXPIRED: all.filter((t) => t.transaction_status === 'EXPIRED').length,
           COMPLETED: all.filter((t) => t.transaction_status === 'COMPLETED').length,
+          CONSUMED: all.filter((t) => t.transaction_status === 'CONSUMED').length,
         },
         pending: all.filter((t) => t.transaction_status === 'PENDING').length,
         expired: all.filter((t) => t.transaction_status === 'EXPIRED').length,
@@ -454,5 +455,116 @@ export class AuthTransactionRepository extends BaseRepository<
     } catch (error) {
       this.handleError('getStats', error);
     }
+  }
+
+  /**
+   * Mark transaction as consumed (token used, cannot be reused)
+   */
+  async consume(
+    transactionId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<AuthTransaction | undefined> {
+    return this.updateStatus(transactionId, 'CONSUMED', trx);
+  }
+
+  /**
+   * Get next sequence number for a context
+   */
+  async getNextSequenceNumber(
+    contextId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<number> {
+    try {
+      this.log('getNextSequenceNumber', { contextId });
+
+      const transactions = await this.findByContextId(contextId, trx);
+      const maxSequence = transactions.reduce((max, t) => Math.max(max, t.sequence_number), 0);
+      const nextSequence = maxSequence + 1;
+
+      this.log('getNextSequenceNumber:result', { nextSequence });
+      return nextSequence;
+    } catch (error) {
+      this.handleError('getNextSequenceNumber', error);
+    }
+  }
+
+  /**
+   * Find transactions by parent transaction ID (retry chains)
+   */
+  async findByParentId(
+    parentTransactionId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<AuthTransaction[]> {
+    try {
+      this.log('findByParentId', { parentTransactionId });
+
+      const results = await this.getDb(trx)
+        .selectFrom(this.tableName)
+        .selectAll()
+        .where('parent_transaction_id', '=', parentTransactionId)
+        .execute();
+
+      this.log('findByParentId:result', { count: results.length });
+      return results as AuthTransaction[];
+    } catch (error) {
+      this.handleError('findByParentId', error);
+    }
+  }
+
+  /**
+   * Get transaction chain (parent and all children)
+   */
+  async getTransactionChain(
+    transactionId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<AuthTransaction[]> {
+    try {
+      this.log('getTransactionChain', { transactionId });
+
+      const chain: AuthTransaction[] = [];
+      let current = await this.findById(transactionId, trx);
+
+      if (!current) {
+        return chain;
+      }
+
+      // Walk up to root parent
+      while (current && current.parent_transaction_id) {
+        chain.unshift(current);
+        current = await this.findById(current.parent_transaction_id, trx);
+      }
+
+      if (current) {
+        chain.unshift(current);
+      }
+
+      // Walk down to all children
+      const rootId = chain[0]?.transaction_id || transactionId;
+      const allChildren = await this.findAllChildren(rootId, trx);
+      chain.push(...allChildren.filter(t => !chain.find(c => c.transaction_id === t.transaction_id)));
+
+      this.log('getTransactionChain:result', { count: chain.length });
+      return chain;
+    } catch (error) {
+      this.handleError('getTransactionChain', error);
+    }
+  }
+
+  /**
+   * Recursively find all children of a transaction
+   */
+  private async findAllChildren(
+    transactionId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<AuthTransaction[]> {
+    const directChildren = await this.findByParentId(transactionId, trx);
+    const allChildren: AuthTransaction[] = [...directChildren];
+
+    for (const child of directChildren) {
+      const grandchildren = await this.findAllChildren(child.transaction_id, trx);
+      allChildren.push(...grandchildren);
+    }
+
+    return allChildren;
   }
 }

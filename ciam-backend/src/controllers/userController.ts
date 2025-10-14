@@ -32,8 +32,8 @@ export const getUserInfo = async (req: AuthenticatedRequest, res: Response): Pro
     }
 
     const userInfo: UserInfoResponse = {
-      sub: user.id,
-      preferred_username: user.username,
+      sub: user.cupid,
+      preferred_username: user.cupid,
       email: user.email,
       email_verified: true,
       given_name: user.given_name,

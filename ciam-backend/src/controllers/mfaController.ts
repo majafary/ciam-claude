@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import { Request, Response } from 'express';
 import { createMFATransaction, getMFATransaction, verifyOTP, verifyPushResult, getOTPForTesting, approvePushWithNumber } from '../services/mfaService';
 import { getUserById } from '../services/userService';
@@ -89,7 +90,7 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
       const displayNumber = method === 'push' ? Math.floor(1 + Math.random() * 9) : undefined;
 
       const metadata = {
-        user_id: userId,
+        cupid: userId,
         session_id: existingTransaction.sessionId,
         method,
         challenge_id: isOTPMethod ? `ch-${Date.now()}` : undefined,
@@ -98,11 +99,27 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
         mfa_option_id: mfa_option_id,
       };
 
+      // Get next sequence number for this context
+      const sequenceNumber = await repositories.authTransaction.getNextSequenceNumber(context_id, trx);
+
       const dbTransaction = await repositories.authTransaction.create({
         transaction_id: transactionId,
         context_id: context_id,
-        transaction_type: 'MFA',
+        parent_transaction_id: null,
+        sequence_number: sequenceNumber,
+        phase: 'MFA',
         transaction_status: 'PENDING',
+        mfa_method: method.toUpperCase() as any,
+        mfa_option_id: mfa_option_id || null,
+        display_number: displayNumber || null,
+        selected_number: null,
+        verification_result: null,
+        attempt_number: 1,
+        mfa_options: null,
+        mobile_approve_status: null,
+        esign_document_id: null,
+        esign_action: null,
+        device_bind_decision: null,
         metadata,
         created_at: now,
         updated_at: now,
@@ -111,9 +128,10 @@ export const initiateChallenge = async (req: Request, res: Response): Promise<vo
 
       // Step 3: Log audit event
       await repositories.auditLog.create({
+        audit_id: uuidv4(),
         category: 'MFA',
         action: 'MFA_INITIATED',
-        user_id: userId,
+        cupid: userId,
         context_id: context_id,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
@@ -279,7 +297,7 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
 
       // Step 2: Mark auth context as complete
       await repositories.authContext.update(context_id, {
-        user_id: user.id,
+        cupid: user.cupid,
         updated_at: new Date(),
       }, trx);
 
@@ -290,7 +308,7 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
 
       const session = await repositories.session.create({
         session_id: sessionId,
-        cupid: user.id,
+        cupid: user.cupid,
         context_id: context_id,
         device_id: `device-${Date.now()}`,
         created_at: now,
@@ -298,16 +316,16 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
         expires_at: expiresAt,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
-        is_active: true,
+        status: 'ACTIVE',
       }, trx);
 
       // Step 4: Create all tokens (ACCESS, REFRESH, ID) atomically
       const tokens = await createSessionTokens(
         sessionId,
-        user.id,  // cupid for JWT payload
+        user.cupid,  // cupid for JWT payload
         user.roles,
         {
-          preferred_username: user.username,
+          preferred_username: user.cupid,
           email: user.email,
           email_verified: true,
           given_name: user.given_name,
@@ -318,9 +336,10 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
 
       // Step 5: Log audit events
       await repositories.auditLog.create({
+        audit_id: uuidv4(),
         category: 'MFA',
         action: 'MFA_SUCCESS',
-        user_id: user.id,
+        cupid: user.cupid,
         context_id: context_id,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
@@ -335,9 +354,10 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
       }, trx);
 
       await repositories.auditLog.create({
+        audit_id: uuidv4(),
         category: 'AUTH',
         action: 'LOGIN_SUCCESS',
-        user_id: user.id,
+        cupid: user.cupid,
         context_id: context_id,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
@@ -355,7 +375,7 @@ export const verifyOTPChallenge = async (req: Request, res: Response): Promise<v
       };
     });
 
-    logAuthEvent('mfa_success', user.id, {
+    logAuthEvent('mfa_success', user.cupid, {
       transactionId: transaction_id,
       sessionId: result.sessionId,
       method: transaction.method,
@@ -505,7 +525,7 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
     const result = await withTransaction(async (trx) => {
       // Step 1: Mark auth context as complete
       await repositories.authContext.update(context_id, {
-        user_id: user.id,
+        cupid: user.cupid,
         updated_at: new Date(),
       }, trx);
 
@@ -516,7 +536,7 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
 
       await repositories.session.create({
         session_id: sessionId,
-        cupid: user.id,
+        cupid: user.cupid,
         context_id: context_id,
         device_id: `device-${Date.now()}`,
         created_at: now,
@@ -524,16 +544,16 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
         expires_at: expiresAt,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
-        is_active: true,
+        status: 'ACTIVE',
       }, trx);
 
       // Step 3: Create all tokens (ACCESS, REFRESH, ID) atomically
       const tokens = await createSessionTokens(
         sessionId,
-        user.id,  // cupid for JWT payload
+        user.cupid,  // cupid for JWT payload
         user.roles,
         {
-          preferred_username: user.username,
+          preferred_username: user.cupid,
           email: user.email,
           email_verified: true,
           given_name: user.given_name,
@@ -544,9 +564,10 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
 
       // Step 4: Log audit events
       await repositories.auditLog.create({
+        audit_id: uuidv4(),
         category: 'MFA',
         action: 'MFA_SUCCESS',
-        user_id: user.id,
+        cupid: user.cupid,
         context_id: context_id,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
@@ -561,9 +582,10 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       }, trx);
 
       await repositories.auditLog.create({
+        audit_id: uuidv4(),
         category: 'AUTH',
         action: 'LOGIN_SUCCESS',
-        user_id: user.id,
+        cupid: user.cupid,
         context_id: context_id,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
@@ -581,7 +603,7 @@ export const verifyPushChallenge = async (req: Request, res: Response): Promise<
       };
     });
 
-    logAuthEvent('mfa_success', user.id, {
+    logAuthEvent('mfa_success', user.cupid, {
       transactionId: transaction_id,
       sessionId: result.sessionId,
       method: 'push',

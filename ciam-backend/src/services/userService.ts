@@ -2,12 +2,13 @@ import { User, UserScenario, MockUserScenario } from '../types';
 
 /**
  * Mock user database for development
- * TODO: Replace with actual database implementation in production
+ * TODO: Replace with actual LDAP/database implementation in production
+ * NOTE: username is used for lookup only, not stored. LDAP returns cupid/guid.
  */
 const mockUsers: Record<string, User> = {
   'user-123': {
-    id: 'user-123',
-    username: 'testuser',
+    cupid: 'user-123', // User identifier (from LDAP)
+    guid: 'customer-abc', // Customer identifier
     email: 'testuser@example.com',
     given_name: 'Test',
     family_name: 'User',
@@ -18,8 +19,8 @@ const mockUsers: Record<string, User> = {
     updatedAt: new Date('2025-01-01')
   },
   'user-locked': {
-    id: 'user-locked',
-    username: 'userlockeduser',
+    cupid: 'user-locked', // User identifier (from LDAP)
+    guid: 'customer-def', // Customer identifier
     email: 'locked@example.com',
     given_name: 'Locked',
     family_name: 'User',
@@ -30,8 +31,8 @@ const mockUsers: Record<string, User> = {
     updatedAt: new Date('2025-01-01')
   },
   'user-mfa-locked': {
-    id: 'user-mfa-locked',
-    username: 'mfalockeduser',
+    cupid: 'user-mfa-locked', // User identifier (from LDAP)
+    guid: 'customer-ghi', // Customer identifier
     email: 'mfalocked@example.com',
     given_name: 'MFA Locked',
     family_name: 'User',
@@ -44,8 +45,19 @@ const mockUsers: Record<string, User> = {
 };
 
 /**
+ * Mock username-to-user mapping (simulates LDAP lookup)
+ * In production, this would be an LDAP query that returns cupid/guid
+ */
+const usernameToUserMap: Record<string, string> = {
+  'testuser': 'user-123',
+  'userlockeduser': 'user-locked',
+  'mfalockeduser': 'user-mfa-locked'
+};
+
+/**
  * Mock password validation
- * TODO: Replace with secure password hashing (bcrypt) in production
+ * TODO: Replace with secure LDAP authentication in production
+ * NOTE: Username is input only, LDAP returns cupid/guid for storage
  */
 export const validateCredentials = async (username: string, password: string): Promise<MockUserScenario> => {
   // All test users use 'password' as the password
@@ -53,28 +65,27 @@ export const validateCredentials = async (username: string, password: string): P
     return { type: 'INVALID_CREDENTIALS' };
   }
 
-  switch (username) {
-    case 'testuser':
-      return {
-        type: 'SUCCESS',
-        user: mockUsers['user-123']
-      };
-
-    case 'userlockeduser':
-      return {
-        type: 'ACCOUNT_LOCKED',
-        user: mockUsers['user-locked']
-      };
-
-    case 'mfalockeduser':
-      return {
-        type: 'MFA_LOCKED',
-        user: mockUsers['user-mfa-locked']
-      };
-
-    default:
-      return { type: 'INVALID_CREDENTIALS' };
+  // Lookup user by username (simulates LDAP query)
+  const userId = usernameToUserMap[username];
+  if (!userId) {
+    return { type: 'INVALID_CREDENTIALS' };
   }
+
+  const user = mockUsers[userId];
+  if (!user) {
+    return { type: 'INVALID_CREDENTIALS' };
+  }
+
+  // Return appropriate scenario based on user state
+  if (user.isLocked) {
+    return { type: 'ACCOUNT_LOCKED', user };
+  }
+
+  if (user.mfaLocked) {
+    return { type: 'MFA_LOCKED', user };
+  }
+
+  return { type: 'SUCCESS', user };
 };
 
 /**
@@ -86,12 +97,16 @@ export const getUserById = async (userId: string): Promise<User | null> => {
 };
 
 /**
- * Get user by username
+ * Get user by username (LDAP lookup)
+ * NOTE: Username lookup returns cupid/guid, username itself is not stored
  */
 export const getUserByUsername = async (username: string): Promise<User | null> => {
-  // TODO: Replace with actual database query in production
-  const user = Object.values(mockUsers).find(u => u.username === username);
-  return user || null;
+  // TODO: Replace with actual LDAP query in production
+  const userId = usernameToUserMap[username];
+  if (!userId) {
+    return null;
+  }
+  return mockUsers[userId] || null;
 };
 
 /**

@@ -50,7 +50,7 @@ export const needsESign = async (userId: string): Promise<{ required: boolean; d
 
   // Find pending eSign transactions
   const pendingESign = transactions.find(
-    (t) => t.transaction_status === 'PENDING' && t.transaction_type === 'ESIGN'
+    (t) => t.transaction_status === 'PENDING' && t.phase === 'ESIGN'
   );
 
   if (pendingESign) {
@@ -89,7 +89,7 @@ export const recordESignAcceptance = async (
   // Find the pending eSign transaction
   const transactions = await repositories.authTransaction.findESignByContext(contextId);
   const pendingTransaction = transactions.find(
-    (t) => t.transaction_status === 'PENDING' && t.transaction_type === 'ESIGN'
+    (t) => t.transaction_status === 'PENDING' && t.phase === 'ESIGN'
   );
 
   if (pendingTransaction) {
@@ -107,13 +107,30 @@ export const recordESignAcceptance = async (
   } else {
     // Create new eSign transaction record for acceptance
     const transactionId = `esign-${documentId}-${userId}-${Date.now()}`;
+
+    // Get next sequence number for this context
+    const sequenceNumber = await repositories.authTransaction.getNextSequenceNumber(contextId);
+
     await repositories.authTransaction.create({
       transaction_id: transactionId,
       context_id: contextId,
-      transaction_type: 'ESIGN',
+      parent_transaction_id: null,
+      sequence_number: sequenceNumber,
+      phase: 'ESIGN',
       transaction_status: 'COMPLETED',
+      mfa_method: null,
+      mfa_option_id: null,
+      display_number: null,
+      selected_number: null,
+      verification_result: null,
+      attempt_number: 1,
+      mfa_options: null,
+      mobile_approve_status: null,
+      esign_document_id: documentId,
+      esign_action: 'ACCEPT',
+      device_bind_decision: null,
       metadata: {
-        user_id: userId,
+        cupid: userId, // User identifier (userId parameter maps to cupid)
         document_id: documentId,
         acceptance_ip: acceptanceIp,
         acceptance_timestamp: acceptedAt.toISOString(),

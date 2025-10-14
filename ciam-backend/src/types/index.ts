@@ -130,8 +130,8 @@ export interface SessionVerifyResponse {
 }
 
 export interface UserInfoResponse {
-  sub: string;
-  preferred_username?: string;
+  sub: string; // Subject = cupid
+  preferred_username?: string; // Username for display only, not stored
   email?: string;
   email_verified?: boolean;
   given_name?: string;
@@ -145,11 +145,11 @@ export interface IntrospectionResponse {
   active: boolean;
   scope?: string;
   client_id?: string;
-  username?: string;
+  username?: string; // Username for display only, not stored
   token_type?: string;
   exp?: number;
   iat?: number;
-  sub?: string;
+  sub?: string; // Subject = cupid
   aud?: string;
   iss?: string;
   jti?: string;
@@ -175,8 +175,8 @@ export interface ApiError {
 // Internal types for business logic
 
 export interface User {
-  id: string;
-  username: string;
+  cupid: string; // Primary user identifier (from LDAP)
+  guid: string; // Customer-level identifier
   email?: string;
   given_name?: string;
   family_name?: string;
@@ -189,7 +189,7 @@ export interface User {
 
 export interface Session {
   sessionId: string;
-  userId: string;
+  cupid: string; // User identifier
   deviceId?: string;
   createdAt: Date;
   lastSeenAt: Date;
@@ -202,7 +202,7 @@ export interface Session {
 export interface MFATransaction {
   transactionId: string;
   contextId: string;
-  userId: string;
+  userId: string; // Maps to cupid internally but kept as userId for API compatibility
   sessionId?: string;
   method: 'sms' | 'voice' | 'push';
   status: MFAChallengeStatus;
@@ -217,7 +217,7 @@ export interface MFATransaction {
 
 export interface RefreshToken {
   tokenId: string;
-  userId: string;
+  cupid: string; // User identifier
   sessionId: string;
   token: string;
   expiresAt: Date;

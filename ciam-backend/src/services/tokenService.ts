@@ -55,6 +55,7 @@ export const createSessionTokens = async (
   const accessExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
 
   await repositories.token.create({
+    token_id: uuidv4(),
     session_id: sessionId,  // ✅ Uses session_id only
     parent_token_id: null,
     token_type: 'ACCESS',
@@ -72,6 +73,7 @@ export const createSessionTokens = async (
   const refreshExpiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   await repositories.token.create({
+    token_id: uuidv4(),
     session_id: sessionId,  // ✅ Uses session_id only
     parent_token_id: null,
     token_type: 'REFRESH',
@@ -89,6 +91,7 @@ export const createSessionTokens = async (
   const idExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
 
   await repositories.token.create({
+    token_id: uuidv4(),
     session_id: sessionId,  // ✅ Uses session_id only
     parent_token_id: null,
     token_type: 'ID',
@@ -208,6 +211,7 @@ export const rotateRefreshToken = async (
   const refreshExpiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   await repositories.token.create({
+    token_id: uuidv4(),
     session_id: sessionId,  // ✅ Uses session_id only
     parent_token_id: validation.tokenRecord!.token_id,
     token_type: 'REFRESH',
@@ -225,6 +229,7 @@ export const rotateRefreshToken = async (
   const accessExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
 
   await repositories.token.create({
+    token_id: uuidv4(),
     session_id: sessionId,
     parent_token_id: null,
     token_type: 'ACCESS',
@@ -242,6 +247,7 @@ export const rotateRefreshToken = async (
   const idExpiresAt = new Date(now.getTime() + 15 * 60 * 1000);
 
   await repositories.token.create({
+    token_id: uuidv4(),
     session_id: sessionId,
     parent_token_id: null,
     token_type: 'ID',

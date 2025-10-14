@@ -29,7 +29,7 @@ export const verifySessionEndpoint = async (req: Request, res: Response): Promis
       expiresAt: session?.expiresAt?.toISOString()
     };
 
-    logAuthEvent('session_verify', session?.userId, {
+    logAuthEvent('session_verify', session ? session.cupid : undefined, {
       sessionId: session_id,
       isValid,
       ip: req.ip

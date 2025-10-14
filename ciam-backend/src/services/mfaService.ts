@@ -19,7 +19,7 @@ const toMFATransaction = (dbTransaction: any): MFATransaction => {
   return {
     transactionId: dbTransaction.transaction_id,
     contextId: dbTransaction.context_id,
-    userId: metadata.user_id || '',
+    userId: metadata.cupid || '', // cupid is the user identifier in metadata
     sessionId: metadata.session_id,
     method: metadata.method || 'sms',
     status: dbTransaction.transaction_status as MFAChallengeStatus,
@@ -65,7 +65,7 @@ export const createMFATransaction = async (
 
   // Prepare metadata
   const metadata = {
-    user_id: userId,
+    cupid: userId, // User identifier (userId parameter maps to cupid)
     session_id: sessionId,
     method,
     challenge_id: isOTPMethod ? `ch-${uuidv4()}` : undefined,
@@ -74,12 +74,28 @@ export const createMFATransaction = async (
     mfa_option_id: mfaOptionId,
   };
 
+  // Get next sequence number for this context
+  const sequenceNumber = await repositories.authTransaction.getNextSequenceNumber(contextId);
+
   // Create transaction in database
   const dbTransaction = await repositories.authTransaction.create({
     transaction_id: transactionId,
     context_id: contextId,
-    transaction_type: 'MFA',
+    parent_transaction_id: null,
+    sequence_number: sequenceNumber,
+    phase: 'MFA',
     transaction_status: 'PENDING',
+    mfa_method: method.toUpperCase() as any,
+    mfa_option_id: mfaOptionId || null,
+    display_number: displayNumber || null,
+    selected_number: null,
+    verification_result: null,
+    attempt_number: 1,
+    mfa_options: null,
+    mobile_approve_status: null,
+    esign_document_id: null,
+    esign_action: null,
+    device_bind_decision: null,
     metadata,
     created_at: now,
     updated_at: now,
@@ -313,7 +329,7 @@ export const getMFAStats = async (): Promise<{
   const stats = await repositories.authTransaction.getStats();
 
   return {
-    totalTransactions: stats.byType.MFA,
+    totalTransactions: stats.byPhase.MFA,
     pendingTransactions: stats.byStatus.PENDING,
     approvedTransactions: stats.byStatus.APPROVED,
     rejectedTransactions: stats.byStatus.REJECTED,

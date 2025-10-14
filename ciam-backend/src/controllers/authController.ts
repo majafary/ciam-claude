@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import { Request, Response } from 'express';
 import { validateCredentials, getUserById } from '../services/userService';
 import { createSession, revokeSession } from '../services/sessionService';
@@ -34,7 +35,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     switch (scenario.type) {
       case 'ACCOUNT_LOCKED':
-        logAuthEvent('login_failure', scenario.user?.id, {
+        logAuthEvent('login_failure', scenario.user?.cupid, {
           username,
           reason: 'account_locked',
           ip: req.ip
@@ -80,7 +81,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
         // Create session
         const session = await createSession(
-          scenario.user.id,
+          scenario.user.cupid,
           req.ip,
           req.get('User-Agent')
         );
@@ -88,12 +89,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         // Check device trust status
-        const deviceBound = await isDeviceTrusted(scenario.user.id, drs_action_token || '');
+        const deviceBound = await isDeviceTrusted(scenario.user.cupid, drs_action_token || '');
 
         // If device is trusted, skip MFA
         if (deviceBound) {
           // Check if eSign is required
-          const esignCheck = await needsESign(scenario.user.id);
+          const esignCheck = await needsESign(scenario.user.cupid);
 
           if (esignCheck.required && esignCheck.documentId) {
             // Return eSign required response
@@ -106,7 +107,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
               is_mandatory: esignCheck.isMandatory || false
             };
 
-            logAuthEvent('login_esign_required', scenario.user.id, {
+            logAuthEvent('login_esign_required', scenario.user.cupid, {
               username,
               sessionId: session.sessionId,
               transactionId,
@@ -121,10 +122,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           // Generate all tokens atomically
           const tokens = await createSessionTokens(
             session.sessionId,
-            scenario.user.id,
+            scenario.user.cupid,
             scenario.user.roles,
             {
-              preferred_username: scenario.user.username,
+              preferred_username: scenario.user.cupid,
               email: scenario.user.email,
               email_verified: true,
               given_name: scenario.user.given_name,
@@ -132,7 +133,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             }
           );
 
-          logAuthEvent('login_success', scenario.user.id, {
+          logAuthEvent('login_success', scenario.user.cupid, {
             username,
             sessionId: session.sessionId,
             deviceTrusted: true,
@@ -157,7 +158,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         }
 
         // MFA required - build MFA response
-        logAuthEvent('login_mfa_required', scenario.user.id, {
+        logAuthEvent('login_mfa_required', scenario.user.cupid, {
           username,
           sessionId: session.sessionId,
           transactionId,
@@ -178,7 +179,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
         // Store user ID and scenario type for MFA controller
         (req.session as any) = {
-          userId: scenario.user.id,
+          userId: scenario.user.cupid,
           sessionId: session.sessionId,
           scenario: scenario.type
         };
@@ -298,7 +299,7 @@ export const acceptESign = async (req: Request, res: Response): Promise<void> =>
       userId,
       user.roles,
       {
-        preferred_username: user.username,
+        preferred_username: user.cupid,
         email: user.email,
         email_verified: true,
         given_name: user.given_name,
@@ -365,16 +366,17 @@ export const logout = async (req: AuthenticatedRequest, res: Response): Promise<
       // TRANSACTION: Atomic session revocation, all tokens revocation (ACCESS, REFRESH, ID), and audit logging
       await withTransaction(async (trx) => {
         // Revoke session within transaction
-        await repositories.session.deactivate(sessionId, trx);
+        await repositories.session.logout(sessionId, trx);
 
         // Revoke all tokens for this session within transaction (ACCESS, REFRESH, ID)
         await repositories.token.revokeAllForSession(sessionId, trx);
 
         // Log audit event within transaction
         await repositories.auditLog.create({
+        audit_id: uuidv4(),
           category: 'SESSION',
           action: 'TOKEN_REVOKED',
-          user_id: req.user?.sub || null,
+          cupid: req.user?.sub || null,
           context_id: null,
           ip_address: req.ip || null,
           user_agent: req.get('User-Agent') || null,
@@ -469,7 +471,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
     // Get session to obtain cupid (read-only operation, outside transaction)
     const session = await repositories.session.findById(sessionId);
-    if (!session || !session.is_active) {
+    if (!session || session.status !== 'ACTIVE') {
       logAuthEvent('token_refresh_failure', undefined, {
         reason: 'session_invalid',
         sessionId,
@@ -525,7 +527,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
         cupid,           // cupid used ONLY for JWT payload
         user.roles,
         {
-          preferred_username: user.username,
+          preferred_username: user.cupid,
           email: user.email,
           email_verified: true,
           given_name: user.given_name,
@@ -543,9 +545,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
       // Log audit event within transaction
       await repositories.auditLog.create({
+        audit_id: uuidv4(),
         category: 'AUTH',
         action: 'TOKEN_REFRESHED',
-        user_id: cupid,
+        cupid: cupid,
         context_id: null,
         ip_address: req.ip || null,
         user_agent: req.get('User-Agent') || null,
@@ -654,7 +657,7 @@ export const introspectToken = async (req: Request, res: Response): Promise<void
             active: true,
             scope: 'openid profile email',
             client_id: 'ciam-client',
-            username: user.username,
+            username: user.cupid,
             token_type: 'Bearer',
             exp: decoded.exp,
             iat: decoded.iat,
@@ -683,7 +686,7 @@ export const introspectToken = async (req: Request, res: Response): Promise<void
               sub: session.cupid,
               exp: Math.floor(tokenRecord.expires_at.getTime() / 1000),
               iat: Math.floor(tokenRecord.created_at.getTime() / 1000),
-              username: user.username
+              username: user.cupid
             };
           }
         }

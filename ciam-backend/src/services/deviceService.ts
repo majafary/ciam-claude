@@ -5,6 +5,7 @@
  * Enables MFA skip functionality for trusted devices
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import { repositories } from '../repositories';
 import { TrustedDevice as DBTrustedDevice } from '../database/types';
@@ -13,8 +14,9 @@ import { TrustedDevice as DBTrustedDevice } from '../database/types';
  * Service layer type for trusted device info
  */
 export interface TrustedDeviceInfo {
-  deviceId: number;
-  userId: string;
+  deviceId: string;
+  cupid: string; // User identifier
+  guid: string; // Customer identifier
   deviceFingerprint: string; // Not stored, only hash is stored
   deviceName?: string;
   trustedAt: Date;
@@ -36,13 +38,14 @@ const hashDeviceFingerprint = (fingerprint: string): string => {
 const toTrustedDeviceInfo = (dbDevice: DBTrustedDevice, fingerprint?: string): TrustedDeviceInfo => {
   return {
     deviceId: dbDevice.device_id,
-    userId: dbDevice.user_id,
+    cupid: dbDevice.cupid,
+    guid: dbDevice.guid,
     deviceFingerprint: fingerprint || dbDevice.device_fingerprint_hash, // Use raw fingerprint if available
     deviceName: dbDevice.device_name || undefined,
     trustedAt: dbDevice.trusted_at,
     lastUsedAt: dbDevice.last_used_at,
     expiresAt: dbDevice.expires_at,
-    isActive: dbDevice.is_active,
+    isActive: dbDevice.status === 'ACTIVE',
   };
 };
 
@@ -72,6 +75,7 @@ export const isDeviceTrusted = async (
  */
 export const trustDevice = async (
   userId: string,
+  guid: string,
   deviceFingerprint: string,
   deviceName?: string,
   expirationDays: number = 30
@@ -93,13 +97,15 @@ export const trustDevice = async (
   const expiresAt = new Date(now.getTime() + expirationDays * 24 * 60 * 60 * 1000);
 
   const dbDevice = await repositories.trustedDevice.create({
-    user_id: userId,
+    device_id: uuidv4(),
+    cupid: userId, // User identifier
+    guid: guid, // Customer identifier
     device_fingerprint_hash: fingerprintHash,
     device_name: deviceName || null,
     trusted_at: now,
     last_used_at: now,
     expires_at: expiresAt,
-    is_active: true,
+    status: 'ACTIVE',
   });
 
   console.log(`Trusted device ${dbDevice.device_id} created for user ${userId}`);
@@ -110,15 +116,15 @@ export const trustDevice = async (
  * Get all trusted devices for a user
  */
 export const getUserTrustedDevices = async (userId: string): Promise<TrustedDeviceInfo[]> => {
-  const dbDevices = await repositories.trustedDevice.findActiveByUserId(userId);
+  const dbDevices = await repositories.trustedDevice.findActiveByCupid(userId);
   return dbDevices.map(d => toTrustedDeviceInfo(d));
 };
 
 /**
  * Revoke trust for a specific device
  */
-export const revokeTrustedDevice = async (deviceId: number): Promise<boolean> => {
-  const result = await repositories.trustedDevice.deactivate(deviceId);
+export const revokeTrustedDevice = async (deviceId: string): Promise<boolean> => {
+  const result = await repositories.trustedDevice.revoke(deviceId);
   return !!result;
 };
 
@@ -126,7 +132,7 @@ export const revokeTrustedDevice = async (deviceId: number): Promise<boolean> =>
  * Revoke all trusted devices for a user (security operation)
  */
 export const revokeAllUserDevices = async (userId: string): Promise<number> => {
-  const count = await repositories.trustedDevice.deactivateAllForUser(userId);
+  const count = await repositories.trustedDevice.revokeAllForCupid(userId);
   console.log(`Revoked ${count} trusted devices for user ${userId}`);
   return count;
 };
@@ -135,24 +141,24 @@ export const revokeAllUserDevices = async (userId: string): Promise<number> => {
  * Clean up expired devices
  */
 export const cleanupExpiredDevices = async (): Promise<number> => {
-  // Find and deactivate expired devices
+  // Find and expire expired devices
   const expiredDevices = await repositories.trustedDevice.findExpired();
-  let deactivatedCount = 0;
+  let expiredCount = 0;
 
   for (const device of expiredDevices) {
-    if (device.is_active) {
-      await repositories.trustedDevice.deactivate(device.device_id);
-      deactivatedCount++;
+    if (device.status === 'ACTIVE') {
+      await repositories.trustedDevice.expire(device.device_id);
+      expiredCount++;
     }
   }
 
-  console.log(`Deactivated ${deactivatedCount} expired devices`);
+  console.log(`Expired ${expiredCount} expired devices`);
 
-  // Delete expired and inactive devices
-  const deletedCount = await repositories.trustedDevice.deleteExpiredAndInactive();
-  console.log(`Deleted ${deletedCount} expired and inactive devices`);
+  // Delete expired and revoked devices
+  const deletedCount = await repositories.trustedDevice.deleteExpiredAndRevoked();
+  console.log(`Deleted ${deletedCount} expired and revoked devices`);
 
-  return deactivatedCount;
+  return expiredCount;
 };
 
 /**
@@ -162,18 +168,21 @@ export const getDeviceStats = async (): Promise<{
   totalDevices: number;
   activeDevices: number;
   expiredDevices: number;
-  inactiveDevices: number;
+  revokedDevices: number;
   uniqueUsers: number;
+  uniqueCustomers: number;
 }> => {
   const stats = await repositories.trustedDevice.getStats();
-  const uniqueUsers = Object.keys(stats.byUser).length;
+  const uniqueUsers = Object.keys(stats.byCupid).length;
+  const uniqueCustomers = Object.keys(stats.byGuid).length;
 
   return {
     totalDevices: stats.total,
     activeDevices: stats.active,
     expiredDevices: stats.expired,
-    inactiveDevices: stats.inactive,
+    revokedDevices: stats.revoked,
     uniqueUsers,
+    uniqueCustomers,
   };
 };
 
@@ -181,18 +190,18 @@ export const getDeviceStats = async (): Promise<{
  * Check if device belongs to user
  */
 export const isDeviceOwner = async (
-  deviceId: number,
+  deviceId: string,
   userId: string
 ): Promise<boolean> => {
   const device = await repositories.trustedDevice.findById(deviceId);
-  return device?.user_id === userId;
+  return device?.cupid === userId;
 };
 
 /**
  * Update device name
  */
 export const updateDeviceName = async (
-  deviceId: number,
+  deviceId: string,
   deviceName: string
 ): Promise<TrustedDeviceInfo | null> => {
   const updated = await repositories.trustedDevice.update(deviceId, {
@@ -210,7 +219,7 @@ export const updateDeviceName = async (
  * Get device by ID
  */
 export const getDeviceById = async (
-  deviceId: number
+  deviceId: string
 ): Promise<TrustedDeviceInfo | null> => {
   const device = await repositories.trustedDevice.findById(deviceId);
 

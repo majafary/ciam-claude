@@ -19,6 +19,7 @@ import {
   Session,
   NewSession,
   SessionUpdate,
+  SessionStatus,
 } from '../database/types';
 
 export class SessionRepository extends BaseRepository<
@@ -94,7 +95,7 @@ export class SessionRepository extends BaseRepository<
         .selectFrom(this.tableName)
         .selectAll()
         .where('cupid', '=', cupid)
-        .where('is_active', '=', true)
+        .where('status', '=', 'ACTIVE')
         .where('expires_at', '>', now)
         .execute();
 
@@ -116,7 +117,7 @@ export class SessionRepository extends BaseRepository<
       const results = await this.getDb(trx)
         .selectFrom(this.tableName)
         .selectAll()
-        .where('is_active', '=', true)
+        .where('status', '=', 'ACTIVE')
         .where('expires_at', '>', now)
         .execute();
 
@@ -174,53 +175,114 @@ export class SessionRepository extends BaseRepository<
   }
 
   /**
-   * Deactivate a session
+   * Expire a session (time-based expiration)
    */
-  async deactivate(
+  async expire(
     sessionId: string,
     trx?: Transaction<Database> | any
   ): Promise<Session | undefined> {
     try {
-      this.log('deactivate', { sessionId });
+      this.log('expire', { sessionId });
 
       const result = await this.update(
         sessionId,
         {
-          is_active: false,
+          status: 'EXPIRED',
         } as SessionUpdate,
         trx
       );
 
-      this.log('deactivate:result', { updated: !!result });
+      this.log('expire:result', { updated: !!result });
       return result;
     } catch (error) {
-      this.handleError('deactivate', error);
+      this.handleError('expire', error);
     }
   }
 
   /**
-   * Deactivate all sessions for a user (by cupid)
+   * Revoke a session (admin or security operation)
    */
-  async deactivateAllForCupid(
+  async revoke(
+    sessionId: string,
+    revokedBy: string,
+    reason: string,
+    trx?: Transaction<Database> | any
+  ): Promise<Session | undefined> {
+    try {
+      this.log('revoke', { sessionId, revokedBy });
+
+      const result = await this.update(
+        sessionId,
+        {
+          status: 'REVOKED',
+          revoked_at: new Date(),
+          revoked_by: revokedBy,
+          revocation_reason: reason,
+        } as SessionUpdate,
+        trx
+      );
+
+      this.log('revoke:result', { updated: !!result });
+      return result;
+    } catch (error) {
+      this.handleError('revoke', error);
+    }
+  }
+
+  /**
+   * Logout a session (user-initiated)
+   */
+  async logout(
+    sessionId: string,
+    trx?: Transaction<Database> | any
+  ): Promise<Session | undefined> {
+    try {
+      this.log('logout', { sessionId });
+
+      const result = await this.update(
+        sessionId,
+        {
+          status: 'LOGGED_OUT',
+        } as SessionUpdate,
+        trx
+      );
+
+      this.log('logout:result', { updated: !!result });
+      return result;
+    } catch (error) {
+      this.handleError('logout', error);
+    }
+  }
+
+  /**
+   * Revoke all sessions for a user (security operation)
+   */
+  async revokeAllForCupid(
     cupid: string,
+    revokedBy: string,
+    reason: string,
     trx?: Transaction<Database> | any
   ): Promise<number> {
     try {
-      this.log('deactivateAllForCupid', { cupid });
+      this.log('revokeAllForCupid', { cupid, revokedBy });
 
       const results = await this.getDb(trx)
         .updateTable(this.tableName)
         .set({
-          is_active: false,
+          status: 'REVOKED',
+          revoked_at: new Date(),
+          revoked_by: revokedBy,
+          revocation_reason: reason,
         } as any)
         .where('cupid', '=', cupid)
+        .where('status', '=', 'ACTIVE')
         .execute();
 
       const count = results.length;
-      this.log('deactivateAllForCupid:result', { count });
+      this.log('revokeAllForCupid:result', { count });
       return count;
     } catch (error) {
-      this.handleError('deactivateAllForCupid', error);
+      this.handleError('revokeAllForCupid', error);
     }
   }
 
@@ -235,10 +297,10 @@ export class SessionRepository extends BaseRepository<
       const results = await this.getDb(trx)
         .updateTable(this.tableName)
         .set({
-          is_active: false,
+          status: 'EXPIRED',
         } as any)
         .where('expires_at', '<=', now)
-        .where('is_active', '=', true)
+        .where('status', '=', 'ACTIVE')
         .execute();
 
       const count = results.length;
@@ -260,7 +322,7 @@ export class SessionRepository extends BaseRepository<
       const results = await this.getDb(trx)
         .deleteFrom(this.tableName)
         .where('expires_at', '<=', now)
-        .where('is_active', '=', false)
+        .where('status', '=', 'EXPIRED')
         .execute();
 
       const count = results.length;
@@ -278,14 +340,15 @@ export class SessionRepository extends BaseRepository<
     total: number;
     active: number;
     expired: number;
-    inactive: number;
+    revoked: number;
+    loggedOut: number;
+    byStatus: Record<SessionStatus, number>;
     byCupid: Record<string, number>;
   }> {
     try {
       this.log('getStats');
 
       const all = await this.findAll(trx);
-      const now = new Date();
 
       const byCupid: Record<string, number> = {};
       all.forEach((session) => {
@@ -294,9 +357,16 @@ export class SessionRepository extends BaseRepository<
 
       const stats = {
         total: all.length,
-        active: all.filter((s) => s.is_active && new Date(s.expires_at) > now).length,
-        expired: all.filter((s) => new Date(s.expires_at) <= now).length,
-        inactive: all.filter((s) => !s.is_active).length,
+        active: all.filter((s) => s.status === 'ACTIVE').length,
+        expired: all.filter((s) => s.status === 'EXPIRED').length,
+        revoked: all.filter((s) => s.status === 'REVOKED').length,
+        loggedOut: all.filter((s) => s.status === 'LOGGED_OUT').length,
+        byStatus: {
+          ACTIVE: all.filter((s) => s.status === 'ACTIVE').length,
+          EXPIRED: all.filter((s) => s.status === 'EXPIRED').length,
+          REVOKED: all.filter((s) => s.status === 'REVOKED').length,
+          LOGGED_OUT: all.filter((s) => s.status === 'LOGGED_OUT').length,
+        },
         byCupid,
       };
 

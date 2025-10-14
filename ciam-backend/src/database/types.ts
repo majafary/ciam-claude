@@ -32,12 +32,17 @@ export type GeneratedId = Generated<number>;
 
 export interface AuthContextsTable {
   context_id: string; // PRIMARY KEY - UUID or session-based ID
-  user_id: string | null; // Reference to user (from LDAP/external auth)
+  guid: string; // Customer-level identifier (NOT NULL)
+  cupid: string; // User identifier from LDAP (NOT NULL)
   app_id: string;
   app_version: string;
   ip_address: string | null;
   user_agent: string | null;
   device_fingerprint: string | null;
+  correlation_id: string | null; // External correlation ID for tracking
+  requires_additional_steps: boolean; // Whether additional auth steps are required
+  auth_outcome: string | null; // Final authentication outcome
+  completed_at: Timestamp | null; // When auth flow completed
   created_at: Timestamp;
   updated_at: Timestamp;
   expires_at: Timestamp;
@@ -51,15 +56,42 @@ export type AuthContextUpdate = Updateable<AuthContextsTable>;
 // AUTH_TRANSACTIONS TABLE
 // ============================================================================
 
-export type TransactionType = 'MFA' | 'ESIGN' | 'DEVICE_BIND';
-export type TransactionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'COMPLETED';
+export type TransactionPhase = 'MFA' | 'ESIGN' | 'DEVICE_BIND';
+export type TransactionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'COMPLETED' | 'CONSUMED';
+export type MfaMethod = 'SMS' | 'VOICE' | 'PUSH' | 'TOTP';
+export type MobileApproveStatus = 'NOT_REGISTERED' | 'ENABLED' | 'DISABLED';
+export type VerificationResult = 'SUCCESS' | 'FAILURE' | 'TIMEOUT';
+export type EsignAction = 'ACCEPT' | 'DECLINE' | 'SKIP';
+export type DeviceBindDecision = 'BIND' | 'SKIP';
 
 export interface AuthTransactionsTable {
   transaction_id: string; // PRIMARY KEY - UUID
   context_id: string; // FOREIGN KEY to auth_contexts
-  transaction_type: TransactionType;
+  parent_transaction_id: string | null; // FOREIGN KEY to auth_transactions (for retry chains)
+  sequence_number: number; // Sequential order within context
+  phase: TransactionPhase; // MFA, ESIGN, or DEVICE_BIND
   transaction_status: TransactionStatus;
-  metadata: ColumnType<Record<string, unknown>, string | Record<string, unknown>, string | Record<string, unknown>>; // JSONB
+
+  // MFA phase-specific columns
+  mfa_method: MfaMethod | null; // SMS, VOICE, PUSH, TOTP
+  mfa_option_id: number | null; // Selected MFA option ID
+  mfa_options: ColumnType<Array<unknown>, string | Array<unknown>, string | Array<unknown>> | null; // JSONB array of available options
+  mobile_approve_status: MobileApproveStatus | null; // NOT_REGISTERED, ENABLED, DISABLED
+  display_number: number | null; // Number shown to user for push approval
+  selected_number: number | null; // Number selected by user
+  verification_result: VerificationResult | null; // SUCCESS, FAILURE, TIMEOUT
+  attempt_number: number | null; // Retry attempt count
+
+  // ESIGN phase-specific columns
+  esign_document_id: string | null; // Document requiring signature
+  esign_action: EsignAction | null; // ACCEPT, DECLINE, SKIP
+
+  // DEVICE_BIND phase-specific columns
+  device_bind_decision: DeviceBindDecision | null; // BIND, SKIP
+
+  // Flexible metadata for additional context
+  metadata: ColumnType<Record<string, unknown>, string | Record<string, unknown>, string | Record<string, unknown>> | null; // JSONB
+
   created_at: Timestamp;
   updated_at: Timestamp;
   expires_at: Timestamp;
@@ -73,17 +105,22 @@ export type AuthTransactionUpdate = Updateable<AuthTransactionsTable>;
 // SESSIONS TABLE
 // ============================================================================
 
+export type SessionStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'LOGGED_OUT';
+
 export interface SessionsTable {
   session_id: string; // PRIMARY KEY - UUID
   cupid: string; // User identifier (from LDAP)
   context_id: string | null; // FOREIGN KEY to auth_contexts
   device_id: string | null;
+  status: SessionStatus; // ACTIVE, EXPIRED, REVOKED, LOGGED_OUT
   created_at: Timestamp;
   last_seen_at: Timestamp;
   expires_at: Timestamp;
+  revoked_at: Timestamp | null; // When session was revoked
+  revoked_by: string | null; // Who revoked the session (cupid or 'SYSTEM')
+  revocation_reason: string | null; // Why session was revoked
   ip_address: string | null;
   user_agent: string | null;
-  is_active: boolean;
 }
 
 export type Session = Selectable<SessionsTable>;
@@ -98,9 +135,9 @@ export type TokenType = 'ACCESS' | 'REFRESH' | 'ID';
 export type TokenStatus = 'ACTIVE' | 'ROTATED' | 'REVOKED' | 'EXPIRED';
 
 export interface TokensTable {
-  token_id: GeneratedId; // PRIMARY KEY - SERIAL
+  token_id: string; // PRIMARY KEY - UUID
   session_id: string; // FOREIGN KEY to sessions - ONLY foreign key
-  parent_token_id: number | null; // FOREIGN KEY - token rotation chain
+  parent_token_id: string | null; // FOREIGN KEY - token rotation chain (UUID)
   token_type: TokenType; // ACCESS, REFRESH, or ID
   token_value: string; // Actual JWT token
   token_value_hash: string; // SHA-256 hash for fast lookup
@@ -118,15 +155,21 @@ export type TokenUpdate = Updateable<TokensTable>;
 // TRUSTED_DEVICES TABLE
 // ============================================================================
 
+export type DeviceStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+
 export interface TrustedDevicesTable {
-  device_id: GeneratedId; // PRIMARY KEY - SERIAL
-  user_id: string;
+  device_id: string; // PRIMARY KEY - UUID
+  guid: string; // Customer-level identifier (NOT NULL)
+  cupid: string; // User identifier (NOT NULL)
   device_fingerprint_hash: string; // SHA-256 hash (UNIQUE per user)
   device_name: string | null;
+  app_id: string | null; // Application ID that created the trust
+  device_type: string | null; // Device type (mobile, desktop, etc.)
+  status: DeviceStatus; // ACTIVE, REVOKED, EXPIRED
   trusted_at: Timestamp;
   last_used_at: Timestamp;
   expires_at: Timestamp;
-  is_active: boolean;
+  revoked_at: Timestamp | null; // When device trust was revoked
 }
 
 export type TrustedDevice = Selectable<TrustedDevicesTable>;
@@ -141,8 +184,10 @@ export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type DrsAction = 'ALLOW' | 'CHALLENGE' | 'BLOCK';
 
 export interface DrsEvaluationsTable {
-  evaluation_id: GeneratedId; // PRIMARY KEY - SERIAL
+  evaluation_id: string; // PRIMARY KEY - UUID
   context_id: string; // FOREIGN KEY to auth_contexts
+  guid: string; // Customer-level identifier (NOT NULL)
+  cupid: string; // User identifier (NOT NULL)
   action_token_hash: string; // SHA-256 hash of DRS action token (UNIQUE)
   risk_level: RiskLevel;
   risk_score: number; // 0-100
@@ -189,9 +234,9 @@ export type AuditAction =
   | 'SUSPICIOUS_ACTIVITY';
 
 export interface AuditLogsTable {
-  log_id: GeneratedId; // PRIMARY KEY - SERIAL
+  audit_id: string; // PRIMARY KEY - UUID
   context_id: string | null; // FOREIGN KEY to auth_contexts
-  user_id: string | null;
+  cupid: string | null; // User identifier (nullable for system events)
   category: AuditCategory;
   action: AuditAction;
   details: ColumnType<Record<string, unknown>, string | Record<string, unknown>, string | Record<string, unknown>>; // JSONB
