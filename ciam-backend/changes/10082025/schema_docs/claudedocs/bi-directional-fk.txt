@@ -1,0 +1,132 @@
+
+> what about the sessions table which has context_id as a foreigh key. How will we link all the context_ids to the same session_id? 
+
+⏺ Excellent question! This reveals an important aspect of the relationship model. Let me explain how the bidirectional relationship works:
+
+  🔄 Bidirectional Relationship Model
+
+  The Two Foreign Key Relationships:
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    RELATIONSHIP STRUCTURE                        │
+  └─────────────────────────────────────────────────────────────────┘
+
+  sessions Table:
+  ┌──────────────────────────────────────┐
+  │ session_id  │ context_id │ cupid    │
+  │ (PK)        │ (FK)       │          │
+  ├──────────────────────────────────────┤
+  │ sess-abc    │ ctx-001 ────┼─────┐   │  ← Points to INITIAL context
+  └──────────────────────────────────────┘  │
+                                            │
+                                            │
+  auth_contexts Table:                      │
+  ┌────────────────────────────────────────────────────────┐
+  │ context_id │ session_id │ auth_type │ cupid    │      │
+  │ (PK)       │ (FK)       │           │          │      │
+  ├────────────────────────────────────────────────────────┤
+  │ ctx-001    │ NULL    ◄──┼───────────┼──────────┼──────┘ Initial context
+  │ ctx-002    │ sess-abc   │ STEP_UP   │ user123  │      ◄─── Step-up contexts
+  │ ctx-003    │ sess-abc   │ STEP_UP   │ user123  │      ◄─── reference back
+  │ ctx-004    │ sess-abc   │ STEP_UP   │ user123  │      ◄─── to session
+  └────────────────────────────────────────────────────────┘
+
+  The Design Pattern:
+
+  1. sessions.context_id (One-to-One)
+  - Points to the INITIAL auth_context that created the session
+  - NOT NULL - every session has exactly one initial auth
+  - Provides provenance: "This session was created by this auth event"
+
+  2. auth_contexts.session_id (Many-to-One)
+  - Step-up contexts point BACK to their parent session
+  - Nullable - NULL for initial auth (no session exists yet)
+  - Allows multiple step-ups to reference the same session
+
+  How to Get ALL Contexts for a Session:
+
+  The view v_session_auth_timeline (lines 788-790) handles this:
+
+  JOIN auth_contexts ac ON (
+      ac.context_id = sc.initial_context_id OR  -- ← Get initial via sessions.context_id
+      ac.session_id = sc.session_id              -- ← Get all step-ups via auth_contexts.session_id
+  )
+
+  Concrete Example:
+
+  -- Step 1: Initial Authentication (Pre-Auth)
+  INSERT INTO auth_contexts (context_id, auth_type, session_id, cupid)
+  VALUES ('ctx-001', 'INITIAL', NULL, 'user123');  -- session_id is NULL
+
+  -- Step 2: Auth Succeeds, Create Session
+  INSERT INTO sessions (session_id, context_id, cupid)
+  VALUES ('sess-abc', 'ctx-001', 'user123');  -- Links to initial context
+
+  -- Step 3: Post-Auth Activity, then Step-Up Required
+  INSERT INTO auth_contexts (context_id, auth_type, session_id, cupid)
+  VALUES ('ctx-002', 'STEP_UP', 'sess-abc', 'user123');  -- Links back to session
+
+  -- Step 4: Another Step-Up Later
+  INSERT INTO auth_contexts (context_id, auth_type, session_id, cupid)
+  VALUES ('ctx-003', 'STEP_UP', 'sess-abc', 'user123');  -- Also links back
+
+  Query to Get All Contexts:
+
+  -- Get ALL contexts for session 'sess-abc'
+  SELECT
+      ac.context_id,
+      ac.auth_type,
+      ac.created_at
+  FROM sessions s
+  LEFT JOIN auth_contexts ac ON (
+      ac.context_id = s.context_id OR     -- Initial context (1 row)
+      ac.session_id = s.session_id         -- Step-up contexts (N rows)
+  )
+  WHERE s.session_id = 'sess-abc'
+  ORDER BY ac.created_at;
+
+  Result:
+  context_id | auth_type | created_at
+  -----------|-----------|------------------
+  ctx-001    | INITIAL   | 2025-10-14 10:00:00  ← Via sessions.context_id
+  ctx-002    | STEP_UP   | 2025-10-14 10:15:00  ← Via auth_contexts.session_id
+  ctx-003    | STEP_UP   | 2025-10-14 10:30:00  ← Via auth_contexts.session_id
+
+  ---
+  ⚠️ Is This the Right Design?
+
+  This is a valid bidirectional pattern, but there are two possible interpretations of your requirement:
+
+  Current Design (Bidirectional FK):
+
+  - ✅ sessions.context_id → initial auth_context (provenance)
+  - ✅ auth_contexts.session_id → session for step-ups (reverse lookup)
+  - ✅ Views handle both relationships
+
+  Alternative Design (Could we remove sessions.context_id?):
+
+  If we wanted to simplify, we could:
+  - ❌ Remove sessions.context_id
+  - ✅ Keep only auth_contexts.session_id
+  - Query initial context via: WHERE session_id = X AND auth_type = 'INITIAL'
+
+  Trade-offs:
+  | Aspect                | Current (Bidirectional)              | Alternative (Unidirectional)                |
+  |-----------------------|--------------------------------------|---------------------------------------------|
+  | Provenance            | ✅ Direct FK to initial context       | ⚠️ Must query to find initial               |
+  | Referential Integrity | ✅ Session→Initial enforced           | ❌ No FK enforcement                         |
+  | Query Complexity      | ✅ Simple: follow sessions.context_id | ⚠️ Filter: WHERE auth_type='INITIAL'        |
+  | Data Integrity        | ✅ Guaranteed initial context exists  | ❌ Could delete initial context accidentally |
+
+  ---
+  🤔 Question for You:
+
+  Is the current bidirectional design what you want, or would you prefer:
+
+  Option A (Current): Keep sessions.context_id pointing to initial context
+  - Pro: Clear provenance, enforced integrity
+  - Con: Two FKs to manage
+
+  Option B (Simplified): Remove sessions.context_id, query by auth_type
+  - Pro: Simpler schema, single FK direction
+  - Con: Lose referential integrity, more complex queries
