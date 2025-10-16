@@ -1,7 +1,49 @@
 openapi: 3.0.3
 info:
   title: CIAM Backend API
-  description: Customer Identity and Access Management (CIAM) Backend API with MFA, eSign, and device trust capabilities
+  description: |
+    Customer Identity and Access Management (CIAM) Backend API with MFA, eSign, and device trust capabilities
+
+    ## Request Validation
+
+    All API endpoints perform request validation according to OpenAPI schema constraints.
+
+    ### Required Fields
+    When required fields are missing or invalid, the API returns a 400 Bad Request response with:
+    - `error_code`: "CIAM_E01_05_001" (ValidationErrors)
+    - `context_id`: Authentication context identifier (when available)
+    - `missing_fields`: Array of field names that are missing or invalid
+
+    ### Authentication Context Flow
+    Most authentication endpoints require `context_id` and `transaction_id` parameters:
+
+    1. **context_id**: Returned by `/auth/login` and maintained throughout the authentication flow
+       - Used to track authentication state across multiple steps
+       - Required in all subsequent authentication operations (MFA, eSign, device binding)
+       - Missing context_id results in validation error (CIAM_E01_05_001)
+
+    2. **transaction_id**: Returned by `/auth/login` or `/auth/mfa/initiate`
+       - Identifies specific MFA, eSign, or device binding transactions
+       - Required for transaction completion and verification
+       - Missing transaction_id results in validation error (CIAM_E01_05_001)
+
+    ### Error Response Format
+    All error responses follow a consistent structure:
+    ```json
+    {
+      "error_code": "CIAM_E01_05_001",
+      "context_id": "ctx_abc123",
+      "missing_fields": ["transaction_id", "code"]
+    }
+    ```
+
+    The `missing_fields` array is only present when `error_code` is "CIAM_E01_05_001" (validation error).
+
+    ### Validation Behavior
+    - **Schema Validation**: OpenAPI schema constraints are enforced (required fields, data types, formats)
+    - **Business Validation**: Domain-specific rules (e.g., invalid MFA method, transaction expired)
+    - **Fail Fast**: API returns validation errors immediately before processing requests
+    - **Field-Level Detail**: The `missing_fields` array provides specific field names for client-side error handling
   version: 2.2.0
   contact:
     name: CIAM Team
@@ -262,7 +304,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/MFAChallengeResponse'
         '400':
-          description: Invalid MFA method
+          description: |
+            Request validation failed:
+            * Invalid MFA method (CIAM_E01_01_009)
+            * Missing required fields: context_id, transaction_id, or method (CIAM_E01_05_001)
           content:
             application/json:
               schema:
@@ -328,7 +373,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/MFAVerifySuccessResponse'
         '400':
-          description: Invalid OTP or transaction not approved
+          description: |
+            MFA verification failed:
+            * Invalid OTP code (CIAM_E01_01_017)
+            * Transaction not approved for push notification (CIAM_E01_01_018)
+            * Missing required fields: context_id, transaction_id, or code (CIAM_E01_05_001)
           content:
             application/json:
               schema:
@@ -400,6 +449,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MFAVerifySuccessResponse'
+        '400':
+          description: Missing required fields or invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionGet400Error'
+              example:
+                error_code: "CIAM_E01_05_001"
         '404':
           description: Transaction not found
           content:
@@ -462,7 +519,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/MFAApproveResponse'
         '400':
-          description: Invalid number or transaction already processed
+          description: |
+            Transaction approval failed:
+            * Transaction already processed (CIAM_E01_03_003)
+            * Invalid number matching
+            * Missing required fields: context_id or selected_number (CIAM_E01_05_001)
           content:
             application/json:
               schema:
@@ -581,7 +642,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ESignAcceptResponse'
         '400':
-          description: Invalid request or no pending eSign
+          description: |
+            eSign acceptance failed:
+            * No pending eSign requirement (CIAM_E01_04_002)
+            * Missing required fields: context_id, transaction_id, or document_id (CIAM_E01_05_001)
+            * Invalid field format or values
           content:
             application/json:
               schema:
@@ -636,7 +701,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeviceBindResponse'
         '400':
-          description: Invalid request
+          description: |
+            Device binding validation failed:
+            * Missing required fields: context_id, transaction_id, or bind_device (CIAM_E01_05_001)
+            * Invalid field format or values
           content:
             application/json:
               schema:
@@ -936,7 +1004,7 @@ components:
         - CIAM_E01_05_001
       description: |
         Request validation error:
-        * CIAM_E01_05_001 - Invalid request parameters
+        * CIAM_E01_05_001 - Invalid request parameters (missing required fields, invalid format, or invalid values)
 
     ServerErrors:
       type: string
@@ -1004,10 +1072,21 @@ components:
         - context_id
       properties:
         error_code:
-          $ref: '#/components/schemas/MFAMethodErrors'
+          oneOf:
+            - $ref: '#/components/schemas/MFAMethodErrors'
+            - $ref: '#/components/schemas/ValidationErrors'
         context_id:
           type: string
-      description: MFA initiation failed - invalid method
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
+          example: ["context_id", "transaction_id"]
+      description: |
+        MFA initiation failed:
+        * Invalid MFA method (CIAM_E01_01_009)
+        * Missing required fields (CIAM_E01_05_001)
 
     MFAVerify400Error:
       type: object
@@ -1016,10 +1095,40 @@ components:
         - context_id
       properties:
         error_code:
-          $ref: '#/components/schemas/MFAVerificationErrors'
+          oneOf:
+            - $ref: '#/components/schemas/MFAVerificationErrors'
+            - $ref: '#/components/schemas/ValidationErrors'
         context_id:
           type: string
-      description: MFA verification failed - invalid OTP or transaction not approved
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
+          example: ["context_id", "transaction_id", "code"]
+      description: |
+        MFA verification failed:
+        * Invalid OTP code (CIAM_E01_01_017)
+        * Transaction not approved for push (CIAM_E01_01_018)
+        * Missing required fields (CIAM_E01_05_001)
+
+    TransactionGet400Error:
+      type: object
+      required:
+        - error_code
+        - context_id
+      properties:
+        error_code:
+          $ref: '#/components/schemas/ValidationErrors'
+        context_id:
+          type: string
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing or invalid
+          example: ["context_id"]
+      description: Validation failed - missing required fields or invalid request parameters
 
     TransactionGet404Error:
       type: object
@@ -1045,7 +1154,16 @@ components:
             - $ref: '#/components/schemas/ValidationErrors'
         context_id:
           type: string
-      description: Transaction approval failed - already processed or invalid parameters
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
+          example: ["context_id", "selected_number"]
+      description: |
+        Transaction approval failed:
+        * Transaction already processed (CIAM_E01_03_003)
+        * Missing required fields or invalid parameters (CIAM_E01_05_001)
 
     TransactionApprove404Error:
       type: object
@@ -1095,7 +1213,16 @@ components:
             - $ref: '#/components/schemas/ValidationErrors'
         context_id:
           type: string
-      description: eSign acceptance failed - no pending eSign or invalid request
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
+          example: ["context_id", "transaction_id", "document_id"]
+      description: |
+        eSign acceptance failed:
+        * No pending eSign required (CIAM_E01_04_002)
+        * Missing required fields or invalid request parameters (CIAM_E01_05_001)
 
     DeviceBind400Error:
       type: object
@@ -1107,7 +1234,13 @@ components:
           $ref: '#/components/schemas/ValidationErrors'
         context_id:
           type: string
-      description: Device binding failed - invalid request parameters
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing or invalid
+          example: ["context_id", "transaction_id", "bind_device"]
+      description: Device binding failed - missing required fields or invalid request parameters (CIAM_E01_05_001)
 
     DeviceBind404Error:
       type: object
