@@ -20,7 +20,6 @@ info:
     When required fields are missing or invalid, the API returns a 400 Bad Request response with:
     - `error_code`: "CIAM_E01_05_001" (ValidationErrors)
     - `context_id`: Authentication context identifier (when available)
-    - `missing_fields`: Array of field names that are missing or invalid
 
     ### Authentication Context Flow
     Most authentication endpoints require `context_id` and `transaction_id` parameters:
@@ -40,18 +39,14 @@ info:
     ```json
     {
       "error_code": "CIAM_E01_05_001",
-      "context_id": "ctx_abc123",
-      "missing_fields": ["transaction_id", "code"]
+      "context_id": "ctx_abc123"
     }
     ```
-
-    The `missing_fields` array is only present when `error_code` is "CIAM_E01_05_001" (validation error).
 
     ### Validation Behavior
     - **Schema Validation**: OpenAPI schema constraints are enforced (required fields, data types, formats)
     - **Business Validation**: Domain-specific rules (e.g., invalid MFA method, transaction expired)
     - **Fail Fast**: API returns validation errors immediately before processing requests
-    - **Field-Level Detail**: The `missing_fields` array provides specific field names for client-side error handling
   version: 2.2.0
   contact:
     name: CIAM Team
@@ -104,11 +99,15 @@ paths:
                     type: string
                     format: date-time
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
 
   /auth/login:
     post:
@@ -172,45 +171,84 @@ paths:
                 $ref: '#/components/schemas/LoginSuccessResponse'
         '401':
           description: |
-            Authentication failed:
-            * Gateway-level: Unknown or invalid client ID - response format determined by gateway
-            * API-level: Invalid credentials or user not found (CIAM_E01_01_001) - includes context_id
+            Authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
+
+            **API-level errors:**
+            - CIAM_E01_01_001: User not found or invalid credentials
+            - CIAM_E01_01_016: Username contains masked value
           content:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/ClientId401Error'
-                  - $ref: '#/components/schemas/Login401Error'
+                  - $ref: '#/components/schemas/GatewayErrorResponse'
+                  - $ref: '#/components/schemas/ApplicationErrorResponse'
               examples:
-                api_level:
-                  summary: API-level credential authentication failure
+                invalid_credentials:
+                  summary: Invalid username or password
                   value:
                     error_code: "CIAM_E01_01_001"
                     context_id: "ctx_abc123"
+                masked_username:
+                  summary: Username contains masked value
+                  value:
+                    error_code: "CIAM_E01_01_016"
+                    context_id: "ctx_def456"
         '403':
-          description: Access denied - IP on deny list
+          description: |
+            Access denied due to policy restrictions
+
+            **Possible error codes:**
+            - CIAM_E01_01_010: Analyze deny - User IP on deny list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Login403Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_01_010"
+                context_id: "ctx_abc123"
         '423':
-          description: Account or MFA locked
+          description: |
+            Account or MFA locked
+
+            **Possible error codes:**
+            - CIAM_E01_01_002: User password locked
+            - CIAM_E01_01_003: User disabled
+            - CIAM_E01_01_004: Enterprise credential block
+            - CIAM_E01_01_005: MFA locked
+            - CIAM_E01_01_006: User deceased
+            - CIAM_E01_01_008: CAPI restriction blocked by bank or customer
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Login423Error'
-              example:
-                error_code: "CIAM_E01_01_002"
+                $ref: '#/components/schemas/ApplicationErrorResponse'
+              examples:
+                password_locked:
+                  summary: Account locked due to failed password attempts
+                  value:
+                    error_code: "CIAM_E01_01_002"
+                    context_id: "ctx_abc123"
+                mfa_locked:
+                  summary: MFA locked due to failed attempts
+                  value:
+                    error_code: "CIAM_E01_01_005"
+                    context_id: "ctx_def456"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/logout:
     post:
@@ -238,11 +276,15 @@ paths:
                     type: string
                     example: Logout successful
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
 
   /auth/refresh:
     post:
@@ -284,29 +326,50 @@ paths:
                     description: Token lifetime in seconds
         '401':
           description: |
-            Authentication failed:
-            * Gateway-level: Unknown or invalid client ID - response format determined by gateway
-            * API-level: Invalid or missing refresh token (token errors) - includes context_id
+            Authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
+
+            **API-level errors (Token & Session):**
+            - CIAM_E04_00_001: Refresh token not decryptable
+            - CIAM_E04_00_002: Refresh token not valid or expired
+            - CIAM_E04_00_003: Session not readable
+            - CIAM_E04_00_004: Session not active
+            - CIAM_E04_00_005: Session expired
+            - CIAM_E04_00_008: Null refresh token
+            - CIAM_E04_00_009: Username not matched
           content:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/ClientId401Error'
-                  - $ref: '#/components/schemas/Refresh401Error'
+                  - $ref: '#/components/schemas/GatewayErrorResponse'
+                  - $ref: '#/components/schemas/ApplicationErrorResponse'
               examples:
-                api_level:
-                  summary: API-level token validation failure
+                token_expired:
+                  summary: Refresh token expired
                   value:
                     error_code: "CIAM_E04_00_002"
                     context_id: "ctx_abc123"
+                token_not_found:
+                  summary: Refresh token not found
+                  value:
+                    error_code: "CIAM_E04_00_001"
+                    context_id: "ctx_def456"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/token/verify:
     post:
@@ -373,24 +436,36 @@ paths:
                   value:
                     active: false
         '400':
-          description: Invalid request - missing token field
+          description: |
+            Request validation failed
+
+            **Possible error codes:**
+            - CIAM_E01_05_001: Missing required token field
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenVerify400Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_05_001"
-                missing_fields: ["token"]
         '401':
-          description: API key authentication failed
+          description: |
+            API key authentication failed
+
+            **Possible error codes:**
+            - CIAM_E04_00_010: Invalid or missing API key
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenVerify401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
               example:
                 error_code: "CIAM_E04_00_010"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
@@ -399,7 +474,7 @@ paths:
                   - error_code
                 properties:
                   error_code:
-                    $ref: '#/components/schemas/ServerErrors'
+                    $ref: '#/components/schemas/CIAMErrorCodes'
               example:
                 error_code: "CIAM_E05_00_001"
 
@@ -447,29 +522,50 @@ paths:
                 $ref: '#/components/schemas/MFAChallengeResponse'
         '400':
           description: |
-            Request validation failed:
-            * Invalid MFA method (CIAM_E01_01_009)
-            * Missing required fields: context_id, transaction_id, or method (CIAM_E01_05_001)
+            Request validation failed
+
+            **Possible error codes:**
+            - CIAM_E01_01_009: Invalid MFA method
+            - CIAM_E01_05_001: Missing required fields (context_id, transaction_id, or method)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MFAInitiate400Error'
-              example:
-                error_code: "CIAM_E01_01_009"
+                $ref: '#/components/schemas/ApplicationErrorResponse'
+              examples:
+                invalid_method:
+                  summary: Invalid MFA method provided
+                  value:
+                    error_code: "CIAM_E01_01_009"
+                    context_id: "ctx_abc123"
+                validation_error:
+                  summary: Required fields missing
+                  value:
+                    error_code: "CIAM_E01_05_001"
+                    context_id: "ctx_abc123"
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/mfa/otp/verify:
     post:
@@ -525,30 +621,56 @@ paths:
                 $ref: '#/components/schemas/MFAVerifySuccessResponse'
         '400':
           description: |
-            MFA verification failed:
-            * Invalid OTP code (CIAM_E01_01_017)
-            * Transaction not approved for push notification (CIAM_E01_01_018)
-            * Missing required fields: context_id, transaction_id, or code (CIAM_E01_05_001)
+            MFA verification failed
+
+            **Possible error codes:**
+            - CIAM_E01_01_017: Invalid OTP code
+            - CIAM_E01_01_018: Transaction not approved (push notification pending)
+            - CIAM_E01_05_001: Missing required fields (context_id, transaction_id, or code)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MFAVerify400Error'
-              example:
-                error_code: "CIAM_E01_01_017"
+                $ref: '#/components/schemas/ApplicationErrorResponse'
+              examples:
+                invalid_otp:
+                  summary: OTP code is incorrect
+                  value:
+                    error_code: "CIAM_E01_01_017"
+                    context_id: "ctx_abc123"
+                push_not_approved:
+                  summary: Push notification not yet approved
+                  value:
+                    error_code: "CIAM_E01_01_018"
+                    context_id: "ctx_def456"
+                validation_error:
+                  summary: Required fields missing
+                  value:
+                    error_code: "CIAM_E01_05_001"
+                    context_id: "ctx_abc123"
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/mfa/transactions/{transaction_id}:
     post:
@@ -610,43 +732,68 @@ paths:
               schema:
                 $ref: '#/components/schemas/MFAVerifySuccessResponse'
         '400':
-          description: Missing required fields or invalid request parameters
+          description: |
+            Request validation failed
+
+            **Possible error codes:**
+            - CIAM_E01_05_001: Missing required fields (context_id) or invalid request parameters
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TransactionGet400Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_05_001"
+                context_id: "ctx_abc123"
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '404':
-          description: Transaction not found
+          description: |
+            Transaction not found
+
+            **Possible error codes:**
+            - CIAM_E01_03_001: Transaction not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TransactionGet404Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_03_001"
+                context_id: "ctx_abc123"
         '410':
-          description: Transaction expired or rejected by user
+          description: |
+            Transaction expired or rejected by user
+
+            **Possible error codes:**
+            - CIAM_E01_03_002: Transaction expired
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TransactionApprove410Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_03_002"
+                context_id: "ctx_abc123"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/mfa/transactions/{transaction_id}/approve:
     post:
@@ -689,46 +836,76 @@ paths:
                 $ref: '#/components/schemas/MFAApproveResponse'
         '400':
           description: |
-            Transaction approval failed:
-            * Transaction already processed (CIAM_E01_03_003)
-            * Invalid number matching
-            * Missing required fields: context_id or selected_number (CIAM_E01_05_001)
+            Transaction approval failed
+
+            **Possible error codes:**
+            - CIAM_E01_03_003: Transaction already processed
+            - CIAM_E01_05_001: Missing required fields (context_id or selected_number)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TransactionApprove400Error'
-              example:
-                error_code: "CIAM_E01_03_003"
+                $ref: '#/components/schemas/ApplicationErrorResponse'
+              examples:
+                already_processed:
+                  summary: Transaction was already processed
+                  value:
+                    error_code: "CIAM_E01_03_003"
+                    context_id: "ctx_abc123"
+                validation_error:
+                  summary: Required fields missing
+                  value:
+                    error_code: "CIAM_E01_05_001"
+                    context_id: "ctx_abc123"
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '404':
-          description: Transaction not found
+          description: |
+            Transaction not found
+
+            **Possible error codes:**
+            - CIAM_E01_03_001: Transaction not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TransactionApprove404Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_03_001"
+                context_id: "ctx_abc123"
         '410':
-          description: Transaction expired
+          description: |
+            Transaction expired
+
+            **Possible error codes:**
+            - CIAM_E01_03_002: Transaction expired
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TransactionApprove410Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_03_002"
+                context_id: "ctx_abc123"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/esign/documents/{document_id}:
     get:
@@ -755,27 +932,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/ESignDocument'
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '404':
-          description: Document not found
+          description: |
+            Document not found
+
+            **Possible error codes:**
+            - CIAM_E01_04_001: Document not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ESignGet404Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_04_001"
+                context_id: "ctx_abc123"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/esign/accept:
     post:
@@ -833,30 +1025,50 @@ paths:
                 $ref: '#/components/schemas/ESignAcceptResponse'
         '400':
           description: |
-            eSign acceptance failed:
-            * No pending eSign requirement (CIAM_E01_04_002)
-            * Missing required fields: context_id, transaction_id, or document_id (CIAM_E01_05_001)
-            * Invalid field format or values
+            eSign acceptance failed
+
+            **Possible error codes:**
+            - CIAM_E01_04_002: No pending eSign required
+            - CIAM_E01_05_001: Missing required fields (context_id, transaction_id, or document_id)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ESignAccept400Error'
-              example:
-                error_code: "CIAM_E01_04_002"
+                $ref: '#/components/schemas/ApplicationErrorResponse'
+              examples:
+                esign_not_required:
+                  summary: No pending eSign requirement
+                  value:
+                    error_code: "CIAM_E01_04_002"
+                    context_id: "ctx_abc123"
+                validation_error:
+                  summary: Required fields missing
+                  value:
+                    error_code: "CIAM_E01_05_001"
+                    context_id: "ctx_abc123"
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /auth/device/bind:
     post:
@@ -903,37 +1115,54 @@ paths:
                 $ref: '#/components/schemas/DeviceBindResponse'
         '400':
           description: |
-            Device binding validation failed:
-            * Missing required fields: context_id, transaction_id, or bind_device (CIAM_E01_05_001)
-            * Invalid field format or values
+            Device binding validation failed
+
+            **Possible error codes:**
+            - CIAM_E01_05_001: Missing required fields (context_id, transaction_id, or bind_device)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeviceBind400Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_05_001"
+                context_id: "ctx_abc123"
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
         '404':
-          description: Transaction not found
+          description: |
+            Transaction not found
+
+            **Possible error codes:**
+            - CIAM_E01_03_001: Transaction not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeviceBind404Error'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E01_03_001"
+                context_id: "ctx_abc123"
         '503':
-          description: Service unavailable
+          description: |
+            Service unavailable
+
+            **Possible error codes:**
+            - CIAM_E05_00_001: Server error
+            - CIAM_E05_00_002: Server info not available (e.g. CAPI communication failure)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/ApplicationErrorResponse'
               example:
                 error_code: "CIAM_E05_00_001"
+                context_id: "ctx_abc123"
 
   /.well-known/jwks.json:
     get:
@@ -959,11 +1188,15 @@ paths:
                     items:
                       type: object
         '401':
-          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          description: |
+            Client authentication failed
+
+            **Gateway-level error:**
+            - Unknown or invalid client ID (response format determined by gateway)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientId401Error'
+                $ref: '#/components/schemas/GatewayErrorResponse'
 
 components:
   securitySchemes:
@@ -1021,46 +1254,33 @@ components:
       description: Registered client application identifier. Required for all API requests. Must be a pre-registered value.
 
   schemas:
-    # Error Code Enums by Category
-    CredentialErrors:
+    # Unified Error Code Enum
+    CIAMErrorCodes:
       type: string
       enum:
+        # Authentication & Credential Errors (E01_01)
         - CIAM_E01_01_001
-        - CIAM_E01_01_016
-      description: |
-        Login credential errors:
-        * CIAM_E01_01_001 - User not found or invalid credentials
-        * CIAM_E01_01_016 - Username contains masked value
-
-    AnalyzeDenyErrors:
-      type: string
-      enum:
-        - CIAM_E01_01_010
-      description: |
-        IP/Access restriction errors:
-        * CIAM_E01_01_010 - Analyze deny - User IP on deny list
-
-    AccountLockedErrors:
-      type: string
-      enum:
         - CIAM_E01_01_002
         - CIAM_E01_01_003
         - CIAM_E01_01_004
         - CIAM_E01_01_005
         - CIAM_E01_01_006
         - CIAM_E01_01_008
-      description: |
-        Account locked state errors:
-        * CIAM_E01_01_002 - User password locked
-        * CIAM_E01_01_003 - User disabled
-        * CIAM_E01_01_004 - Enterprise credential block
-        * CIAM_E01_01_005 - MFA locked
-        * CIAM_E01_01_006 - User deceased
-        * CIAM_E01_01_008 - CAPI restriction blocked by bank or customer
-
-    TokenErrors:
-      type: string
-      enum:
+        - CIAM_E01_01_009
+        - CIAM_E01_01_010
+        - CIAM_E01_01_016
+        - CIAM_E01_01_017
+        - CIAM_E01_01_018
+        # Transaction Errors (E01_03)
+        - CIAM_E01_03_001
+        - CIAM_E01_03_002
+        - CIAM_E01_03_003
+        # eSign Errors (E01_04)
+        - CIAM_E01_04_001
+        - CIAM_E01_04_002
+        # Validation Errors (E01_05)
+        - CIAM_E01_05_001
+        # Token & Session Errors (E04_00)
         - CIAM_E04_00_001
         - CIAM_E04_00_002
         - CIAM_E04_00_003
@@ -1070,8 +1290,40 @@ components:
         - CIAM_E04_00_007
         - CIAM_E04_00_008
         - CIAM_E04_00_009
+        - CIAM_E04_00_010
+        # Server Errors (E05_00)
+        - CIAM_E05_00_001
+        - CIAM_E05_00_002
       description: |
-        Token and session errors:
+        CIAM Backend API Error Codes
+
+        ## Authentication & Credential Errors (E01_01)
+        * CIAM_E01_01_001 - User not found or invalid credentials
+        * CIAM_E01_01_002 - User password locked
+        * CIAM_E01_01_003 - User disabled
+        * CIAM_E01_01_004 - Enterprise credential block
+        * CIAM_E01_01_005 - MFA locked
+        * CIAM_E01_01_006 - User deceased
+        * CIAM_E01_01_008 - CAPI restriction blocked by bank or customer
+        * CIAM_E01_01_009 - Invalid MFA method
+        * CIAM_E01_01_010 - Analyze deny - User IP on deny list
+        * CIAM_E01_01_016 - Username contains masked value
+        * CIAM_E01_01_017 - Invalid OTP code
+        * CIAM_E01_01_018 - Transaction not approved (push pending)
+
+        ## Transaction Errors (E01_03)
+        * CIAM_E01_03_001 - Transaction not found
+        * CIAM_E01_03_002 - Transaction expired
+        * CIAM_E01_03_003 - Transaction already processed
+
+        ## eSign Errors (E01_04)
+        * CIAM_E01_04_001 - Document not found
+        * CIAM_E01_04_002 - No pending eSign required
+
+        ## Validation Errors (E01_05)
+        * CIAM_E01_05_001 - Invalid request parameters (missing required fields, invalid format, or invalid values)
+
+        ## Token & Session Errors (E04_00)
         * CIAM_E04_00_001 - Refresh token invalid or not found
         * CIAM_E04_00_002 - Refresh token not valid or expired
         * CIAM_E04_00_003 - Session not readable
@@ -1081,368 +1333,29 @@ components:
         * CIAM_E04_00_007 - Access token invalid or not found
         * CIAM_E04_00_008 - Null refresh token
         * CIAM_E04_00_009 - Username not matched
-
-    MFAMethodErrors:
-      type: string
-      enum:
-        - CIAM_E01_01_009
-      description: |
-        MFA method errors:
-        * CIAM_E01_01_009 - Invalid MFA method
-
-    MFAVerificationErrors:
-      type: string
-      enum:
-        - CIAM_E01_01_017
-        - CIAM_E01_01_018
-      description: |
-        MFA verification errors:
-        * CIAM_E01_01_017 - Invalid OTP code
-        * CIAM_E01_01_018 - Transaction not approved (push pending)
-
-    TransactionNotFoundErrors:
-      type: string
-      enum:
-        - CIAM_E01_03_001
-      description: |
-        Transaction not found error:
-        * CIAM_E01_03_001 - Transaction not found
-
-    TransactionExpiredErrors:
-      type: string
-      enum:
-        - CIAM_E01_03_002
-      description: |
-        Transaction expired error:
-        * CIAM_E01_03_002 - Transaction expired
-
-    TransactionProcessedErrors:
-      type: string
-      enum:
-        - CIAM_E01_03_003
-      description: |
-        Transaction already processed error:
-        * CIAM_E01_03_003 - Transaction already processed
-
-    DocumentNotFoundErrors:
-      type: string
-      enum:
-        - CIAM_E01_04_001
-      description: |
-        Document not found error:
-        * CIAM_E01_04_001 - Document not found
-
-    ESignNotRequiredErrors:
-      type: string
-      enum:
-        - CIAM_E01_04_002
-      description: |
-        eSign not required error:
-        * CIAM_E01_04_002 - No pending eSign required
-
-    ValidationErrors:
-      type: string
-      enum:
-        - CIAM_E01_05_001
-      description: |
-        Request validation error:
-        * CIAM_E01_05_001 - Invalid request parameters (missing required fields, invalid format, or invalid values)
-
-    ApiKeyErrors:
-      type: string
-      enum:
-        - CIAM_E04_00_010
-      description: |
-        API key authentication errors:
         * CIAM_E04_00_010 - Invalid or missing API key
 
-    ServerErrors:
-      type: string
-      enum:
-        - CIAM_E05_00_001
-        - CIAM_E05_00_002
-      description: |
-        Server errors:
+        ## Server Errors (E05_00)
         * CIAM_E05_00_001 - Server error
         * CIAM_E05_00_002 - Server info not available (e.g. CAPI communication failure)
 
-    # Endpoint-Specific Error Response Schemas
-    ClientId401Error:
+    # Error Response Schemas
+    GatewayErrorResponse:
       type: object
-      description: Client authentication failed at gateway - unknown or invalid client ID. Gateway returns 401 with standard error format (response body format determined by gateway implementation).
+      description: Gateway-level authentication failure. Response body format is determined by the gateway implementation (e.g., unknown client ID, invalid API key).
 
-    Login401Error:
+    ApplicationErrorResponse:
       type: object
       required:
         - error_code
-        - context_id
       properties:
         error_code:
-          $ref: '#/components/schemas/CredentialErrors'
+          $ref: '#/components/schemas/CIAMErrorCodes'
+          description: Specific error code indicating the failure reason. See CIAMErrorCodes enum for all possible values and descriptions.
         context_id:
           type: string
-      description: Login authentication failure - invalid credentials
-
-    Login423Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/AccountLockedErrors'
-        context_id:
-          type: string
-      description: Login blocked - account or MFA locked
-
-    Login403Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/AnalyzeDenyErrors'
-        context_id:
-          type: string
-      description: Login forbidden - IP on deny list
-
-    Refresh401Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/TokenErrors'
-        context_id:
-          type: string
-      description: Token refresh failed - invalid or expired token
-
-    MFAInitiate400Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          oneOf:
-            - $ref: '#/components/schemas/MFAMethodErrors'
-            - $ref: '#/components/schemas/ValidationErrors'
-        context_id:
-          type: string
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
-          example: ["context_id", "transaction_id"]
-      description: |
-        MFA initiation failed:
-        * Invalid MFA method (CIAM_E01_01_009)
-        * Missing required fields (CIAM_E01_05_001)
-
-    MFAVerify400Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          oneOf:
-            - $ref: '#/components/schemas/MFAVerificationErrors'
-            - $ref: '#/components/schemas/ValidationErrors'
-        context_id:
-          type: string
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
-          example: ["context_id", "transaction_id", "code"]
-      description: |
-        MFA verification failed:
-        * Invalid OTP code (CIAM_E01_01_017)
-        * Transaction not approved for push (CIAM_E01_01_018)
-        * Missing required fields (CIAM_E01_05_001)
-
-    TransactionGet400Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/ValidationErrors'
-        context_id:
-          type: string
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing or invalid
-          example: ["context_id"]
-      description: Validation failed - missing required fields or invalid request parameters
-
-    TransactionGet404Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/TransactionNotFoundErrors'
-        context_id:
-          type: string
-      description: Transaction not found
-
-    TransactionApprove400Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          oneOf:
-            - $ref: '#/components/schemas/TransactionProcessedErrors'
-            - $ref: '#/components/schemas/ValidationErrors'
-        context_id:
-          type: string
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
-          example: ["context_id", "selected_number"]
-      description: |
-        Transaction approval failed:
-        * Transaction already processed (CIAM_E01_03_003)
-        * Missing required fields or invalid parameters (CIAM_E01_05_001)
-
-    TransactionApprove404Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/TransactionNotFoundErrors'
-        context_id:
-          type: string
-      description: Transaction not found
-
-    TransactionApprove410Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/TransactionExpiredErrors'
-        context_id:
-          type: string
-      description: Transaction expired
-
-    ESignGet404Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/DocumentNotFoundErrors'
-        context_id:
-          type: string
-      description: eSign document not found
-
-    ESignAccept400Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          oneOf:
-            - $ref: '#/components/schemas/ESignNotRequiredErrors'
-            - $ref: '#/components/schemas/ValidationErrors'
-        context_id:
-          type: string
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing (only present when error_code is CIAM_E01_05_001)
-          example: ["context_id", "transaction_id", "document_id"]
-      description: |
-        eSign acceptance failed:
-        * No pending eSign required (CIAM_E01_04_002)
-        * Missing required fields or invalid request parameters (CIAM_E01_05_001)
-
-    DeviceBind400Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/ValidationErrors'
-        context_id:
-          type: string
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing or invalid
-          example: ["context_id", "transaction_id", "bind_device"]
-      description: Device binding failed - missing required fields or invalid request parameters (CIAM_E01_05_001)
-
-    DeviceBind404Error:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/TransactionNotFoundErrors'
-        context_id:
-          type: string
-      description: Transaction not found for device binding
-
-    ServerError:
-      type: object
-      required:
-        - error_code
-        - context_id
-      properties:
-        error_code:
-          $ref: '#/components/schemas/ServerErrors'
-        context_id:
-          type: string
-      description: Service unavailable - server error
-
-    TokenVerify400Error:
-      type: object
-      required:
-        - error_code
-      properties:
-        error_code:
-          $ref: '#/components/schemas/ValidationErrors'
-        missing_fields:
-          type: array
-          items:
-            type: string
-          description: List of required fields that are missing
-          example: ["token"]
-      description: Token verification validation failed - missing required token field
-
-    TokenVerify401Error:
-      type: object
-      required:
-        - error_code
-      properties:
-        error_code:
-          $ref: '#/components/schemas/ApiKeyErrors'
-      description: API key authentication failed - invalid or missing x-api-key header
+          description: Authentication context identifier for tracking the request through the authentication flow. Not present for gateway-level endpoints.
+      description: Standard application error response structure. The HTTP status code indicates the error category, and the error_code field provides the specific failure reason.
 
     LoginSuccessResponse:
       type: object
