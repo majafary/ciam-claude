@@ -4,6 +4,14 @@ info:
   description: |
     Customer Identity and Access Management (CIAM) Backend API with MFA, eSign, and device trust capabilities
 
+    ## Client Registration
+
+    All API endpoints require a valid `x-client-id` header:
+    - Client IDs must be pre-registered before API access
+    - Validation occurs at gateway level before reaching API
+    - Unknown client IDs return 401 Unauthorized (response format determined by gateway)
+    - Contact CIAM Team for client registration
+
     ## Request Validation
 
     All API endpoints perform request validation according to OpenAPI schema constraints.
@@ -66,8 +74,6 @@ tags:
     description: User information endpoints
   - name: Device
     description: Device management and trust
-  - name: Session
-    description: Session management endpoints
   - name: OIDC
     description: OpenID Connect endpoints
 
@@ -80,6 +86,9 @@ paths:
       description: Returns the health status of the API
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       responses:
         '200':
           description: Service is healthy
@@ -94,6 +103,12 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
 
   /auth/login:
     post:
@@ -103,6 +118,9 @@ paths:
       description: Authenticate user with username and password. Returns tokens on success or MFA/eSign requirement.
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -112,8 +130,7 @@ paths:
               required:
                 - username
                 - password
-                - app_id
-                - app_version
+                - transmit_aid
               properties:
                 username:
                   type: string
@@ -122,12 +139,9 @@ paths:
                   type: string
                   format: password
                   example: password
-                app_id:
+                transmit_aid:
                   type: string
-                  description: Client application identifier
-                app_version:
-                  type: string
-                  description: Client application version
+                  description: Transmit application identifier. Legacy identifier used in DRS implementation for determining if MFA is required
                 context_id:
                   type: string
                   description: Optional context ID for resuming an existing authentication context
@@ -151,19 +165,28 @@ paths:
               description: Refresh token set as httpOnly cookie
               schema:
                 type: string
-                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+                example: "refresh_token=nonce_xyz789abc; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginSuccessResponse'
         '401':
-          description: Invalid credentials or user not found
+          description: |
+            Authentication failed:
+            * Gateway-level: Unknown or invalid client ID - response format determined by gateway
+            * API-level: Invalid credentials or user not found (CIAM_E01_01_001) - includes context_id
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Login401Error'
-              example:
-                error_code: "CIAM_E01_01_001"
+                oneOf:
+                  - $ref: '#/components/schemas/ClientId401Error'
+                  - $ref: '#/components/schemas/Login401Error'
+              examples:
+                api_level:
+                  summary: API-level credential authentication failure
+                  value:
+                    error_code: "CIAM_E01_01_001"
+                    context_id: "ctx_abc123"
         '403':
           description: Access denied - IP on deny list
           content:
@@ -197,6 +220,9 @@ paths:
       description: Logout user and clear session
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       responses:
         '200':
           description: Logout successful
@@ -211,15 +237,24 @@ paths:
                   message:
                     type: string
                     example: Logout successful
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
 
   /auth/refresh:
     post:
       tags:
         - Authentication
       summary: Refresh access token
-      description: Refresh access token using refresh token cookie
+      description: Refresh access token using refresh token nonce from httpOnly cookie. Validates refresh token nonce against database and issues new access token nonce.
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       security:
         - cookieAuth: []
       responses:
@@ -230,7 +265,7 @@ paths:
               description: New refresh token set as httpOnly cookie (refresh token rotation)
               schema:
                 type: string
-                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+                example: "refresh_token=nonce_xyz789abc; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
           content:
             application/json:
               schema:
@@ -248,19 +283,123 @@ paths:
                     example: 900
                     description: Token lifetime in seconds
         '401':
-          description: Invalid or missing refresh token
+          description: |
+            Authentication failed:
+            * Gateway-level: Unknown or invalid client ID - response format determined by gateway
+            * API-level: Invalid or missing refresh token (token errors) - includes context_id
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Refresh401Error'
-              example:
-                error_code: "CIAM_E04_00_002"
+                oneOf:
+                  - $ref: '#/components/schemas/ClientId401Error'
+                  - $ref: '#/components/schemas/Refresh401Error'
+              examples:
+                api_level:
+                  summary: API-level token validation failure
+                  value:
+                    error_code: "CIAM_E04_00_002"
+                    context_id: "ctx_abc123"
         '503':
           description: Service unavailable
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServerError'
+              example:
+                error_code: "CIAM_E05_00_001"
+
+  /auth/token/verify:
+    post:
+      tags:
+        - Authentication
+      summary: Verify access token (for Kong gateway)
+      description: |
+        Token verification endpoint for Kong gateway to validate reference tokens (nonce).
+        Validates token existence, expiration, and optional scopes.
+        This endpoint is secured with API key authentication.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/ClientId'
+        - name: x-api-key
+          in: header
+          required: true
+          schema:
+            type: string
+          description: API key for gateway authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: The access token nonce to verify
+                  example: "nonce_abc123xyz"
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: Required scopes to validate (optional)
+                  example: ["read:profile", "write:data"]
+      responses:
+        '200':
+          description: Token verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - active
+                properties:
+                  active:
+                    type: boolean
+                    description: Whether the token is valid and has required scopes
+                  expires_in:
+                    type: integer
+                    description: Seconds until token expiration (only present when active is true)
+                    example: 900
+              examples:
+                valid_token:
+                  summary: Valid token
+                  value:
+                    active: true
+                    expires_in: 900
+                invalid_token:
+                  summary: Invalid token
+                  value:
+                    active: false
+        '400':
+          description: Invalid request - missing token field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenVerify400Error'
+              example:
+                error_code: "CIAM_E01_05_001"
+                missing_fields: ["token"]
+        '401':
+          description: API key authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenVerify401Error'
+              example:
+                error_code: "CIAM_E04_00_010"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - error_code
+                properties:
+                  error_code:
+                    $ref: '#/components/schemas/ServerErrors'
               example:
                 error_code: "CIAM_E05_00_001"
 
@@ -272,6 +411,9 @@ paths:
       description: Start MFA challenge for OTP or Push notification
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -314,6 +456,12 @@ paths:
                 $ref: '#/components/schemas/MFAInitiate400Error'
               example:
                 error_code: "CIAM_E01_01_009"
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '503':
           description: Service unavailable
           content:
@@ -331,6 +479,9 @@ paths:
       description: Verify OTP code
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -367,7 +518,7 @@ paths:
               description: Refresh token set as httpOnly cookie
               schema:
                 type: string
-                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+                example: "refresh_token=nonce_xyz789abc; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
           content:
             application/json:
               schema:
@@ -384,6 +535,12 @@ paths:
                 $ref: '#/components/schemas/MFAVerify400Error'
               example:
                 error_code: "CIAM_E01_01_017"
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '503':
           description: Service unavailable
           content:
@@ -415,6 +572,9 @@ paths:
           schema:
             type: string
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -444,7 +604,7 @@ paths:
               description: Refresh token set as httpOnly cookie
               schema:
                 type: string
-                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+                example: "refresh_token=nonce_xyz789abc; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
           content:
             application/json:
               schema:
@@ -457,6 +617,12 @@ paths:
                 $ref: '#/components/schemas/TransactionGet400Error'
               example:
                 error_code: "CIAM_E01_05_001"
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '404':
           description: Transaction not found
           content:
@@ -495,6 +661,9 @@ paths:
           schema:
             type: string
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -530,6 +699,12 @@ paths:
                 $ref: '#/components/schemas/TransactionApprove400Error'
               example:
                 error_code: "CIAM_E01_03_003"
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '404':
           description: Transaction not found
           content:
@@ -568,6 +743,10 @@ paths:
           schema:
             type: string
             example: terms-v1-2025
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       responses:
         '200':
           description: Document retrieved
@@ -575,6 +754,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ESignDocument'
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '404':
           description: Document not found
           content:
@@ -598,6 +783,11 @@ paths:
         - eSign
       summary: Accept eSign document
       description: Accept electronic signature document
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -636,7 +826,7 @@ paths:
               description: Refresh token set as httpOnly cookie
               schema:
                 type: string
-                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+                example: "refresh_token=nonce_xyz789abc; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
           content:
             application/json:
               schema:
@@ -653,6 +843,12 @@ paths:
                 $ref: '#/components/schemas/ESignAccept400Error'
               example:
                 error_code: "CIAM_E01_04_002"
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '503':
           description: Service unavailable
           content:
@@ -668,6 +864,11 @@ paths:
         - Device
       summary: Bind/trust device
       description: Trust a device for future logins (skip MFA)
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       requestBody:
         required: true
         content:
@@ -695,7 +896,7 @@ paths:
               description: Refresh token set as httpOnly cookie
               schema:
                 type: string
-                example: "refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
+                example: "refresh_token=nonce_xyz789abc; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000"
           content:
             application/json:
               schema:
@@ -711,6 +912,12 @@ paths:
                 $ref: '#/components/schemas/DeviceBind400Error'
               example:
                 error_code: "CIAM_E01_05_001"
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
         '404':
           description: Transaction not found
           content:
@@ -728,122 +935,17 @@ paths:
               example:
                 error_code: "CIAM_E05_00_001"
 
-  /auth/sessions/{session_id}/verify:
-    get:
-      tags:
-        - Session
-      summary: Verify session validity
-      description: Check if a session ID is valid and active
-      parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Session ID to verify
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Session verification result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionVerifyResponse'
-        '404':
-          description: Session not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-        '503':
-          description: Service unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-
-  /auth/sessions:
-    get:
-      tags:
-        - Session
-      summary: List user sessions
-      description: Get all active sessions for the authenticated user
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: List of user sessions
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionListResponse'
-        '401':
-          description: Unauthorized - invalid or missing access token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-        '503':
-          description: Service unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-
-  /auth/sessions/{session_id}:
-    delete:
-      tags:
-        - Session
-      summary: Revoke session
-      description: Revoke a specific session for the authenticated user
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Session ID to revoke
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Session revoked successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Session revoked successfully.
-        '401':
-          description: Unauthorized - session does not belong to user or invalid token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-        '404':
-          description: Session not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-        '503':
-          description: Service unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerError'
-
   /.well-known/jwks.json:
     get:
       tags:
         - OIDC
       summary: JWKS endpoint
       description: JSON Web Key Set for token verification
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AppId'
+        - $ref: '#/components/parameters/AppVersion'
+        - $ref: '#/components/parameters/ClientId'
       responses:
         '200':
           description: JWKS
@@ -856,17 +958,33 @@ paths:
                     type: array
                     items:
                       type: object
+        '401':
+          description: Client authentication failed - unknown or invalid client ID (gateway-level validation)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientId401Error'
 
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      description: |
+        Reference token (nonce) that must be validated via Kong gateway.
+        Token is opaque and requires backend database lookup for validation.
     cookieAuth:
       type: apiKey
       in: cookie
       name: refresh_token
+      description: |
+        Refresh token nonce stored in httpOnly cookie.
+        Token is opaque and requires backend database lookup for validation.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API key for gateway service authentication
 
   parameters:
     CorrelationId:
@@ -877,6 +995,30 @@ components:
         type: string
         format: uuid
       description: Client-provided correlation ID for distributed tracing and request tracking
+
+    AppId:
+      name: x-app-id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Client application identifier
+
+    AppVersion:
+      name: x-app-version
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Client application version
+
+    ClientId:
+      name: x-client-id
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Registered client application identifier. Required for all API requests. Must be a pre-registered value.
 
   schemas:
     # Error Code Enums by Category
@@ -930,13 +1072,13 @@ components:
         - CIAM_E04_00_009
       description: |
         Token and session errors:
-        * CIAM_E04_00_001 - Refresh token not decryptable
+        * CIAM_E04_00_001 - Refresh token invalid or not found
         * CIAM_E04_00_002 - Refresh token not valid or expired
         * CIAM_E04_00_003 - Session not readable
         * CIAM_E04_00_004 - Session not active
         * CIAM_E04_00_005 - Session expired
         * CIAM_E04_00_006 - Null access token
-        * CIAM_E04_00_007 - Access token not decryptable
+        * CIAM_E04_00_007 - Access token invalid or not found
         * CIAM_E04_00_008 - Null refresh token
         * CIAM_E04_00_009 - Username not matched
 
@@ -1006,6 +1148,14 @@ components:
         Request validation error:
         * CIAM_E01_05_001 - Invalid request parameters (missing required fields, invalid format, or invalid values)
 
+    ApiKeyErrors:
+      type: string
+      enum:
+        - CIAM_E04_00_010
+      description: |
+        API key authentication errors:
+        * CIAM_E04_00_010 - Invalid or missing API key
+
     ServerErrors:
       type: string
       enum:
@@ -1017,6 +1167,10 @@ components:
         * CIAM_E05_00_002 - Server info not available (e.g. CAPI communication failure)
 
     # Endpoint-Specific Error Response Schemas
+    ClientId401Error:
+      type: object
+      description: Client authentication failed at gateway - unknown or invalid client ID. Gateway returns 401 with standard error format (response body format determined by gateway implementation).
+
     Login401Error:
       type: object
       required:
@@ -1265,6 +1419,30 @@ components:
         context_id:
           type: string
       description: Service unavailable - server error
+
+    TokenVerify400Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/ValidationErrors'
+        missing_fields:
+          type: array
+          items:
+            type: string
+          description: List of required fields that are missing
+          example: ["token"]
+      description: Token verification validation failed - missing required token field
+
+    TokenVerify401Error:
+      type: object
+      required:
+        - error_code
+      properties:
+        error_code:
+          $ref: '#/components/schemas/ApiKeyErrors'
+      description: API key authentication failed - invalid or missing x-api-key header
 
     LoginSuccessResponse:
       type: object
@@ -1533,65 +1711,3 @@ components:
         esign_accepted_at:
           type: string
           format: date-time
-
-    SessionVerifyResponse:
-      type: object
-      required:
-        - isValid
-        - message
-      properties:
-        isValid:
-          type: boolean
-          description: Whether the session is valid
-        message:
-          type: string
-          description: Human-readable verification result
-          example: Session is valid.
-        expiresAt:
-          type: string
-          format: date-time
-          description: When the session expires (if valid)
-
-    SessionListResponse:
-      type: object
-      required:
-        - sessions
-      properties:
-        sessions:
-          type: array
-          items:
-            $ref: '#/components/schemas/SessionInfo'
-
-    SessionInfo:
-      type: object
-      required:
-        - sessionId
-        - userId
-        - createdAt
-        - expiresAt
-        - isActive
-      properties:
-        sessionId:
-          type: string
-          example: sess_abc123
-        userId:
-          type: string
-          example: user123
-        createdAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-        isActive:
-          type: boolean
-        lastActivityAt:
-          type: string
-          format: date-time
-        deviceInfo:
-          type: object
-          properties:
-            userAgent:
-              type: string
-            ip:
-              type: string
