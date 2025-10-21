@@ -1379,6 +1379,349 @@ FROM v_active_sessions;
 SELECT * FROM v_replication_status WHERE lag_seconds > 5;
 
 -- ============================================================================
+-- PG_CRON VERIFICATION
+-- ============================================================================
+
+-- ============================================================
+-- Section 1: Extension and Job Count Verification
+-- ============================================================
+
+-- Verify pg_cron extension is installed
+SELECT
+    extname AS extension_name,
+    extversion AS version,
+    CASE
+        WHEN extname = 'pg_cron' THEN '✅ INSTALLED'
+        ELSE '❌ NOT FOUND'
+    END AS status
+FROM pg_extension
+WHERE extname = 'pg_cron';
+
+-- Expected: 1 row showing pg_cron extension
+
+-- Verify job count
+SELECT
+    COUNT(*) AS total_jobs,
+    COUNT(*) FILTER (WHERE active = true) AS active_jobs,
+    COUNT(*) FILTER (WHERE active = false) AS inactive_jobs,
+    CASE
+        WHEN COUNT(*) = 11 THEN '✅ ALL 11 JOBS SCHEDULED'
+        WHEN COUNT(*) < 11 THEN '⚠️ MISSING ' || (11 - COUNT(*)) || ' JOBS'
+        ELSE '⚠️ EXTRA ' || (COUNT(*) - 11) || ' JOBS'
+    END AS job_count_status
+FROM cron.job;
+
+-- Expected: 11 total jobs, 11 active
+
+-- ============================================================
+-- Section 2: Individual Job Schedule Verification
+-- ============================================================
+
+-- List all scheduled jobs with their schedules
+SELECT
+    jobid,
+    jobname,
+    schedule,
+    active,
+    CASE jobname
+        -- High-frequency (every 10 minutes)
+        WHEN 'purge-auth-contexts' THEN
+            CASE WHEN schedule = '*/10 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'purge-auth-transactions' THEN
+            CASE WHEN schedule = '*/10 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+
+        -- Cleanup (every 5/15 minutes)
+        WHEN 'cleanup-expired-transactions' THEN
+            CASE WHEN schedule = '*/5 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'cleanup-expired-contexts' THEN
+            CASE WHEN schedule = '*/15 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+
+        -- Hourly
+        WHEN 'expire-old-sessions' THEN
+            CASE WHEN schedule = '0 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'purge-sessions' THEN
+            CASE WHEN schedule = '30 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'purge-expired-tokens' THEN
+            CASE WHEN schedule = '35 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'create-partitions-hourly' THEN
+            CASE WHEN schedule = '0 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'drop-old-partitions-hourly' THEN
+            CASE WHEN schedule = '5 * * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+
+        -- Daily/Weekly
+        WHEN 'vacuum-analyze-transactional' THEN
+            CASE WHEN schedule = '0 3 * * *' THEN '✅' ELSE '❌ Wrong schedule' END
+        WHEN 'vacuum-analyze-partitioned' THEN
+            CASE WHEN schedule = '0 4 * * 0' THEN '✅' ELSE '❌ Wrong schedule' END
+
+        ELSE '⚠️ Unknown job'
+    END AS schedule_status,
+    CASE
+        WHEN schedule = '*/10 * * * *' THEN 'Every 10 minutes'
+        WHEN schedule = '*/5 * * * *' THEN 'Every 5 minutes'
+        WHEN schedule = '*/15 * * * *' THEN 'Every 15 minutes'
+        WHEN schedule = '0 * * * *' THEN 'Top of each hour'
+        WHEN schedule = '30 * * * *' THEN 'Hourly at :30'
+        WHEN schedule = '35 * * * *' THEN 'Hourly at :35'
+        WHEN schedule = '5 * * * *' THEN 'Hourly at :05'
+        WHEN schedule = '0 3 * * *' THEN 'Daily at 3 AM'
+        WHEN schedule = '0 4 * * 0' THEN 'Sundays at 4 AM'
+        ELSE 'Custom schedule'
+    END AS frequency_description
+FROM cron.job
+ORDER BY
+    CASE jobname
+        WHEN 'purge-auth-contexts' THEN 1
+        WHEN 'purge-auth-transactions' THEN 2
+        WHEN 'cleanup-expired-transactions' THEN 3
+        WHEN 'cleanup-expired-contexts' THEN 4
+        WHEN 'expire-old-sessions' THEN 5
+        WHEN 'purge-sessions' THEN 6
+        WHEN 'purge-expired-tokens' THEN 7
+        WHEN 'create-partitions-hourly' THEN 8
+        WHEN 'drop-old-partitions-hourly' THEN 9
+        WHEN 'vacuum-analyze-transactional' THEN 10
+        WHEN 'vacuum-analyze-partitioned' THEN 11
+        ELSE 99
+    END;
+
+-- Expected: All 11 jobs with ✅ status
+
+-- ============================================================
+-- Section 3: Job Execution History (Last 24 Hours)
+-- ============================================================
+
+-- Recent job executions summary
+SELECT
+    j.jobname,
+    COUNT(*) AS executions_24h,
+    COUNT(*) FILTER (WHERE jr.status = 'succeeded') AS succeeded,
+    COUNT(*) FILTER (WHERE jr.status = 'failed') AS failed,
+    COUNT(*) FILTER (WHERE jr.status = 'running') AS currently_running,
+    ROUND(AVG(EXTRACT(EPOCH FROM (jr.end_time - jr.start_time))), 2) AS avg_duration_sec,
+    MAX(jr.end_time) AS last_execution,
+    CASE
+        WHEN COUNT(*) FILTER (WHERE jr.status = 'failed') = 0 THEN '✅ NO FAILURES'
+        WHEN COUNT(*) FILTER (WHERE jr.status = 'failed') <= 2 THEN '⚠️ ' || COUNT(*) FILTER (WHERE jr.status = 'failed') || ' FAILURES'
+        ELSE '🚨 ' || COUNT(*) FILTER (WHERE jr.status = 'failed') || ' FAILURES - INVESTIGATE'
+    END AS health_status
+FROM cron.job j
+LEFT JOIN cron.job_run_details jr ON j.jobid = jr.jobid
+    AND jr.start_time > NOW() - INTERVAL '24 hours'
+GROUP BY j.jobname
+ORDER BY j.jobname;
+
+-- Expected: Each job should have executions (unless just set up), no failures
+
+-- Detailed view of last 20 executions
+SELECT
+    j.jobname,
+    jr.status,
+    jr.start_time,
+    jr.end_time,
+    EXTRACT(EPOCH FROM (jr.end_time - jr.start_time)) AS duration_sec,
+    CASE
+        WHEN jr.status = 'succeeded' THEN '✅'
+        WHEN jr.status = 'failed' THEN '❌'
+        WHEN jr.status = 'running' THEN '🔄'
+        ELSE '⚠️'
+    END AS status_icon,
+    LEFT(jr.return_message, 100) AS return_message_preview
+FROM cron.job_run_details jr
+JOIN cron.job j ON j.jobid = jr.jobid
+WHERE jr.start_time > NOW() - INTERVAL '24 hours'
+ORDER BY jr.start_time DESC
+LIMIT 20;
+
+-- ============================================================
+-- Section 4: Failed Jobs Analysis
+-- ============================================================
+
+-- Failed jobs in last 24 hours (detailed)
+SELECT
+    j.jobname,
+    jr.start_time,
+    jr.end_time,
+    EXTRACT(EPOCH FROM (jr.end_time - jr.start_time)) AS duration_sec,
+    jr.return_message,
+    CASE
+        WHEN jr.return_message LIKE '%permission denied%' THEN '🔒 Permission Issue'
+        WHEN jr.return_message LIKE '%does not exist%' THEN '📋 Missing Object'
+        WHEN jr.return_message LIKE '%deadlock%' THEN '🔄 Deadlock'
+        WHEN jr.return_message LIKE '%timeout%' THEN '⏱️ Timeout'
+        ELSE '❓ Other Error'
+    END AS error_category
+FROM cron.job_run_details jr
+JOIN cron.job j ON j.jobid = jr.jobid
+WHERE jr.status = 'failed'
+  AND jr.start_time > NOW() - INTERVAL '24 hours'
+ORDER BY jr.start_time DESC;
+
+-- Expected: 0 rows (no failures)
+
+-- Jobs that haven't run in expected timeframe
+SELECT
+    j.jobname,
+    j.schedule,
+    MAX(jr.end_time) AS last_successful_run,
+    EXTRACT(EPOCH FROM (NOW() - MAX(jr.end_time))) / 60 AS minutes_since_last_run,
+    CASE
+        -- High-frequency jobs (10 min) should have run in last 15 min
+        WHEN j.schedule = '*/10 * * * *' AND MAX(jr.end_time) < NOW() - INTERVAL '15 minutes' THEN '🚨 OVERDUE'
+        -- 5 min jobs should have run in last 10 min
+        WHEN j.schedule = '*/5 * * * *' AND MAX(jr.end_time) < NOW() - INTERVAL '10 minutes' THEN '🚨 OVERDUE'
+        -- Hourly jobs should have run in last 70 min
+        WHEN j.schedule LIKE '%* * * *' AND MAX(jr.end_time) < NOW() - INTERVAL '70 minutes' THEN '🚨 OVERDUE'
+        ELSE '✅ On Schedule'
+    END AS schedule_health
+FROM cron.job j
+LEFT JOIN cron.job_run_details jr ON j.jobid = jr.jobid AND jr.status = 'succeeded'
+GROUP BY j.jobname, j.schedule
+HAVING MAX(jr.end_time) IS NULL OR MAX(jr.end_time) < NOW() - INTERVAL '1 hour'
+ORDER BY last_successful_run NULLS FIRST;
+
+-- Expected: Empty result set (or jobs just created with NULL last run)
+
+-- ============================================================
+-- Section 5: Partition Management Job Results
+-- ============================================================
+
+-- Check if partition creation job is working
+-- (Look for partitions created in the future)
+SELECT
+    'tokens_inactive' AS table_name,
+    COUNT(*) AS future_partitions,
+    MIN(tablename) AS earliest_partition,
+    MAX(tablename) AS latest_partition,
+    CASE
+        WHEN COUNT(*) >= 24 THEN '✅ Sufficient future partitions (24+ hours)'
+        WHEN COUNT(*) >= 12 THEN '⚠️ Low future partitions (12-23 hours)'
+        ELSE '🚨 CRITICAL - Low future partitions (<12 hours)'
+    END AS status
+FROM pg_tables
+WHERE tablename LIKE 'tokens_inactive_%'
+  AND tablename > 'tokens_inactive_' || TO_CHAR(NOW(), 'YYYY_MM_DD_HH24')
+
+UNION ALL
+
+SELECT
+    'drs_evaluations' AS table_name,
+    COUNT(*) AS future_partitions,
+    MIN(tablename) AS earliest_partition,
+    MAX(tablename) AS latest_partition,
+    CASE
+        WHEN COUNT(*) >= 7 THEN '✅ Sufficient future partitions (7+ days)'
+        WHEN COUNT(*) >= 3 THEN '⚠️ Low future partitions (3-6 days)'
+        ELSE '🚨 CRITICAL - Low future partitions (<3 days)'
+    END AS status
+FROM pg_tables
+WHERE tablename LIKE 'drs_evaluations_%'
+  AND tablename > 'drs_evaluations_' || TO_CHAR(NOW(), 'YYYY_MM_DD')
+
+UNION ALL
+
+SELECT
+    'audit_logs' AS table_name,
+    COUNT(*) AS future_partitions,
+    MIN(tablename) AS earliest_partition,
+    MAX(tablename) AS latest_partition,
+    CASE
+        WHEN COUNT(*) >= 7 THEN '✅ Sufficient future partitions (7+ days)'
+        WHEN COUNT(*) >= 3 THEN '⚠️ Low future partitions (3-6 days)'
+        ELSE '🚨 CRITICAL - Low future partitions (<3 days)'
+    END AS status
+FROM pg_tables
+WHERE tablename LIKE 'audit_logs_%'
+  AND tablename > 'audit_logs_' || TO_CHAR(NOW(), 'YYYY_MM_DD');
+
+-- Expected: All tables show ✅ status
+
+-- ============================================================
+-- Section 6: Purge Job Performance (from purge_metrics)
+-- ============================================================
+
+-- Purge performance last 24 hours
+SELECT
+    table_name,
+    COUNT(*) AS purge_runs,
+    SUM(rows_deleted) AS total_deleted_24h,
+    ROUND(AVG(rows_deleted)) AS avg_rows_per_run,
+    ROUND(AVG(duration_ms)) AS avg_duration_ms,
+    MAX(duration_ms) AS max_duration_ms,
+    MIN(run_at) AS first_run,
+    MAX(run_at) AS last_run,
+    CASE
+        WHEN MAX(duration_ms) < 5000 THEN '✅ Performance OK (<5s)'
+        WHEN MAX(duration_ms) < 10000 THEN '⚠️ Slow (5-10s)'
+        ELSE '🚨 CRITICAL - Very slow (>10s)'
+    END AS performance_status
+FROM purge_metrics
+WHERE run_at > NOW() - INTERVAL '24 hours'
+GROUP BY table_name
+ORDER BY table_name;
+
+-- Expected: All purges completing in <5 seconds
+
+-- ============================================================
+-- Section 7: Overall pg_cron Health Summary
+-- ============================================================
+
+-- Comprehensive health check
+SELECT
+    'pg_cron Health Summary' AS check_category,
+    (SELECT COUNT(*) FROM cron.job) AS total_jobs,
+    (SELECT COUNT(*) FROM cron.job WHERE active = true) AS active_jobs,
+    (
+        SELECT COUNT(DISTINCT jr.jobid)
+        FROM cron.job_run_details jr
+        WHERE jr.start_time > NOW() - INTERVAL '1 hour'
+          AND jr.status = 'succeeded'
+    ) AS jobs_executed_last_hour,
+    (
+        SELECT COUNT(*)
+        FROM cron.job_run_details jr
+        WHERE jr.start_time > NOW() - INTERVAL '24 hours'
+          AND jr.status = 'failed'
+    ) AS failed_executions_24h,
+    CASE
+        WHEN (SELECT COUNT(*) FROM cron.job WHERE active = true) = 11
+             AND (SELECT COUNT(*) FROM cron.job_run_details jr
+                  WHERE jr.start_time > NOW() - INTERVAL '24 hours'
+                    AND jr.status = 'failed') = 0
+        THEN '✅ ALL SYSTEMS OPERATIONAL'
+        WHEN (SELECT COUNT(*) FROM cron.job_run_details jr
+              WHERE jr.start_time > NOW() - INTERVAL '24 hours'
+                AND jr.status = 'failed') > 0
+        THEN '⚠️ FAILURES DETECTED - REVIEW REQUIRED'
+        ELSE '⚠️ CONFIGURATION INCOMPLETE'
+    END AS overall_status;
+
+-- ============================================================
+-- Section 8: Recommended Follow-up Actions
+-- ============================================================
+
+-- If jobs just created, provide instructions
+DO $$
+DECLARE
+    v_oldest_execution TIMESTAMPTZ;
+BEGIN
+    SELECT MIN(start_time) INTO v_oldest_execution
+    FROM cron.job_run_details;
+
+    IF v_oldest_execution IS NULL THEN
+        RAISE NOTICE '📋 pg_cron jobs have been scheduled but not yet executed.';
+        RAISE NOTICE '⏳ Wait 5-15 minutes and re-run Section 3 verification queries.';
+        RAISE NOTICE '📊 Monitor job execution with: SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;';
+    ELSIF v_oldest_execution > NOW() - INTERVAL '1 hour' THEN
+        RAISE NOTICE '✅ pg_cron recently configured. Jobs are executing normally.';
+        RAISE NOTICE '📊 Continue monitoring: SELECT jobname, status FROM cron.job_run_details jr JOIN cron.job j ON j.jobid = jr.jobid ORDER BY start_time DESC LIMIT 20;';
+    ELSE
+        RAISE NOTICE '✅ pg_cron is operational with established execution history.';
+        RAISE NOTICE '📈 For performance trends, query: SELECT * FROM v_purge_performance;';
+    END IF;
+END $$;
+
+-- ============================================================================
 -- END OF SCRIPT
 -- ============================================================================
 
