@@ -78,22 +78,23 @@ COMMENT ON TABLE purge_metrics IS 'Tracks purge job performance for monitoring a
 -- EVENT_SEVERITY: 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL'
 
 -- ============================================================================
--- TRANSACTIONAL TABLES (Non-Partitioned)
+-- HYBRID TABLES (Partitioned with High Transactional Volume)
 -- ============================================================================
 
 -- ============================================================================
--- TABLE 1: auth_contexts
+-- TABLE 1: auth_contexts (Partitioned)
 -- ============================================================================
 -- Purpose: Immutable container for authentication journey
 -- Lifecycle: INSERT once → UPDATE once (final outcome)
--- Retention: 25 minutes (purged via batch DELETE every 10 min)
--- Volume: ~42K records at steady state
+-- Retention: 25 hours (purged via partition DROP every hour)
+-- Volume: ~2.5M records at steady state
 -- ID Format: ctx_YYYY-MM-DD_uuid (date-prefixed)
+-- Partitioning: Hourly partitions by created_at
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS auth_contexts (
     -- Primary Key (date-prefixed)
-    context_id VARCHAR(60) PRIMARY KEY,
+    context_id VARCHAR(60) NOT NULL,
 
     -- Customer & User Identity
     guid VARCHAR(50) NOT NULL,
@@ -126,15 +127,39 @@ CREATE TABLE IF NOT EXISTS auth_contexts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '21 minutes'),
 
+    -- Composite Primary Key (required for partitioning)
+    PRIMARY KEY (context_id, created_at),
+
     -- Constraints
     CONSTRAINT check_outcome_completed CHECK (
         (auth_outcome IS NULL AND completed_at IS NULL) OR
         (auth_outcome IS NOT NULL AND completed_at IS NOT NULL)
     ),
     CONSTRAINT check_context_expiry_future CHECK (expires_at > created_at)
-);
+) PARTITION BY RANGE (created_at);
 
--- Query Indexes
+-- Create initial hourly partitions (25 hours worth)
+DO $$
+DECLARE
+    start_time TIMESTAMPTZ := DATE_TRUNC('hour', NOW());
+    partition_time TIMESTAMPTZ;
+    partition_name TEXT;
+BEGIN
+    FOR i IN 0..24 LOOP
+        partition_time := start_time + (i || ' hours')::INTERVAL;
+        partition_name := 'auth_contexts_' || TO_CHAR(partition_time, 'YYYY_MM_DD_HH24');
+
+        EXECUTE format(
+            'CREATE TABLE IF NOT EXISTS %I PARTITION OF auth_contexts
+             FOR VALUES FROM (%L) TO (%L)',
+            partition_name,
+            partition_time,
+            partition_time + INTERVAL '1 hour'
+        );
+    END LOOP;
+END $$;
+
+-- Indexes (applied to each partition)
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_guid ON auth_contexts(guid);
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_cupid ON auth_contexts(cupid);
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_correlation ON auth_contexts(correlation_id);
@@ -147,15 +172,14 @@ CREATE INDEX IF NOT EXISTS idx_auth_ctx_session_time ON auth_contexts(session_id
     WHERE session_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_ctx_type ON auth_contexts(auth_type);
 
--- Purge Optimization Index (CRITICAL for batch DELETE)
-CREATE INDEX IF NOT EXISTS idx_auth_ctx_purge ON auth_contexts(created_at)
-    WHERE auth_outcome IS NOT NULL;
-
 -- Comments
-COMMENT ON TABLE auth_contexts IS 'V5: Authentication journey container with date-prefixed context_id. Purged after 25 minutes via batch DELETE.';
+COMMENT ON TABLE auth_contexts IS 'V5: Authentication journey container with date-prefixed context_id, partitioned hourly. Purged after 25 hours via partition DROP.';
 COMMENT ON COLUMN auth_contexts.context_id IS 'V5: Date-prefixed format (ctx_YYYY-MM-DD_uuid) for partition pruning';
 COMMENT ON COLUMN auth_contexts.expires_at IS 'Authentication context expires after 21 minutes';
-COMMENT ON INDEX idx_auth_ctx_purge IS 'Optimized for batch purge of completed contexts';
+
+-- ============================================================================
+-- TRANSACTIONAL TABLES (Non-Partitioned)
+-- ============================================================================
 
 -- ============================================================================
 -- TABLE 2: auth_transactions
@@ -751,6 +775,27 @@ DECLARE
     v_partition_name TEXT;
     v_exists BOOLEAN;
 BEGIN
+    -- auth_contexts: Create hourly partitions (48 hours ahead)
+    FOR i IN 0..47 LOOP
+        v_partition_name := 'auth_contexts_' ||
+            TO_CHAR(DATE_TRUNC('hour', NOW()) + (i || ' hours')::INTERVAL, 'YYYY_MM_DD_HH24');
+
+        SELECT EXISTS(
+            SELECT 1 FROM pg_tables WHERE tablename = v_partition_name
+        ) INTO v_exists;
+
+        IF NOT v_exists THEN
+            EXECUTE format(
+                'CREATE TABLE %I PARTITION OF auth_contexts
+                 FOR VALUES FROM (%L) TO (%L)',
+                v_partition_name,
+                DATE_TRUNC('hour', NOW()) + (i || ' hours')::INTERVAL,
+                DATE_TRUNC('hour', NOW()) + ((i+1) || ' hours')::INTERVAL
+            );
+            v_result := v_result || 'Created ' || v_partition_name || E'\n';
+        END IF;
+    END LOOP;
+
     -- tokens_inactive: Create hourly partitions (48 hours ahead)
     FOR i IN 0..47 LOOP
         v_partition_name := 'tokens_inactive_' ||
@@ -798,7 +843,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION create_future_partitions IS
-'V5: Creates future partitions: 48 hours for tokens_inactive, 7 days for context_events. Run hourly.';
+'V5: Creates future partitions: 48h for auth_contexts, 48h for tokens_inactive, 7d for context_events. Run hourly.';
 
 -- ============================================================================
 -- FUNCTION: drop_old_partitions
@@ -809,6 +854,18 @@ DECLARE
     v_result TEXT := '';
     v_partition_name TEXT;
 BEGIN
+    -- auth_contexts: Drop partitions older than 25 hours
+    FOR v_partition_name IN
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = 'public'
+        AND tablename LIKE 'auth_contexts_%'
+        AND tablename < 'auth_contexts_' ||
+            TO_CHAR(NOW() - INTERVAL '25 hours', 'YYYY_MM_DD_HH24')
+    LOOP
+        EXECUTE 'DROP TABLE IF EXISTS ' || v_partition_name;
+        v_result := v_result || 'Dropped ' || v_partition_name || E'\n';
+    END LOOP;
+
     -- tokens_inactive: Drop partitions older than 25 hours
     FOR v_partition_name IN
         SELECT tablename FROM pg_tables
@@ -838,7 +895,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION drop_old_partitions IS
-'V5: Drops old partitions based on retention: 25h for tokens_inactive, 90d for context_events. Run hourly.';
+'V5: Drops old partitions based on retention: 25h for auth_contexts, 25h for tokens_inactive, 90d for context_events. Run hourly.';
 
 -- ============================================================================
 -- PURGE FUNCTIONS (Batch DELETE)
@@ -891,25 +948,6 @@ $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION batch_purge_table IS
 'V5: Generic batch purge function with metrics logging. Deletes in batches with configurable sleep.';
-
--- ============================================================================
--- FUNCTION: purge_auth_contexts
--- ============================================================================
-CREATE OR REPLACE FUNCTION purge_auth_contexts()
-RETURNS TABLE(deleted BIGINT, duration NUMERIC) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT * FROM batch_purge_table(
-        'auth_contexts',
-        'created_at < NOW() - INTERVAL ''25 minutes'' AND auth_outcome IS NOT NULL',
-        10000,
-        0.1
-    );
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION purge_auth_contexts IS
-'V5: Purge completed auth_contexts older than 25 minutes. Run every 10 minutes.';
 
 -- ============================================================================
 -- FUNCTION: purge_auth_transactions
@@ -1047,13 +1085,6 @@ COMMENT ON FUNCTION expire_old_sessions IS 'V5: Mark expired sessions. Run every
 -- ============================================================================
 
 -- High-churn transactional tables: Aggressive auto-vacuum
-ALTER TABLE auth_contexts SET (
-    autovacuum_vacuum_scale_factor = 0.01,
-    autovacuum_analyze_scale_factor = 0.005,
-    autovacuum_vacuum_cost_delay = 2,
-    autovacuum_vacuum_cost_limit = 1000
-);
-
 ALTER TABLE auth_transactions SET (
     autovacuum_vacuum_scale_factor = 0.01,
     autovacuum_analyze_scale_factor = 0.005,
@@ -1077,6 +1108,11 @@ ALTER TABLE tokens_active SET (
 );
 
 -- Partitioned tables: Less aggressive (purged via DROP)
+ALTER TABLE auth_contexts SET (
+    autovacuum_vacuum_scale_factor = 0.05,
+    autovacuum_analyze_scale_factor = 0.02
+);
+
 ALTER TABLE context_events SET (
     autovacuum_vacuum_scale_factor = 0.05,
     autovacuum_analyze_scale_factor = 0.02
@@ -1094,7 +1130,6 @@ BEGIN
     FOR job_rec IN
         SELECT jobname FROM cron.job
         WHERE jobname IN (
-            'purge-auth-contexts',
             'purge-auth-transactions',
             'purge-sessions',
             'purge-expired-tokens',
@@ -1114,12 +1149,6 @@ END $$;
 -- ============================================================
 -- High-frequency purges (every 10 minutes)
 -- ============================================================
-SELECT cron.schedule(
-    'purge-auth-contexts',
-    '*/10 * * * *',
-    'SELECT purge_auth_contexts()'
-);
-
 SELECT cron.schedule(
     'purge-auth-transactions',
     '*/10 * * * *',
@@ -1184,7 +1213,6 @@ SELECT cron.schedule(
     'vacuum-analyze-transactional',
     '0 3 * * *',  -- 3 AM daily
     $$
-    VACUUM ANALYZE auth_contexts;
     VACUUM ANALYZE auth_transactions;
     VACUUM ANALYZE sessions;
     VACUUM ANALYZE tokens_active;
@@ -1196,6 +1224,7 @@ SELECT cron.schedule(
     'vacuum-analyze-partitioned',
     '0 4 * * 0',  -- 4 AM Sundays
     $$
+    VACUUM ANALYZE auth_contexts;
     VACUUM ANALYZE context_events;
     VACUUM ANALYZE tokens_inactive;
     $$
@@ -1236,7 +1265,6 @@ WHERE proname IN (
     'create_future_partitions',
     'drop_old_partitions',
     'batch_purge_table',
-    'purge_auth_contexts',
     'purge_auth_transactions',
     'purge_sessions',
     'purge_expired_tokens',
@@ -1250,7 +1278,6 @@ SELECT
     COUNT(*) as count
 FROM cron.job
 WHERE jobname IN (
-    'purge-auth-contexts',
     'purge-auth-transactions',
     'purge-sessions',
     'purge-expired-tokens',
@@ -1262,6 +1289,12 @@ WHERE jobname IN (
     'vacuum-analyze-transactional',
     'vacuum-analyze-partitioned'
 )
+UNION ALL
+SELECT
+    'Partitions (auth_contexts)' as object_type,
+    COUNT(*) as count
+FROM pg_tables
+WHERE tablename LIKE 'auth_contexts_%'
 UNION ALL
 SELECT
     'Partitions (tokens_inactive)' as object_type,
@@ -1347,5 +1380,5 @@ SELECT 'Schema Setup Complete!' as status,
        'Time-Prefixed Partition Strategy - V5.0' as approach,
        'Capacity: 2.4M daily logins, 14.4M refreshes/day (5.3x headroom)' as capacity,
        'Key Features: Date-prefixed IDs + Unified Events + 85% storage reduction' as features,
-       'Storage: 1.2TB (vs 8.1TB in v4.0)' as storage,
-       'Tables: 6 (vs 8 in v4.0), Rows: 285.7M (vs 8.38B in v4.0)' as efficiency;
+       'Storage: 1.26TB (vs 8.1TB in v4.0)' as storage,
+       'Tables: 7 (4 transactional + 3 partitioned), Rows: 288.2M (vs 8.38B in v4.0)' as efficiency;

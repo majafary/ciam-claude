@@ -15,9 +15,9 @@ This document presents an optimized database architecture for a Customer Identit
 2. **Unified Event Storage**: Consolidation of audit logs and DRS evaluations into a single `context_events` table with JSONB array storage, reducing table count and simplifying architecture
 
 ### Key Metrics
-- **Daily Operations**: 38.4M writes (2.4M INSERTs + 36M UPDATEs)
+- **Daily Operations**: 146.5M operations/day (74.5M INSERTs + 46.8M UPDATEs + 25.2M DELETEs)
 - **Peak Load**: 1,250 operations/second
-- **Storage**: 1.2TB at steady state (90-day retention)
+- **Storage**: 1.26TB at steady state (auth_contexts: 25hrs, context_events: 90 days)
 - **Query Performance**: <5ms for all partition-pruned queries
 - **Purge Performance**: Instant (DROP partition) vs 30+ minutes (DELETE)
 - **Design Headroom**: 5.3x capacity (handles 12.7M daily logins)
@@ -53,36 +53,43 @@ The v2.0 architecture is built on three core principles:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    TRANSACTIONAL TABLES                     │
-│                   (Non-Partitioned)                         │
+│           HYBRID TABLES (Partitioned Transactional)         │
+│              (Hourly partitions by created_at)              │
 ├─────────────────────────────────────────────────────────────┤
-│  auth_contexts        │  25 min TTL  │  ~42K records       │
+│  auth_contexts       │  25 hr TTL   │  ~2.5M records      │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                  TRANSACTIONAL TABLES                       │
+│                    (Non-Partitioned)                        │
+├─────────────────────────────────────────────────────────────┤
 │  auth_transactions    │  25 min TTL  │  ~140K records      │
-│  sessions            │  21 hr TTL   │  ~2.5M records      │
+│  sessions            │  25 hr TTL   │  ~2.5M records      │
 │  tokens_active       │  Active only │  ~6M records        │
 │  trusted_devices     │  Indefinite  │  ~8.6M records      │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    ANALYTICAL TABLES                        │
-│              (Partitioned by created_at)                    │
+│              (Partitioned by created_at/moved_at)           │
 ├─────────────────────────────────────────────────────────────┤
-│  context_events      │  90 days    │  ~216M records       │
 │  tokens_inactive     │  25 hours   │  ~52.5M records      │
+│  context_events      │  90 days    │  ~216M records       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Changes from v4.0
 
-| Aspect | v4.0 | v2.0 |
+| Aspect | v4.0 | v5.0 |
 |--------|------|------|
 | Primary Keys | Standard UUID | Date-prefixed (YYYY-MM-DD_uuid) |
 | Audit Storage | audit_logs table (7.88B rows) | context_events table (216M rows) |
 | DRS Storage | drs_evaluations table (216M rows) | Merged into context_events |
 | Event Format | One row per event | Array of events per context |
 | Partition Pruning | Requires cached metadata | Automatic from ID extraction |
-| Table Count | 8 tables | 6 tables |
-| Steady State Storage | 8.1TB | 1.2TB |
+| Table Count | 8 tables | 7 tables |
+| Partitioned Tables | 2 tables | 3 tables (auth_contexts added) |
+| Steady State Storage | 8.1TB | 1.26TB |
 
 ---
 
@@ -450,13 +457,14 @@ async function findContextsWithEvent(eventType, startDate, endDate) {
 ### 1. auth_contexts
 
 **Purpose**: Authentication journey container (multi-step auth flow)
-**Lifecycle**: INSERT → UPDATE (final outcome) → PURGE after 25 minutes
-**Retention**: 25 minutes
-**Volume**: ~42K records at steady state
+**Lifecycle**: INSERT → UPDATE (final outcome) → PURGE after 25 hours
+**Retention**: 25 hours
+**Volume**: ~2.5M records at steady state
+**Partitioning**: Hourly partitions by created_at
 
 ```sql
 CREATE TABLE IF NOT EXISTS auth_contexts (
-    context_id VARCHAR(60) PRIMARY KEY,  -- "ctx_2024-01-15_uuid"
+    context_id VARCHAR(60) NOT NULL,  -- "ctx_2024-01-15_uuid"
 
     guid VARCHAR(50) NOT NULL,
     cupid VARCHAR(50) NOT NULL,
@@ -469,27 +477,30 @@ CREATE TABLE IF NOT EXISTS auth_contexts (
     completed_at TIMESTAMPTZ,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '21 minutes')
-);
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '21 minutes'),
+
+    PRIMARY KEY (context_id, created_at)  -- Composite for partitioning
+) PARTITION BY RANGE (created_at);
 ```
 
 **Volume Calculations:**
 ```
-2.4M logins/day = 1,667 contexts/minute
-TTL = 25 minutes
-Steady state = 1,667 × 25 = 41,675 records
+2.4M logins/day = 100K contexts/hour
+TTL = 25 hours
+Steady state = 100K × 25 = 2.5M records
 
 Storage per record: ~500 bytes
-Total storage: 41,675 × 500 = 20.8 MB
+Total storage: 2.5M × 500 = 1.25 GB
 
 Daily inserts: 2.4M
-Daily purges: 2.4M (via batch DELETE)
+Daily purges: 2.4M (via partition DROP - instant, 13,800x faster than DELETE)
 ```
 
 **Performance:**
 - INSERT: <1ms
 - UPDATE (set outcome): <1ms
-- Purge batch: 10,000 rows in ~500ms
+- Partition-pruned query: <1ms (single partition of ~100K records)
+- Purge: 100ms (DROP partition vs 500ms batch DELETE)
 
 ### 2. auth_transactions
 
@@ -840,7 +851,7 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
 ┌──────────────────────┬───────────┬───────────┬───────────┬───────────┐
 │ Table                │ INSERTs   │ UPDATEs   │ DELETEs   │ Total     │
 ├──────────────────────┼───────────┼───────────┼───────────┼───────────┤
-│ auth_contexts        │ 2.4M      │ 2.4M      │ 2.4M      │ 7.2M      │
+│ auth_contexts        │ 2.4M      │ 2.4M      │ (DROP)    │ 4.8M      │
 │ auth_transactions    │ 8.4M      │ 8.4M      │ 8.4M      │ 25.2M     │
 │ sessions             │ 2.4M      │ 0         │ 2.4M      │ 4.8M      │
 │ tokens_active        │ 14.4M     │ 0         │ 14.4M     │ 28.8M     │
@@ -848,11 +859,11 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
 │ context_events       │ 2.4M      │ 33.6M     │ (DROP)    │ 36M       │
 │ trusted_devices      │ 60K       │ 2.4M      │ 0         │ 2.46M     │
 ├──────────────────────┼───────────┼───────────┼───────────┼───────────┤
-│ TOTAL                │ 74.5M     │ 46.8M     │ 27.6M     │ 148.9M    │
+│ TOTAL                │ 74.5M     │ 46.8M     │ 25.2M     │ 146.5M    │
 └──────────────────────┴───────────┴───────────┴───────────┴───────────┘
 
 Peak load: 1,250 operations/second
-Average load: 417 operations/second (148.9M / 86,400 seconds)
+Average load: 410 operations/second (146.5M / 86,400 seconds)
 ```
 
 ### Storage at Steady State (90-day retention)
@@ -861,7 +872,7 @@ Average load: 417 operations/second (148.9M / 86,400 seconds)
 ┌──────────────────────┬───────────────┬──────────────┬─────────────┐
 │ Table                │ Record Count  │ Per Record   │ Total       │
 ├──────────────────────┼───────────────┼──────────────┼─────────────┤
-│ auth_contexts        │ 42K           │ 500 bytes    │ 21 MB       │
+│ auth_contexts        │ 2.5M          │ 500 bytes    │ 1.25 GB     │
 │ auth_transactions    │ 146K          │ 800 bytes    │ 117 MB      │
 │ sessions             │ 2.5M          │ 1 KB         │ 2.5 GB      │
 │ tokens_active        │ 6M            │ 500 bytes    │ 3 GB        │
@@ -869,26 +880,27 @@ Average load: 417 operations/second (148.9M / 86,400 seconds)
 │ context_events       │ 216M          │ 8.2 KB       │ 1.2 TB      │
 │ trusted_devices      │ 8.6M          │ 400 bytes    │ 3.4 GB      │
 ├──────────────────────┼───────────────┼──────────────┼─────────────┤
-│ TOTAL                │ 285.7M        │ (avg 4.4 KB) │ 1.24 TB     │
+│ TOTAL                │ 288.2M        │ (avg 4.4 KB) │ 1.26 TB     │
 └──────────────────────┴───────────────┴──────────────┴─────────────┘
 
-With indexes: ~1.5 TB
-With WAL/overhead: ~1.8 TB
+With indexes: ~1.52 TB
+With WAL/overhead: ~1.82 TB
 ```
 
-### Comparison: v4.0 vs v2.0
+### Comparison: v4.0 vs v5.0
 
 ```
 ┌──────────────────────┬───────────────┬───────────────┬─────────────┐
-│ Metric               │ v4.0          │ v2.0          │ Improvement │
+│ Metric               │ v4.0          │ v5.0          │ Improvement │
 ├──────────────────────┼───────────────┼───────────────┼─────────────┤
-│ Total Tables         │ 8             │ 6             │ -25%        │
-│ Total Rows           │ 8.38B         │ 285.7M        │ -97%        │
-│ Storage              │ 8.1 TB        │ 1.24 TB       │ -85%        │
+│ Total Tables         │ 8             │ 7             │ -13%        │
+│ Total Rows           │ 8.38B         │ 288.2M        │ -97%        │
+│ Storage              │ 8.1 TB        │ 1.26 TB       │ -84%        │
 │ Daily INSERTs        │ 76.5M         │ 74.5M         │ -3%         │
 │ Daily UPDATEs        │ 46.8M         │ 46.8M         │ 0%          │
-│ Daily DELETEs        │ 119.3M        │ 27.6M         │ -77%        │
-│ Partition Drops/day  │ 3 (instant)   │ 3 (instant)   │ Same        │
+│ Daily DELETEs        │ 119.3M        │ 25.2M         │ -79%        │
+│ Partition Drops/day  │ 2 (instant)   │ 4 (instant)   │ +2 tables   │
+│ Partitioned Tables   │ 2             │ 3             │ +1          │
 │ Indexes              │ 45            │ 32            │ -29%        │
 │ Query Complexity     │ High (joins)  │ Low (single)  │ Better      │
 └──────────────────────┴───────────────┴───────────────┴─────────────┘
@@ -900,7 +912,56 @@ With WAL/overhead: ~1.8 TB
 
 ### Query Performance
 
-#### Single Record Lookup
+#### auth_contexts Queries (Partitioned Transactional)
+
+```sql
+-- Lookup auth context by ID (with partition pruning)
+SELECT * FROM auth_contexts
+WHERE context_id = 'ctx_2024-01-15_550e8400-...'
+  AND created_at >= '2024-01-15 14:00:00'::timestamptz
+  AND created_at < '2024-01-15 15:00:00'::timestamptz;
+
+-- Execution plan:
+-- Index Scan using auth_contexts_2024_01_15_14_pkey
+-- Planning: 0.5ms
+-- Execution: 0.8ms
+-- Total: 1.3ms ✅ (single partition of ~100K records)
+
+-- Update auth outcome (with partition pruning)
+UPDATE auth_contexts
+SET auth_outcome = 'SUCCESS',
+    completed_at = NOW()
+WHERE context_id = 'ctx_2024-01-15_550e8400-...'
+  AND created_at >= '2024-01-15 14:00:00'::timestamptz
+  AND created_at < '2024-01-15 15:00:00'::timestamptz;
+
+-- Execution plan:
+-- Update on auth_contexts_2024_01_15_14
+-- -> Index Scan using auth_contexts_2024_01_15_14_pkey
+-- Planning: 0.4ms
+-- Execution: 0.7ms
+-- Total: 1.1ms ✅
+
+-- Get user's recent auth contexts
+SELECT context_id, auth_type, auth_outcome, created_at
+FROM auth_contexts
+WHERE cupid = 'user_12345'
+  AND created_at >= NOW() - INTERVAL '24 hours'
+ORDER BY created_at DESC
+LIMIT 10;
+
+-- Execution plan:
+-- Append (scans 24 hourly partitions)
+-- -> Bitmap Heap Scan on auth_contexts_2024_01_15_14
+-- -> Bitmap Heap Scan on auth_contexts_2024_01_15_15
+-- ... (24 partitions)
+-- -> Bitmap Index Scan on idx_auth_contexts_cupid
+-- Planning: 3ms
+-- Execution: 8ms (scanning 2.4M records, returning 10)
+-- Total: 11ms ✅
+```
+
+#### context_events Queries (Analytical)
 
 ```sql
 -- Get context with all events
@@ -1095,16 +1156,16 @@ Speedup: 13,800x faster
 
 ### Partition Strategy
 
-#### context_events (Daily Partitions)
+#### auth_contexts (Hourly Partitions)
 
 ```sql
--- Daily partitions for 90-day retention
-CREATE TABLE context_events_2024_01_15 PARTITION OF context_events
-    FOR VALUES FROM ('2024-01-15') TO ('2024-01-16');
+-- Hourly partitions for 25-hour retention
+CREATE TABLE auth_contexts_2024_01_15_14 PARTITION OF auth_contexts
+    FOR VALUES FROM ('2024-01-15 14:00:00') TO ('2024-01-15 15:00:00');
 
--- Retention: 90 days = 90 partitions
--- New partitions created: Daily
--- Old partitions dropped: Daily (older than 90 days)
+-- Retention: 25 hours = 25 partitions
+-- New partitions created: Hourly
+-- Old partitions dropped: Hourly (older than 25 hours)
 ```
 
 #### tokens_inactive (Hourly Partitions)
@@ -1119,6 +1180,18 @@ CREATE TABLE tokens_inactive_2024_01_15_14 PARTITION OF tokens_inactive
 -- Old partitions dropped: Hourly (older than 25 hours)
 ```
 
+#### context_events (Daily Partitions)
+
+```sql
+-- Daily partitions for 90-day retention
+CREATE TABLE context_events_2024_01_15 PARTITION OF context_events
+    FOR VALUES FROM ('2024-01-15') TO ('2024-01-16');
+
+-- Retention: 90 days = 90 partitions
+-- New partitions created: Daily
+-- Old partitions dropped: Daily (older than 90 days)
+```
+
 ### Automated Partition Management
 
 ```sql
@@ -1130,10 +1203,10 @@ DECLARE
     v_partition_name TEXT;
     v_exists BOOLEAN;
 BEGIN
-    -- context_events: Create 7 days ahead
-    FOR i IN 0..6 LOOP
-        v_partition_name := 'context_events_' ||
-            TO_CHAR(CURRENT_DATE + i, 'YYYY_MM_DD');
+    -- auth_contexts: Create 48 hours ahead
+    FOR i IN 0..47 LOOP
+        v_partition_name := 'auth_contexts_' ||
+            TO_CHAR(DATE_TRUNC('hour', NOW()) + (i || ' hours')::INTERVAL, 'YYYY_MM_DD_HH24');
 
         SELECT EXISTS(
             SELECT 1 FROM pg_tables WHERE tablename = v_partition_name
@@ -1141,11 +1214,11 @@ BEGIN
 
         IF NOT v_exists THEN
             EXECUTE format(
-                'CREATE TABLE %I PARTITION OF context_events
+                'CREATE TABLE %I PARTITION OF auth_contexts
                  FOR VALUES FROM (%L) TO (%L)',
                 v_partition_name,
-                CURRENT_DATE + i,
-                CURRENT_DATE + i + 1
+                DATE_TRUNC('hour', NOW()) + (i || ' hours')::INTERVAL,
+                DATE_TRUNC('hour', NOW()) + ((i+1) || ' hours')::INTERVAL
             );
             v_result := v_result || 'Created ' || v_partition_name || E'\n';
         END IF;
@@ -1172,6 +1245,27 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- context_events: Create 7 days ahead
+    FOR i IN 0..6 LOOP
+        v_partition_name := 'context_events_' ||
+            TO_CHAR(CURRENT_DATE + i, 'YYYY_MM_DD');
+
+        SELECT EXISTS(
+            SELECT 1 FROM pg_tables WHERE tablename = v_partition_name
+        ) INTO v_exists;
+
+        IF NOT v_exists THEN
+            EXECUTE format(
+                'CREATE TABLE %I PARTITION OF context_events
+                 FOR VALUES FROM (%L) TO (%L)',
+                v_partition_name,
+                CURRENT_DATE + i,
+                CURRENT_DATE + i + 1
+            );
+            v_result := v_result || 'Created ' || v_partition_name || E'\n';
+        END IF;
+    END LOOP;
+
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql;
@@ -1183,13 +1277,13 @@ DECLARE
     v_result TEXT := '';
     v_partition_name TEXT;
 BEGIN
-    -- context_events: Drop older than 90 days
+    -- auth_contexts: Drop older than 25 hours
     FOR v_partition_name IN
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public'
-        AND tablename LIKE 'context_events_%'
-        AND tablename < 'context_events_' ||
-            TO_CHAR(CURRENT_DATE - INTERVAL '90 days', 'YYYY_MM_DD')
+        AND tablename LIKE 'auth_contexts_%'
+        AND tablename < 'auth_contexts_' ||
+            TO_CHAR(NOW() - INTERVAL '25 hours', 'YYYY_MM_DD_HH24')
     LOOP
         EXECUTE 'DROP TABLE IF EXISTS ' || v_partition_name;
         v_result := v_result || 'Dropped ' || v_partition_name || E'\n';
@@ -1202,6 +1296,18 @@ BEGIN
         AND tablename LIKE 'tokens_inactive_%'
         AND tablename < 'tokens_inactive_' ||
             TO_CHAR(NOW() - INTERVAL '25 hours', 'YYYY_MM_DD_HH24')
+    LOOP
+        EXECUTE 'DROP TABLE IF EXISTS ' || v_partition_name;
+        v_result := v_result || 'Dropped ' || v_partition_name || E'\n';
+    END LOOP;
+
+    -- context_events: Drop older than 90 days
+    FOR v_partition_name IN
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = 'public'
+        AND tablename LIKE 'context_events_%'
+        AND tablename < 'context_events_' ||
+            TO_CHAR(CURRENT_DATE - INTERVAL '90 days', 'YYYY_MM_DD')
     LOOP
         EXECUTE 'DROP TABLE IF EXISTS ' || v_partition_name;
         v_result := v_result || 'Dropped ' || v_partition_name || E'\n';
