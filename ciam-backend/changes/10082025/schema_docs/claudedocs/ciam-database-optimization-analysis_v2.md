@@ -866,6 +866,109 @@ Peak load: 1,250 operations/second
 Average load: 410 operations/second (146.5M / 86,400 seconds)
 ```
 
+### Daily Read Operations (Database Hits)
+
+The write operations above represent only part of the story. Read operations (SELECT queries, lookups, validations) dominate the database workload in a CIAM system.
+
+#### API Traffic Estimation
+
+```
+Base calculation:
+- 2.4M sessions/day
+- Average 50 API requests per session (mix of API calls, token validations, etc.)
+- Total API requests: 2.4M × 50 = 120M requests/day
+```
+
+#### Daily Reads by Table
+
+```
+┌──────────────────────┬────────────┬─────────────────────────────────────────┐
+│ Table                │ Reads/Day  │ Read Pattern                            │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ tokens_active        │ 134M       │ Token validation (every API: 120M)     │
+│                      │            │ + Rotation lookups (14.4M)              │
+│                      │            │ = 93% read-heavy (134M/144M)            │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ sessions             │ 122M       │ Session validation (every API: 120M)    │
+│                      │            │ + Auth session lookups (2.4M)           │
+│                      │            │ = 96% read-heavy (122M/127M)            │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ auth_transactions    │ 16.8M      │ Polling for multi-step auth status      │
+│                      │            │ (8.4M contexts × 2 polls avg)           │
+│                      │            │ = 40% read ratio (16.8M/42M)            │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ auth_contexts        │ 8.4M       │ Context lookups during auth flow        │
+│                      │            │ (2.4M × 3.5 transactions)               │
+│                      │            │ = 64% read ratio (8.4M/13.2M)           │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ trusted_devices      │ 1.45M      │ Device trust checks (60% of auths)      │
+│                      │            │ = 37% read ratio (1.45M/3.9M)           │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ context_events       │ 500K       │ Analytics queries, audit searches       │
+│                      │            │ = 1% read ratio (500K/36.5M)            │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ tokens_inactive      │ 100K       │ Forensics, compliance searches          │
+│                      │            │ = 0.2% read ratio (100K/44.5M)          │
+├──────────────────────┼────────────┼─────────────────────────────────────────┤
+│ TOTAL                │ 283M       │ Total database reads per day            │
+└──────────────────────┴────────────┴─────────────────────────────────────────┘
+```
+
+#### Complete Operations Summary (Reads + Writes)
+
+```
+┌──────────────────────┬───────────┬───────────┬────────────┬─────────────┐
+│ Table                │ Reads     │ Writes    │ Total      │ Read %      │
+├──────────────────────┼───────────┼───────────┼────────────┼─────────────┤
+│ tokens_active        │ 134M      │ 28.8M     │ 162.8M     │ 82%         │
+│ sessions             │ 122M      │ 4.8M      │ 126.8M     │ 96%         │
+│ auth_transactions    │ 16.8M     │ 25.2M     │ 42M        │ 40%         │
+│ auth_contexts        │ 8.4M      │ 4.8M      │ 13.2M      │ 64%         │
+│ trusted_devices      │ 1.45M     │ 2.46M     │ 3.91M      │ 37%         │
+│ context_events       │ 500K      │ 36M       │ 36.5M      │ 1%          │
+│ tokens_inactive      │ 100K      │ 44.4M     │ 44.5M      │ 0.2%        │
+├──────────────────────┼───────────┼───────────┼────────────┼─────────────┤
+│ TOTAL                │ 283M      │ 146.5M    │ 429.5M     │ 66%         │
+└──────────────────────┴───────────┴───────────┴────────────┴─────────────┘
+
+Total operations per day: 429.5M (283M reads + 146.5M writes)
+Peak load: ~4,977 operations/second
+Average load: 1,388 operations/second (429.5M / 86,400 seconds)
+
+Hot Path (66% of all operations):
+- tokens_active: 162.8M ops/day (38% of total)
+- sessions: 126.8M ops/day (28% of total)
+Combined: 289.6M ops/day (67.4% of total database activity)
+```
+
+#### Key Insights
+
+**1. Read-Dominated Hot Path**
+- `tokens_active` and `sessions` together handle 256M reads/day (90% of all reads)
+- Every API request requires 2 lookups: token validation + session validation
+- These tables must be optimized for read performance above all else
+
+**2. tokens_active Partitioning Decision**
+- Primary queries: by `token_value_hash` and `session_id` (NOT by date)
+- Partitioning would require scanning all 25 partitions on every lookup
+- Impact: 134M reads/day × 5-10x slowdown = unacceptable performance degradation
+- **Conclusion**: Keep non-partitioned with optimized indexes
+
+**3. Index Optimization Priority** (by read volume)
+```
+1. tokens_active.token_value_hash (134M lookups/day) - CRITICAL
+2. sessions.session_id (122M lookups/day) - CRITICAL
+3. auth_transactions.context_id (16.8M lookups/day) - HIGH
+4. auth_contexts.context_id (8.4M lookups/day) - HIGH
+5. trusted_devices.device_fingerprint_hash (1.45M lookups/day) - MEDIUM
+6. context_events.cupid (500K lookups/day) - LOW
+```
+
+**4. Read vs Write Patterns**
+- **Read-heavy tables** (optimize for SELECT): tokens_active (82%), sessions (96%)
+- **Write-heavy tables** (optimize for INSERT): context_events (99% writes), tokens_inactive (99.8% writes)
+- **Balanced tables**: auth_transactions (40% reads), auth_contexts (64% reads)
+
 ### Storage at Steady State (90-day retention)
 
 ```
