@@ -9,14 +9,15 @@
 
 ## Executive Summary
 
-This document presents an optimized database architecture for a Customer Identity and Access Management (CIAM) system handling 2.4 million daily logins. The v3.0 architecture introduces three key innovations:
+This document presents an optimized database architecture for a Customer Identity and Access Management (CIAM) system handling 2.4 million daily logins. The v3.0 architecture introduces four key innovations:
 
 1. **Time-Prefixed Primary Keys**: All primary keys include date prefixes (e.g., `2024-01-15_uuid`) enabling instant partition drops while maintaining fast queries through automatic partition pruning
 2. **Unified Event Storage**: Consolidation of audit logs and DRS evaluations into a single `context_events` table with JSONB array storage, reducing table count and simplifying architecture
 3. **Simplified Token Management**: Eliminated `tokens_inactive` table by retaining expired tokens in `tokens_active` for 1 hour, improving error messaging while simplifying architecture
+4. **Hybrid Partitioning Strategy**: Combines range partitioning for temporal data (auth_contexts, context_events) with hash partitioning for user-scoped data (trusted_devices by cupid), optimizing both time-based purges and user data locality
 
 ### Key Metrics
-- **Tables**: 6 tables (3 partitioned, 3 transactional)
+- **Tables**: 6 tables (3 partitioned: 2 range + 1 hash, 3 non-partitioned transactional)
 - **Daily Operations**: 103M operations/day (32M INSERTs + 46.8M UPDATEs + 24.2M DELETEs)
 - **Peak Load**: 1,200 operations/second
 - **Storage**: 1.23TB at steady state (auth_contexts: 25hrs, context_events: 90 days, tokens_active includes 1hr expired buffer)
@@ -56,9 +57,10 @@ The v2.0 architecture is built on three core principles:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │           HYBRID TABLES (Partitioned Transactional)         │
-│              (Hourly partitions by created_at)              │
+│         (Range: Hourly partitions by created_at)            │
 ├─────────────────────────────────────────────────────────────┤
 │  auth_contexts       │  25 hr TTL   │  ~2.5M records      │
+│  (25 hourly parts)   │              │  100K/partition     │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -69,14 +71,23 @@ The v2.0 architecture is built on three core principles:
 │  sessions            │  25 hr TTL   │  ~2.5M records      │
 │  tokens_active       │  Active +    │  ~6.15M records     │
 │                      │  1hr expired │  (6M + 150K buffer) │
-│  trusted_devices     │  Indefinite  │  ~8.6M records      │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    ANALYTICAL TABLES                        │
-│              (Partitioned by created_at)                    │
+│         (Range: Daily partitions by created_at)             │
 ├─────────────────────────────────────────────────────────────┤
 │  context_events      │  90 days    │  ~216M records       │
+│  (90 daily parts)    │             │  2.4M/partition      │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                   USER-SCOPED TABLES                        │
+│            (Hash: 16 partitions by cupid)                   │
+├─────────────────────────────────────────────────────────────┤
+│  trusted_devices     │  10/user max│  8.6M current        │
+│  (16 hash parts)     │  round-robin│  24M steady state    │
+│                      │             │  1.5M/partition      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,7 +102,8 @@ The v2.0 architecture is built on three core principles:
 | Partition Pruning | Requires cached metadata | Automatic from ID extraction |
 | Token Management | tokens_active + tokens_inactive (2 tables) | tokens_active only (includes 1hr expired buffer) |
 | Table Count | 8 tables | 6 tables |
-| Partitioned Tables | 2 tables | 2 tables (auth_contexts, context_events) |
+| Partitioned Tables | 2 tables (range only) | 3 tables (2 range + 1 hash) |
+| Partitioning Strategy | Range only (temporal) | Hybrid (range for temporal + hash for user-scoped) |
 | Steady State Storage | 8.1TB | 1.23TB |
 
 ---
@@ -901,36 +913,229 @@ v2.0 context_events: 216M rows × 8.2 KB = 1.77 TB (compressed to 1.2 TB)
 Storage reduction: 82%
 ```
 
-### 6. trusted_devices
+### 6. trusted_devices (Hash Partitioned)
 
-**Purpose**: Device binding for MFA skip
-**Lifecycle**: Created on bind → Revoked manually
-**Retention**: Indefinite (no automatic purge)
-**Volume**: ~8.6M records (cumulative)
+**Purpose**: Device binding for MFA skip with round-robin 10-device limit per user
+**Lifecycle**: Created on bind → Application-level purge when user exceeds 10 devices
+**Retention**: 10 devices maximum per user (round-robin deletion)
+**Volume**: 8.6M current → 24M steady state (2.4M users × 10 devices)
+**Partitioning**: Hash by `cupid` (16 partitions for even distribution)
+**Per-partition**: ~1.5M devices at steady state (~600 MB)
+
+**Why Hash Partitioning?**
+- **Capped Growth**: 10-device-per-user limit = 24M device ceiling (predictable)
+- **User Data Locality**: All devices for a user in same partition
+- **Query Optimization**: All operations include `cupid` → perfect partition pruning
+- **Even Distribution**: Users evenly spread across 16 partitions
+- **Scalability**: 1.5M devices/partition is manageable forever
 
 ```sql
 CREATE TABLE IF NOT EXISTS trusted_devices (
-    device_id UUID PRIMARY KEY,  -- Standard UUID (no date prefix - indefinite retention)
+    -- Primary Key (standard UUID)
+    device_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
+    -- Customer & User Identity
     guid VARCHAR(50) NOT NULL,
-    cupid VARCHAR(50) NOT NULL,
+    cupid VARCHAR(50) NOT NULL,  -- PARTITION KEY (must be in all queries)
+
+    -- Application Context
     app_id VARCHAR(50) NOT NULL,
 
+    -- Device Identity
+    device_fingerprint TEXT NOT NULL,
     device_fingerprint_hash VARCHAR(64) NOT NULL,
+
+    -- Device Metadata
     device_name VARCHAR(200),
     device_type VARCHAR(50),
 
+    -- Trust State
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
 
+    -- Lifecycle
     trusted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     revoked_at TIMESTAMPTZ,
 
-    UNIQUE (cupid, app_id, device_fingerprint_hash) WHERE status = 'ACTIVE'
-);
+    -- Constraints
+    CONSTRAINT check_device_revoked CHECK (
+        (status != 'REVOKED' AND revoked_at IS NULL) OR
+        (status = 'REVOKED' AND revoked_at IS NOT NULL)
+    )
+) PARTITION BY HASH (cupid);
+
+-- Create 16 hash partitions
+-- Each partition handles ~1/16 of users (evenly distributed)
+CREATE TABLE trusted_devices_p0 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE trusted_devices_p1 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+-- ... (repeat for p2-p15)
+
+-- Indexes (automatically created on all partitions)
+CREATE INDEX idx_devices_guid ON trusted_devices(guid);
+CREATE INDEX idx_devices_cupid_app ON trusted_devices(cupid, app_id)
+    WHERE status = 'ACTIVE';
+CREATE INDEX idx_devices_fingerprint_hash
+    ON trusted_devices(device_fingerprint_hash, cupid);  -- Include cupid for partition pruning
+CREATE INDEX idx_devices_trusted ON trusted_devices(cupid, trusted_at);
+
+-- Unique constraint: one device per user per app
+CREATE UNIQUE INDEX idx_devices_unique_per_user_app
+    ON trusted_devices(cupid, app_id, device_fingerprint_hash)
+    WHERE status = 'ACTIVE';
 ```
 
-**Note:** This table does NOT use date-prefixed IDs because devices have indefinite retention.
+**Volume Breakdown:**
+```
+Current State (8.6M devices):
+├─ Per partition: 537K devices (212 MB)
+└─ Index size per partition: ~50 MB
+
+Steady State (24M devices - 2.4M users × 10):
+├─ Per partition: 1.5M devices (600 MB)
+├─ Index size per partition: ~150 MB
+└─ Total storage: 9.6 GB (data) + 2.4 GB (indexes) = 12 GB
+
+Daily Operations Per Partition:
+├─ INSERTs: 3.75K (60K / 16)
+├─ UPDATEs: 150K (2.4M / 16)
+└─ DELETEs: 3.75K (60K / 16)
+```
+
+**Code Examples:**
+
+**1. Round-Robin Device Binding (10-device limit):**
+```javascript
+async function bindDevice(cupid, guid, appId, deviceFingerprint) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Check current device count
+        const countResult = await client.query(`
+            SELECT COUNT(*) as count
+            FROM trusted_devices
+            WHERE cupid = $1 AND app_id = $2 AND status = 'ACTIVE'
+        `, [cupid, appId]);
+
+        const deviceCount = parseInt(countResult.rows[0].count);
+
+        // If at limit (10), delete oldest device
+        if (deviceCount >= 10) {
+            await client.query(`
+                DELETE FROM trusted_devices
+                WHERE device_id = (
+                    SELECT device_id FROM trusted_devices
+                    WHERE cupid = $1 AND app_id = $2 AND status = 'ACTIVE'
+                    ORDER BY trusted_at ASC
+                    LIMIT 1
+                ) AND cupid = $1  -- Include partition key for single-partition operation
+            `, [cupid, appId]);
+        }
+
+        // Insert new device (automatically routed to correct partition by cupid)
+        const deviceHash = crypto.createHash('sha256')
+            .update(deviceFingerprint).digest('hex');
+
+        const result = await client.query(`
+            INSERT INTO trusted_devices (
+                cupid, guid, app_id,
+                device_fingerprint, device_fingerprint_hash,
+                device_name, device_type
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING device_id, trusted_at
+        `, [cupid, guid, appId, deviceFingerprint, deviceHash,
+            deviceName, deviceType]);
+
+        await client.query('COMMIT');
+        return result.rows[0];
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+```
+
+**2. Device Trust Check (partition-pruned by cupid):**
+```javascript
+async function checkDeviceTrust(cupid, deviceFingerprint, appId) {
+    const deviceHash = crypto.createHash('sha256')
+        .update(deviceFingerprint).digest('hex');
+
+    // Query hits single partition (based on cupid hash)
+    const result = await db.query(`
+        SELECT device_id, trusted_at, last_used_at
+        FROM trusted_devices
+        WHERE cupid = $1  -- Partition key: single partition scan
+          AND device_fingerprint_hash = $2
+          AND app_id = $3
+          AND status = 'ACTIVE'
+    `, [cupid, deviceHash, appId]);
+
+    return result.rows.length > 0 ? result.rows[0] : null;
+}
+```
+
+**3. Update Device Last Used (must include cupid):**
+```javascript
+async function updateDeviceUsage(cupid, deviceId) {
+    // IMPORTANT: Must include cupid for partition pruning
+    // Query without cupid would scan all 16 partitions
+    await db.query(`
+        UPDATE trusted_devices
+        SET last_used_at = NOW()
+        WHERE device_id = $1 AND cupid = $2  -- Both required
+    `, [deviceId, cupid]);
+}
+```
+
+**4. Get User's Devices (partition-pruned):**
+```javascript
+async function getUserDevices(cupid, appId) {
+    // Hits single partition (cupid-based routing)
+    const result = await db.query(`
+        SELECT device_id, device_name, device_type, trusted_at, last_used_at
+        FROM trusted_devices
+        WHERE cupid = $1 AND app_id = $2 AND status = 'ACTIVE'
+        ORDER BY last_used_at DESC
+    `, [cupid, appId]);
+
+    return result.rows;
+}
+```
+
+**Partition Pruning Verification:**
+```sql
+-- Verify partition pruning is working
+EXPLAIN SELECT * FROM trusted_devices
+WHERE cupid = 'user123' AND device_fingerprint_hash = 'abc...';
+
+-- Expected output should show: "Seq Scan on trusted_devices_pX" (single partition)
+-- NOT: "Append" with multiple partitions
+
+-- Check partition distribution
+SELECT
+    schemaname,
+    tablename,
+    n_live_tup as devices,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+FROM pg_stat_user_tables
+WHERE tablename LIKE 'trusted_devices_p%'
+ORDER BY tablename;
+
+-- Expected: ~537K devices per partition currently, ~600MB at steady state
+```
+
+**Key Considerations:**
+1. **Always include `cupid` in WHERE clauses** - Required for partition pruning
+2. **Standard UUID for device_id** - Not date-prefixed (no time-based purging)
+3. **Application enforces 10-device limit** - Database doesn't enforce this constraint
+4. **Round-robin is FIFO** - Oldest device (by `trusted_at`) deleted first
+5. **Revocation is soft delete** - Set `status='REVOKED'` (not physical DELETE)
 
 ---
 
@@ -949,19 +1154,20 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
 │                      │           │ (mark exp)│ (14.4M +  │           │
 │                      │           │           │  3.6M)    │           │
 │ context_events       │ 2.4M      │ 33.6M     │ (DROP)    │ 36M       │
-│ trusted_devices      │ 60K       │ 2.4M      │ 0         │ 2.46M     │
+│ trusted_devices      │ 60K       │ 2.4M      │ 60K       │ 2.52M     │
+│ (hash partitioned)   │           │(last_used)│(round-rob)│           │
 ├──────────────────────┼───────────┼───────────┼───────────┼───────────┤
-│ TOTAL                │ 30.1M     │ 50.4M     │ 26.8M     │ 107.3M    │
+│ TOTAL                │ 30.16M    │ 50.4M     │ 26.86M    │ 107.42M   │
 └──────────────────────┴───────────┴───────────┴───────────┴───────────┘
 
 Peak load: 1,250 operations/second
-Average load: 365 operations/second (107.3M / 86,400 seconds)
+Average load: 1,243 operations/second (107.42M / 86,400 seconds)
 
 Key Changes from v2.0 (tokens_inactive eliminated):
-- Reduced INSERTs: 74.5M → 30.1M (-60% by eliminating tokens_inactive table)
+- Reduced INSERTs: 74.5M → 30.16M (-60% by eliminating tokens_inactive table)
 - Increased UPDATEs: 46.8M → 50.4M (+8% for marking expired tokens)
-- Similar DELETEs: 25.2M → 26.8M (+6% for purging expired tokens)
-- Net reduction: 146.5M → 107.3M operations/day (-27%)
+- Similar DELETEs: 25.2M → 26.86M (+7% for purging expired tokens + trusted_devices round-robin)
+- Net reduction: 146.5M → 107.42M operations/day (-27%)
 ```
 
 ### Daily Read Operations (Database Hits)
@@ -1082,18 +1288,22 @@ Changes from v2.0:
 │ tokens_active        │ 6.15M         │ 500 bytes    │ 3.1 GB      │
 │                      │ (6M + 150K)   │              │             │
 │ context_events       │ 216M          │ 8.2 KB       │ 1.2 TB      │
-│ trusted_devices      │ 8.6M          │ 400 bytes    │ 3.4 GB      │
+│ trusted_devices      │ 8.6M current  │ 400 bytes    │ 3.4 GB      │
+│ (16 hash partitions) │ (24M steady)  │              │ (12 GB max) │
+│                      │ ~1.5M/part    │              │ ~750MB/part │
 ├──────────────────────┼───────────────┼──────────────┼─────────────┤
-│ TOTAL                │ 235.9M        │ (avg 5.2 KB) │ 1.23 TB     │
+│ TOTAL (current)      │ 235.9M        │ (avg 5.2 KB) │ 1.23 TB     │
+│ TOTAL (steady state) │ 251.3M        │ (avg 5.0 KB) │ 1.24 TB     │
 └──────────────────────┴───────────────┴──────────────┴─────────────┘
 
-With indexes: ~1.48 TB
-With WAL/overhead: ~1.77 TB
+With indexes (current): ~1.48 TB (steady: ~1.49 TB)
+With WAL/overhead (current): ~1.77 TB (steady: ~1.79 TB)
 
 Changes from v2.0:
 - Eliminated tokens_inactive table (52.5M records, 31.5 GB removed)
 - tokens_active increased 2.5% (6M → 6.15M) to retain 1-hour expired token buffer
-- Net storage reduction: 1.26TB → 1.23TB (-2.4%)
+- trusted_devices hash partitioned by cupid (16 partitions, 24M steady state)
+- Net storage reduction: 1.26TB → 1.23TB current (-2.4%), 1.24TB steady state
 ```
 
 ### Comparison: v4.0 vs v3.0
@@ -1105,12 +1315,13 @@ Changes from v2.0:
 │ Total Tables         │ 8             │ 6             │ -25%        │
 │ Total Rows           │ 8.38B         │ 235.9M        │ -97%        │
 │ Storage              │ 8.1 TB        │ 1.23 TB       │ -85%        │
-│ Daily INSERTs        │ 76.5M         │ 30.1M         │ -61%        │
+│ Daily INSERTs        │ 76.5M         │ 30.16M        │ -61%        │
 │ Daily UPDATEs        │ 46.8M         │ 50.4M         │ +8%         │
-│ Daily DELETEs        │ 119.3M        │ 26.8M         │ -78%        │
-│ Total Ops/day        │ 242.6M        │ 107.3M        │ -56%        │
+│ Daily DELETEs        │ 119.3M        │ 26.86M        │ -78%        │
+│ Total Ops/day        │ 242.6M        │ 107.42M       │ -56%        │
 │ Partition Drops/day  │ 2 (instant)   │ 2 (instant)   │ Same        │
-│ Partitioned Tables   │ 2             │ 2             │ Same        │
+│ Partitioned Tables   │ 2 (range)     │ 3 (2 range +  │ Better      │
+│                      │               │ 1 hash)       │             │
 │ Indexes              │ 45            │ 29            │ -36%        │
 │ Query Complexity     │ High (joins)  │ Low (single)  │ Better      │
 └──────────────────────┴───────────────┴───────────────┴─────────────┘
@@ -1119,6 +1330,7 @@ Key v3.0 Innovations:
 1. Time-prefixed primary keys for automatic partition pruning
 2. Unified event storage (JSONB) eliminating 6 audit tables
 3. Simplified token management eliminating tokens_inactive table
+4. Hybrid partitioning strategy (range for temporal data + hash for user-scoped data)
 
 Changes from v2.0 → v3.0:
 - Eliminated tokens_inactive table entirely
@@ -1374,6 +1586,62 @@ Speedup: 13,800x faster
 ---
 
 ## Partition Management
+
+### Partitioning Strategy Rationale
+
+The CIAM database uses a **hybrid partitioning strategy** that combines two PostgreSQL partitioning schemes based on data access patterns and lifecycle characteristics:
+
+#### Range Partitioning (Temporal Data)
+
+**Applied to**: `auth_contexts`, `context_events`
+
+**Rationale**:
+- **Time-based retention**: Both tables have fixed retention periods (25 hours and 90 days)
+- **Sequential writes**: New records always have recent timestamps
+- **Time-based queries**: Most queries filter by time ranges or use time-prefixed IDs
+- **Bulk purging**: Old data is deleted in bulk by dropping entire partitions (13,800x faster than row-by-row DELETE)
+- **Partition pruning**: WHERE clauses with created_at automatically scan only relevant partitions
+
+**Trade-offs**:
+- ✅ **Pros**: Instant purge via partition drop, automatic data lifecycle, sequential I/O
+- ⚠️ **Cons**: Requires partition maintenance (creation/drop automation), slight overhead for partition routing
+
+#### Hash Partitioning (User-Scoped Data)
+
+**Applied to**: `trusted_devices`
+
+**Rationale**:
+- **User-scoped queries**: All queries include cupid (customer unique person identifier)
+- **No time-based purging**: Application-level round-robin deletion (10-device limit per user)
+- **Even distribution**: Hash partitioning distributes users evenly across partitions
+- **Data locality**: All devices for a user reside in the same partition
+- **Capped growth**: 24M device ceiling (2.4M users × 10 devices) prevents unbounded scaling
+- **Partition pruning**: WHERE clauses with cupid automatically scan single partition
+
+**Trade-offs**:
+- ✅ **Pros**: Perfect partition pruning (single partition per query), user data locality, even load distribution
+- ⚠️ **Cons**: Requires cupid in all queries, application-level deletion (not partition drops), fixed partition count
+
+#### Why NOT Partition sessions, auth_transactions?
+
+**sessions table**:
+- **Critical read-heavy hot path**: 122M reads/day (96% read ratio)
+- **Random access by session_id**: No natural partition key
+- **Partitioning would harm performance**: Multi-partition scans would degrade lookup speed
+- **Small footprint**: 2.5M records, 2.5 GB (manageable without partitioning)
+
+**auth_transactions table**:
+- **Too small**: Only 146K records (117 MB)
+- **Random access by context_id**: Queries don't include transaction_id
+- **Hash by transaction_id would break queries**: context_id lookups would scan all partitions
+- **No purge benefit**: Partitioning overhead exceeds any gain
+
+#### Hybrid Strategy Benefits
+
+1. **Optimized for access patterns**: Range for temporal, hash for user-scoped
+2. **Best of both worlds**: Partition drop efficiency + single-partition queries
+3. **Predictable performance**: Query patterns align with partition keys
+4. **Operational simplicity**: Only partition when clear benefit exists (3 of 6 tables)
 
 ### Partition Strategy
 
@@ -2244,12 +2512,13 @@ The v3.0 architecture delivers significant improvements over v4.0 baseline:
 
 - **85% storage reduction** (8.1TB → 1.23TB) through event aggregation and simplified token management
 - **97% fewer rows** (8.38B → 235.9M) simplifying operations
-- **56% fewer operations** (242.6M → 107.3M ops/day) improving throughput
+- **56% fewer operations** (242.6M → 107.42M ops/day) improving throughput
 - **166x faster queries** with automatic partition pruning via time-prefixed IDs
-- **Instant purges** via partition drops (2 partitioned tables)
+- **Hybrid partitioning** (3 tables: 2 range for temporal data + 1 hash for user-scoped data)
+- **Instant purges** for temporal data via partition drops
 - **Simpler schema** with 25% fewer tables (8 → 6)
 
-### Three Key Innovations
+### Four Key Innovations
 
 **1. Time-Prefixed Primary Keys**
 The time-prefixed ID pattern (`2024-01-15_uuid`) is the key enabler, providing:
@@ -2271,6 +2540,14 @@ Eliminated `tokens_inactive` table entirely:
 - Better error messages (1-hour expired token buffer)
 - 51% fewer token operations (73.3M → 36M ops/day)
 - Simpler architecture (1 table vs 2, no token partitioning)
+
+**4. Hybrid Partitioning Strategy**
+Combines range and hash partitioning for optimal performance:
+- **Range partitioning** (auth_contexts, context_events): Instant purge via partition drops (13,800x faster)
+- **Hash partitioning** (trusted_devices by cupid): Single-partition queries, user data locality
+- **Selective application**: Only 3 of 6 tables partitioned (where clear benefit exists)
+- **Partition pruning**: All queries automatically scan minimal partitions (range by time, hash by user)
+- **Operational benefits**: 16 partitions for trusted_devices (1.5M devices/partition, 600MB each)
 
 ### Production Readiness
 

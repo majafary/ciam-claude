@@ -422,13 +422,24 @@ COMMENT ON INDEX idx_tokens_active_expired IS 'V6: Partial index for efficient p
 -- ID Format: Standard UUID (NO date prefix - indefinite retention)
 -- ============================================================================
 
+-- ============================================================================
+-- TABLE 5: trusted_devices (HASH PARTITIONED)
+-- ============================================================================
+-- Purpose: Trusted device records for MFA skip (10-device limit per user)
+-- Partitioning: HASH by cupid (16 partitions for even distribution)
+-- Lifecycle: INSERT → UPDATEs (last_used_at) → DELETE (round-robin by application)
+-- Retention: Application-enforced 10-device limit per user (oldest deleted)
+-- Growth: Capped at 24M devices (2.4M users × 10 devices/user)
+-- Partition size: ~1.5M devices/partition (~600 MB each)
+-- ============================================================================
+
 CREATE TABLE IF NOT EXISTS trusted_devices (
-    -- Primary Key (standard UUID - no date prefix for indefinite retention)
-    device_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- Primary Key (standard UUID - no date prefix, application-managed lifecycle)
+    device_id UUID DEFAULT gen_random_uuid(),
 
     -- Customer & User Identity
     guid VARCHAR(50) NOT NULL,
-    cupid VARCHAR(50) NOT NULL,
+    cupid VARCHAR(50) NOT NULL,  -- PARTITION KEY (must be in all queries)
 
     -- Application Context
     app_id VARCHAR(50) NOT NULL,
@@ -450,13 +461,48 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
     revoked_at TIMESTAMPTZ,
 
     -- Constraints
+    PRIMARY KEY (device_id, cupid),  -- Composite PK including partition key
     CONSTRAINT check_device_revoked CHECK (
         (status != 'REVOKED' AND revoked_at IS NULL) OR
         (status = 'REVOKED' AND revoked_at IS NOT NULL)
     )
-);
+) PARTITION BY HASH (cupid);
 
--- Indexes
+-- Create 16 hash partitions (distributes users evenly)
+CREATE TABLE trusted_devices_p0 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE trusted_devices_p1 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE trusted_devices_p2 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE trusted_devices_p3 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE trusted_devices_p4 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE trusted_devices_p5 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE trusted_devices_p6 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE trusted_devices_p7 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE trusted_devices_p8 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE trusted_devices_p9 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE trusted_devices_p10 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE trusted_devices_p11 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE trusted_devices_p12 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE trusted_devices_p13 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE trusted_devices_p14 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE trusted_devices_p15 PARTITION OF trusted_devices
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
+
+-- Indexes (automatically created on all partitions)
 CREATE INDEX IF NOT EXISTS idx_devices_guid ON trusted_devices(guid);
 CREATE INDEX IF NOT EXISTS idx_devices_cupid_app ON trusted_devices(cupid, app_id)
     WHERE status = 'ACTIVE';
@@ -464,13 +510,15 @@ CREATE INDEX IF NOT EXISTS idx_devices_fingerprint_hash ON trusted_devices(devic
 CREATE INDEX IF NOT EXISTS idx_devices_trusted ON trusted_devices(trusted_at DESC);
 
 -- Unique constraint: one device can only be trusted once per user per app
+-- Must include partition key (cupid) for partitioned tables
 CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_unique_per_user_app
     ON trusted_devices(cupid, app_id, device_fingerprint_hash)
     WHERE status = 'ACTIVE';
 
 -- Comments
-COMMENT ON TABLE trusted_devices IS 'V6: Trusted device records for MFA skip. Standard UUID (no date prefix) for indefinite retention. No automatic purge.';
-COMMENT ON COLUMN trusted_devices.device_id IS 'V6: Standard UUID (not date-prefixed) because devices have indefinite retention';
+COMMENT ON TABLE trusted_devices IS 'V6: Hash partitioned trusted device records (16 partitions by cupid). Application enforces 10-device limit per user via round-robin deletion. Capped at 24M devices total (1.5M/partition).';
+COMMENT ON COLUMN trusted_devices.device_id IS 'V6: Standard UUID (not date-prefixed) - application-managed lifecycle';
+COMMENT ON COLUMN trusted_devices.cupid IS 'V6: PARTITION KEY - must be included in all WHERE clauses for single-partition queries';
 
 -- ============================================================================
 -- ANALYTICAL TABLES (Partitioned)
@@ -740,6 +788,141 @@ SELECT
 FROM tokens_active;
 
 COMMENT ON VIEW v_token_status IS 'V6: Token status monitoring including expired buffer tracking';
+
+-- ============================================================================
+-- VIEW 9: v_trusted_devices_partition_health (NEW V6)
+-- ============================================================================
+CREATE OR REPLACE VIEW v_trusted_devices_partition_health AS
+WITH partition_stats AS (
+    SELECT
+        child.relname AS partition_name,
+        SUBSTRING(child.relname FROM 'p(\d+)$')::INTEGER AS partition_number,
+        pg_relation_size(child.oid) AS partition_size_bytes,
+        pg_size_pretty(pg_relation_size(child.oid)) AS partition_size,
+        (SELECT COUNT(*) FROM ONLY trusted_devices td
+         WHERE tableoid = child.oid) AS device_count,
+        (SELECT COUNT(*) FROM ONLY trusted_devices td
+         WHERE tableoid = child.oid AND status = 'ACTIVE') AS active_device_count,
+        (SELECT COUNT(*) FROM ONLY trusted_devices td
+         WHERE tableoid = child.oid AND status = 'REVOKED') AS revoked_device_count
+    FROM pg_inherits
+    JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+    JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+    WHERE parent.relname = 'trusted_devices'
+      AND parent.relnamespace = 'public'::regnamespace
+),
+summary AS (
+    SELECT
+        COUNT(*) AS total_partitions,
+        SUM(device_count) AS total_devices,
+        SUM(active_device_count) AS total_active_devices,
+        ROUND(AVG(device_count)) AS avg_devices_per_partition,
+        MAX(device_count) AS max_devices_in_partition,
+        MIN(device_count) AS min_devices_in_partition,
+        SUM(partition_size_bytes) AS total_size_bytes,
+        ROUND(AVG(partition_size_bytes)) AS avg_partition_size_bytes,
+        -- Calculate distribution evenness (coefficient of variation)
+        CASE
+            WHEN AVG(device_count) > 0 THEN
+                ROUND((STDDEV(device_count) / NULLIF(AVG(device_count), 0) * 100)::NUMERIC, 2)
+            ELSE 0
+        END AS distribution_cv_pct
+    FROM partition_stats
+)
+SELECT
+    ps.partition_name,
+    ps.partition_number,
+    ps.device_count,
+    ps.active_device_count,
+    ps.revoked_device_count,
+    ps.partition_size,
+    -- Show deviation from average
+    ROUND(100.0 * (ps.device_count - s.avg_devices_per_partition) / NULLIF(s.avg_devices_per_partition, 0), 1) AS deviation_from_avg_pct,
+    -- Show if partition is within expected range (±20% of average)
+    CASE
+        WHEN ps.device_count BETWEEN s.avg_devices_per_partition * 0.8 AND s.avg_devices_per_partition * 1.2
+        THEN 'OK'
+        WHEN ps.device_count < s.avg_devices_per_partition * 0.8
+        THEN 'UNDER'
+        ELSE 'OVER'
+    END AS balance_status,
+    -- Summary row indicator
+    FALSE AS is_summary
+FROM partition_stats ps
+CROSS JOIN summary s
+UNION ALL
+SELECT
+    'TOTAL/AVG' AS partition_name,
+    NULL AS partition_number,
+    s.total_devices AS device_count,
+    s.total_active_devices AS active_device_count,
+    s.total_devices - s.total_active_devices AS revoked_device_count,
+    pg_size_pretty(s.total_size_bytes) AS partition_size,
+    s.distribution_cv_pct AS deviation_from_avg_pct,
+    CASE
+        WHEN s.distribution_cv_pct < 10 THEN 'EXCELLENT'
+        WHEN s.distribution_cv_pct < 20 THEN 'GOOD'
+        WHEN s.distribution_cv_pct < 30 THEN 'FAIR'
+        ELSE 'UNBALANCED'
+    END AS balance_status,
+    TRUE AS is_summary
+FROM summary s
+ORDER BY is_summary, partition_number NULLS LAST;
+
+COMMENT ON VIEW v_trusted_devices_partition_health IS 'V6: Hash partition distribution monitoring for trusted_devices. Shows device count per partition, size, and balance metrics. CV < 20% indicates good hash distribution.';
+
+-- ============================================================================
+-- VIEW 10: v_trusted_devices_user_distribution (NEW V6)
+-- ============================================================================
+CREATE OR REPLACE VIEW v_trusted_devices_user_distribution AS
+SELECT
+    COUNT(DISTINCT cupid) AS total_users_with_devices,
+    COUNT(*) AS total_devices,
+    ROUND(AVG(device_count), 2) AS avg_devices_per_user,
+    MIN(device_count) AS min_devices_per_user,
+    MAX(device_count) AS max_devices_per_user,
+    COUNT(*) FILTER (WHERE device_count = 10) AS users_at_limit,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE device_count = 10) / NULLIF(COUNT(DISTINCT cupid), 0), 2) AS pct_users_at_limit,
+    COUNT(*) FILTER (WHERE device_count > 5) AS users_with_many_devices,
+    COUNT(*) FILTER (WHERE device_count = 1) AS users_with_one_device
+FROM (
+    SELECT cupid, COUNT(*) AS device_count
+    FROM trusted_devices
+    WHERE status = 'ACTIVE'
+    GROUP BY cupid
+) user_device_counts;
+
+COMMENT ON VIEW v_trusted_devices_user_distribution IS 'V6: User device distribution statistics. Monitor round-robin effectiveness and users approaching 10-device limit.';
+
+-- ============================================================================
+-- VIEW 11: v_partition_pruning_verification (NEW V6)
+-- ============================================================================
+CREATE OR REPLACE VIEW v_partition_pruning_verification AS
+WITH test_cupids AS (
+    -- Sample 5 distinct cupids for testing
+    SELECT DISTINCT cupid
+    FROM trusted_devices
+    LIMIT 5
+)
+SELECT
+    tc.cupid,
+    (SELECT COUNT(*) FROM trusted_devices td WHERE td.cupid = tc.cupid) AS devices_for_user,
+    -- Show which partition this cupid maps to
+    (SELECT child.relname
+     FROM pg_inherits
+     JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+     JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+     WHERE parent.relname = 'trusted_devices'
+       AND EXISTS (SELECT 1 FROM ONLY trusted_devices td2
+                   WHERE td2.cupid = tc.cupid
+                   AND td2.tableoid = child.oid)
+     LIMIT 1
+    ) AS partition_name,
+    -- Example query that should hit single partition
+    format('EXPLAIN SELECT * FROM trusted_devices WHERE cupid = %L AND status = ''ACTIVE'';', tc.cupid) AS test_query
+FROM test_cupids tc;
+
+COMMENT ON VIEW v_partition_pruning_verification IS 'V6: Helper view to verify hash partition pruning. Shows sample cupids and their partition assignment. Use test_query with EXPLAIN to verify single-partition access.';
 
 -- ============================================================================
 -- PARTITION MANAGEMENT FUNCTIONS
@@ -1066,6 +1249,225 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION expire_old_sessions IS 'V6: Mark expired sessions. Run every hour.';
+
+-- ============================================================================
+-- DEVICE MANAGEMENT HELPER FUNCTIONS (for hash partitioned trusted_devices)
+-- ============================================================================
+
+-- ============================================================================
+-- FUNCTION: bind_trusted_device
+-- Purpose: Add new trusted device with automatic round-robin deletion
+-- Notes: Enforces 10-device limit per user. Must include cupid for partition pruning.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION bind_trusted_device(
+    p_cupid VARCHAR(50),
+    p_guid VARCHAR(50),
+    p_app_id VARCHAR(50),
+    p_device_fingerprint TEXT,
+    p_device_name VARCHAR(200) DEFAULT NULL,
+    p_device_type VARCHAR(50) DEFAULT NULL
+)
+RETURNS TABLE(
+    device_id UUID,
+    trusted_at TIMESTAMPTZ,
+    deleted_old_device BOOLEAN
+) AS $$
+DECLARE
+    v_device_count INTEGER;
+    v_device_hash VARCHAR(64);
+    v_deleted BOOLEAN := FALSE;
+BEGIN
+    -- Hash the device fingerprint
+    v_device_hash := encode(digest(p_device_fingerprint, 'sha256'), 'hex');
+
+    -- Check current device count for this user/app
+    -- Query hits single partition (cupid-based routing)
+    SELECT COUNT(*) INTO v_device_count
+    FROM trusted_devices
+    WHERE cupid = p_cupid
+      AND app_id = p_app_id
+      AND status = 'ACTIVE';
+
+    -- If at 10-device limit, delete oldest device (round-robin)
+    IF v_device_count >= 10 THEN
+        DELETE FROM trusted_devices
+        WHERE device_id = (
+            SELECT td.device_id FROM trusted_devices td
+            WHERE td.cupid = p_cupid
+              AND td.app_id = p_app_id
+              AND td.status = 'ACTIVE'
+            ORDER BY td.trusted_at ASC
+            LIMIT 1
+        ) AND cupid = p_cupid;  -- Include partition key for single-partition operation
+
+        v_deleted := TRUE;
+    END IF;
+
+    -- Insert new device (automatically routed to correct partition by cupid)
+    INSERT INTO trusted_devices (
+        cupid, guid, app_id,
+        device_fingerprint, device_fingerprint_hash,
+        device_name, device_type
+    ) VALUES (
+        p_cupid, p_guid, p_app_id,
+        p_device_fingerprint, v_device_hash,
+        p_device_name, p_device_type
+    )
+    RETURNING trusted_devices.device_id, trusted_devices.trusted_at
+    INTO device_id, trusted_at;
+
+    deleted_old_device := v_deleted;
+    RETURN NEXT;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION bind_trusted_device IS 'V6: Bind new trusted device with automatic round-robin deletion. Enforces 10-device limit per user/app. All queries include cupid for single-partition operations.';
+
+-- ============================================================================
+-- FUNCTION: check_device_trust
+-- Purpose: Check if device is trusted for the user
+-- Returns: device_id and metadata if trusted, NULL if not
+-- ============================================================================
+CREATE OR REPLACE FUNCTION check_device_trust(
+    p_cupid VARCHAR(50),
+    p_device_fingerprint TEXT,
+    p_app_id VARCHAR(50)
+)
+RETURNS TABLE(
+    device_id UUID,
+    trusted_at TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    device_name VARCHAR(200)
+) AS $$
+DECLARE
+    v_device_hash VARCHAR(64);
+BEGIN
+    -- Hash the device fingerprint
+    v_device_hash := encode(digest(p_device_fingerprint, 'sha256'), 'hex');
+
+    -- Query hits single partition (based on cupid hash)
+    RETURN QUERY
+    SELECT td.device_id, td.trusted_at, td.last_used_at, td.device_name
+    FROM trusted_devices td
+    WHERE td.cupid = p_cupid  -- Partition key: single partition scan
+      AND td.device_fingerprint_hash = v_device_hash
+      AND td.app_id = p_app_id
+      AND td.status = 'ACTIVE';
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION check_device_trust IS 'V6: Check if device is trusted. Returns device info if trusted, empty if not. Single-partition query via cupid.';
+
+-- ============================================================================
+-- FUNCTION: update_device_last_used
+-- Purpose: Update device last_used_at timestamp
+-- Notes: MUST include cupid for partition pruning
+-- ============================================================================
+CREATE OR REPLACE FUNCTION update_device_last_used(
+    p_device_id UUID,
+    p_cupid VARCHAR(50)  -- Required for partition pruning
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_updated BOOLEAN;
+BEGIN
+    -- IMPORTANT: Must include cupid for partition pruning
+    -- Query without cupid would scan all 16 partitions
+    UPDATE trusted_devices
+    SET last_used_at = NOW()
+    WHERE device_id = p_device_id
+      AND cupid = p_cupid;  -- Both required
+
+    GET DIAGNOSTICS v_updated = FOUND;
+    RETURN v_updated;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION update_device_last_used IS 'V6: Update device last used timestamp. Requires both device_id and cupid for single-partition operation.';
+
+-- ============================================================================
+-- FUNCTION: get_user_devices
+-- Purpose: Get all active devices for a user
+-- Returns: List of devices with metadata
+-- ============================================================================
+CREATE OR REPLACE FUNCTION get_user_devices(
+    p_cupid VARCHAR(50),
+    p_app_id VARCHAR(50)
+)
+RETURNS TABLE(
+    device_id UUID,
+    device_name VARCHAR(200),
+    device_type VARCHAR(50),
+    trusted_at TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    -- Hits single partition (cupid-based routing)
+    RETURN QUERY
+    SELECT td.device_id, td.device_name, td.device_type,
+           td.trusted_at, td.last_used_at
+    FROM trusted_devices td
+    WHERE td.cupid = p_cupid
+      AND td.app_id = p_app_id
+      AND td.status = 'ACTIVE'
+    ORDER BY td.last_used_at DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_user_devices IS 'V6: Get all active devices for user/app. Single-partition query via cupid.';
+
+-- ============================================================================
+-- FUNCTION: revoke_device
+-- Purpose: Revoke a trusted device
+-- Returns: TRUE if device was revoked, FALSE if not found
+-- ============================================================================
+CREATE OR REPLACE FUNCTION revoke_device(
+    p_device_id UUID,
+    p_cupid VARCHAR(50)  -- Required for partition pruning
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_revoked BOOLEAN;
+BEGIN
+    UPDATE trusted_devices
+    SET status = 'REVOKED',
+        revoked_at = NOW()
+    WHERE device_id = p_device_id
+      AND cupid = p_cupid  -- Include for single-partition operation
+      AND status = 'ACTIVE';
+
+    GET DIAGNOSTICS v_revoked = FOUND;
+    RETURN v_revoked;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION revoke_device IS 'V6: Revoke trusted device. Requires both device_id and cupid for single-partition operation.';
+
+-- ============================================================================
+-- FUNCTION: get_device_count
+-- Purpose: Get count of active devices for user
+-- Returns: Number of active devices
+-- ============================================================================
+CREATE OR REPLACE FUNCTION get_device_count(
+    p_cupid VARCHAR(50),
+    p_app_id VARCHAR(50)
+)
+RETURNS INTEGER AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    -- Single-partition query via cupid
+    SELECT COUNT(*) INTO v_count
+    FROM trusted_devices
+    WHERE cupid = p_cupid
+      AND app_id = p_app_id
+      AND status = 'ACTIVE';
+
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_device_count IS 'V6: Get count of active devices for user/app. Single-partition query via cupid.';
 
 -- ============================================================================
 -- AUTO-VACUUM CONFIGURATION
