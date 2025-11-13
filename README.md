@@ -21,6 +21,24 @@ This repository contains the complete Account Servicing & CIAM (Customer Identit
                 └──────────────────┘
 ```
 
+### 📊 Interactive Architecture Diagrams
+
+**View detailed C4 model diagrams interactively:**
+
+```bash
+# Start diagram viewer
+docker-compose -f docker-compose.structurizr.yml up
+
+# Open browser: http://localhost:8081
+```
+
+**Navigate through architecture levels:**
+- **System Context** → High-level view (users, CIAM suite, external systems)
+- **Container Diagram** → Applications and databases with technology stack
+- **Component Diagrams** → Internal structure of backend and UI SDK
+
+**Documentation:** See [docs/architecture/README.md](docs/architecture/README.md) for complete guide
+
 ## 📦 Project Structure
 
 ```

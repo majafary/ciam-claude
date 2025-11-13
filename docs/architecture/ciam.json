@@ -1,0 +1,1183 @@
+{
+  "configuration" : {
+    "scope" : "SoftwareSystem"
+  },
+  "description" : "Customer Identity and Access Management platform with multi-factor authentication, device trust, and electronic signatures",
+  "documentation" : { },
+  "id" : 1,
+  "lastModifiedAgent" : "structurizr-ui",
+  "lastModifiedDate" : "2025-11-13T20:28:18Z",
+  "model" : {
+    "people" : [ {
+      "description" : "End user accessing secure webapp",
+      "id" : "1",
+      "name" : "Customer",
+      "properties" : {
+        "structurizr.dsl.identifier" : "customer"
+      },
+      "relationships" : [ {
+        "description" : "Non-secure Landing Page",
+        "destinationId" : "30",
+        "id" : "35",
+        "sourceId" : "1",
+        "tags" : "Relationship"
+      }, {
+        "description" : "Non-secure Landing Page",
+        "destinationId" : "2",
+        "id" : "36",
+        "linkedRelationshipId" : "35",
+        "sourceId" : "1"
+      }, {
+        "description" : "Account servicing",
+        "destinationId" : "31",
+        "id" : "37",
+        "sourceId" : "1",
+        "tags" : "Relationship"
+      } ],
+      "tags" : "Element,Person"
+    } ],
+    "softwareSystems" : [ {
+      "containers" : [ {
+        "components" : [ {
+          "description" : "Handles login, logout, token refresh operations",
+          "documentation" : { },
+          "id" : "4",
+          "name" : "AuthController",
+          "properties" : {
+            "structurizr.dsl.identifier" : "authController"
+          },
+          "relationships" : [ {
+            "description" : "Generates and validates tokens",
+            "destinationId" : "10",
+            "id" : "46",
+            "sourceId" : "4",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Creates and manages sessions",
+            "destinationId" : "13",
+            "id" : "47",
+            "sourceId" : "4",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Retrieves user information",
+            "destinationId" : "15",
+            "id" : "48",
+            "sourceId" : "4",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Evaluates device trust",
+            "destinationId" : "12",
+            "id" : "49",
+            "sourceId" : "4",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Controller",
+          "technology" : "Express Controller"
+        }, {
+          "description" : "Manages multi-factor authentication flows (OTP, Push)",
+          "documentation" : { },
+          "id" : "5",
+          "name" : "MfaController",
+          "properties" : {
+            "structurizr.dsl.identifier" : "mfaController"
+          },
+          "relationships" : [ {
+            "description" : "Orchestrates MFA flows",
+            "destinationId" : "11",
+            "id" : "50",
+            "sourceId" : "5",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Validates authentication state",
+            "destinationId" : "10",
+            "id" : "51",
+            "sourceId" : "5",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Updates session MFA status",
+            "destinationId" : "13",
+            "id" : "52",
+            "sourceId" : "5",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Controller",
+          "technology" : "Express Controller"
+        }, {
+          "description" : "Manages trusted device binding and verification",
+          "documentation" : { },
+          "id" : "6",
+          "name" : "DeviceController",
+          "properties" : {
+            "structurizr.dsl.identifier" : "deviceController"
+          },
+          "relationships" : [ {
+            "description" : "Binds trusted devices",
+            "destinationId" : "12",
+            "id" : "53",
+            "sourceId" : "6",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Associates devices with sessions",
+            "destinationId" : "13",
+            "id" : "54",
+            "sourceId" : "6",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Controller",
+          "technology" : "Express Controller"
+        }, {
+          "description" : "Handles session lifecycle management",
+          "documentation" : { },
+          "id" : "7",
+          "name" : "SessionController",
+          "properties" : {
+            "structurizr.dsl.identifier" : "sessionController"
+          },
+          "relationships" : [ {
+            "description" : "Manages session lifecycle",
+            "destinationId" : "13",
+            "id" : "55",
+            "sourceId" : "7",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Revokes tokens on logout",
+            "destinationId" : "10",
+            "id" : "56",
+            "sourceId" : "7",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Controller",
+          "technology" : "Express Controller"
+        }, {
+          "description" : "Provides user profile information",
+          "documentation" : { },
+          "id" : "8",
+          "name" : "UserController",
+          "properties" : {
+            "structurizr.dsl.identifier" : "userController"
+          },
+          "relationships" : [ {
+            "description" : "Retrieves user profile data",
+            "destinationId" : "15",
+            "id" : "57",
+            "sourceId" : "8",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Controller",
+          "technology" : "Express Controller"
+        }, {
+          "description" : "Provides OpenID Connect discovery endpoints",
+          "documentation" : { },
+          "id" : "9",
+          "name" : "OIDCController",
+          "properties" : {
+            "structurizr.dsl.identifier" : "oidcController"
+          },
+          "tags" : "Element,Component,Controller",
+          "technology" : "Express Controller"
+        }, {
+          "description" : "Generates, validates, and rotates JWT tokens",
+          "documentation" : { },
+          "id" : "10",
+          "name" : "TokenService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "tokenService"
+          },
+          "relationships" : [ {
+            "description" : "CRUD operations on tokens",
+            "destinationId" : "16",
+            "id" : "58",
+            "sourceId" : "10",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "Service"
+        }, {
+          "description" : "Orchestrates multi-factor authentication logic",
+          "documentation" : { },
+          "id" : "11",
+          "name" : "MfaService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "mfaService"
+          },
+          "relationships" : [ {
+            "description" : "Logs MFA transactions",
+            "destinationId" : "16",
+            "id" : "61",
+            "sourceId" : "11",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "Service"
+        }, {
+          "description" : "Manages device fingerprinting and trust evaluation",
+          "documentation" : { },
+          "id" : "12",
+          "name" : "DeviceService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "deviceService"
+          },
+          "relationships" : [ {
+            "description" : "CRUD operations on trusted devices and DRS evaluations",
+            "destinationId" : "16",
+            "id" : "60",
+            "sourceId" : "12",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Submits device fingerprints for risk scoring",
+            "destinationId" : "34",
+            "id" : "68",
+            "sourceId" : "12",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "Service"
+        }, {
+          "description" : "Manages user session lifecycle and validation",
+          "documentation" : { },
+          "id" : "13",
+          "name" : "SessionService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "sessionService"
+          },
+          "relationships" : [ {
+            "description" : "CRUD operations on sessions",
+            "destinationId" : "16",
+            "id" : "59",
+            "sourceId" : "13",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "Service"
+        }, {
+          "description" : "Handles electronic signature acceptance and verification",
+          "documentation" : { },
+          "id" : "14",
+          "name" : "ESignService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "esignService"
+          },
+          "relationships" : [ {
+            "description" : "Records e-signature acceptance",
+            "destinationId" : "16",
+            "id" : "63",
+            "sourceId" : "14",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "Service"
+        }, {
+          "description" : "Provides user data access and management",
+          "documentation" : { },
+          "id" : "15",
+          "name" : "UserService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "userService"
+          },
+          "relationships" : [ {
+            "description" : "Retrieves user data",
+            "destinationId" : "16",
+            "id" : "62",
+            "sourceId" : "15",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Validates credentials",
+            "destinationId" : "33",
+            "id" : "69",
+            "sourceId" : "15",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "Service"
+        }, {
+          "description" : "AuthContext, Session, Token, TrustedDevice, DrsEvaluation, AuditLog, AuthTransaction repositories",
+          "documentation" : { },
+          "id" : "16",
+          "name" : "Repositories",
+          "properties" : {
+            "structurizr.dsl.identifier" : "repositories"
+          },
+          "relationships" : [ {
+            "description" : "Executes SQL queries",
+            "destinationId" : "32",
+            "id" : "64",
+            "sourceId" : "16",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Repository",
+          "technology" : "Repository Pattern"
+        }, {
+          "description" : "JWT token validation and route protection",
+          "documentation" : { },
+          "id" : "17",
+          "name" : "Auth Middleware",
+          "properties" : {
+            "structurizr.dsl.identifier" : "authMiddleware"
+          },
+          "relationships" : [ {
+            "description" : "Validates JWT tokens",
+            "destinationId" : "10",
+            "id" : "65",
+            "sourceId" : "17",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Middleware",
+          "technology" : "Express Middleware"
+        }, {
+          "description" : "API rate limiting and DDoS protection",
+          "documentation" : { },
+          "id" : "18",
+          "name" : "Rate Limiter",
+          "properties" : {
+            "structurizr.dsl.identifier" : "rateLimiter"
+          },
+          "relationships" : [ {
+            "description" : "Rate limits authentication attempts",
+            "destinationId" : "4",
+            "id" : "66",
+            "sourceId" : "18",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Rate limits MFA attempts",
+            "destinationId" : "5",
+            "id" : "67",
+            "sourceId" : "18",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Middleware",
+          "technology" : "Express Middleware"
+        } ],
+        "description" : "REST API providing authentication and authorization services",
+        "documentation" : { },
+        "id" : "3",
+        "name" : "CIAM Backend",
+        "properties" : {
+          "structurizr.dsl.identifier" : "backend"
+        },
+        "relationships" : [ {
+          "description" : "Reads from and writes to",
+          "destinationId" : "32",
+          "id" : "41",
+          "sourceId" : "3",
+          "tags" : "Relationship",
+          "technology" : "SQL via Kysely"
+        }, {
+          "description" : "Validates user credentials",
+          "destinationId" : "33",
+          "id" : "42",
+          "sourceId" : "3",
+          "tags" : "Relationship",
+          "technology" : "LDAPS"
+        }, {
+          "description" : "Requests device risk scores",
+          "destinationId" : "34",
+          "id" : "44",
+          "sourceId" : "3",
+          "tags" : "Relationship",
+          "technology" : "HTTPS/REST"
+        } ],
+        "tags" : "Element,Container,Backend,API",
+        "technology" : "Node.js 22+, Express 4.18, TypeScript 5.2"
+      }, {
+        "components" : [ {
+          "description" : "React context provider for authentication state management",
+          "documentation" : { },
+          "id" : "20",
+          "name" : "CiamProvider",
+          "properties" : {
+            "structurizr.dsl.identifier" : "ciamProvider"
+          },
+          "tags" : "Element,Component,Context",
+          "technology" : "React Context"
+        }, {
+          "description" : "Login form with username/password authentication",
+          "documentation" : { },
+          "id" : "21",
+          "name" : "CiamLoginComponent",
+          "properties" : {
+            "structurizr.dsl.identifier" : "loginComponent"
+          },
+          "relationships" : [ {
+            "description" : "Accesses auth context",
+            "destinationId" : "20",
+            "id" : "70",
+            "sourceId" : "21",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Uses authentication logic",
+            "destinationId" : "27",
+            "id" : "80",
+            "sourceId" : "21",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "React Component"
+        }, {
+          "description" : "MFA method selection (OTP, Push)",
+          "documentation" : { },
+          "id" : "22",
+          "name" : "MfaMethodSelectionDialog",
+          "properties" : {
+            "structurizr.dsl.identifier" : "mfaDialog"
+          },
+          "relationships" : [ {
+            "description" : "Accesses auth context",
+            "destinationId" : "20",
+            "id" : "71",
+            "sourceId" : "22",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Uses MFA logic",
+            "destinationId" : "28",
+            "id" : "81",
+            "sourceId" : "22",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "React Component"
+        }, {
+          "description" : "Device trust consent and binding UI",
+          "documentation" : { },
+          "id" : "23",
+          "name" : "DeviceBindDialog",
+          "properties" : {
+            "structurizr.dsl.identifier" : "deviceBindDialog"
+          },
+          "relationships" : [ {
+            "description" : "Accesses auth context",
+            "destinationId" : "20",
+            "id" : "72",
+            "sourceId" : "23",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "React Component"
+        }, {
+          "description" : "Electronic signature acceptance dialog",
+          "documentation" : { },
+          "id" : "24",
+          "name" : "ESignDialog",
+          "properties" : {
+            "structurizr.dsl.identifier" : "esignDialog"
+          },
+          "relationships" : [ {
+            "description" : "Accesses auth context",
+            "destinationId" : "20",
+            "id" : "73",
+            "sourceId" : "24",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "React Component"
+        }, {
+          "description" : "Route guard component for authenticated pages",
+          "documentation" : { },
+          "id" : "25",
+          "name" : "ProtectedRoute",
+          "properties" : {
+            "structurizr.dsl.identifier" : "protectedRoute"
+          },
+          "relationships" : [ {
+            "description" : "Checks authentication state",
+            "destinationId" : "20",
+            "id" : "74",
+            "sourceId" : "25",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "React Component"
+        }, {
+          "description" : "Wrapper component for entire authenticated application",
+          "documentation" : { },
+          "id" : "26",
+          "name" : "CiamProtectedApp",
+          "properties" : {
+            "structurizr.dsl.identifier" : "protectedApp"
+          },
+          "relationships" : [ {
+            "description" : "Provides auth context to app",
+            "destinationId" : "20",
+            "id" : "75",
+            "sourceId" : "26",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component",
+          "technology" : "React Component"
+        }, {
+          "description" : "Custom hook for authentication state and user info",
+          "documentation" : { },
+          "id" : "27",
+          "name" : "useAuth Hook",
+          "properties" : {
+            "structurizr.dsl.identifier" : "useAuthHook"
+          },
+          "relationships" : [ {
+            "description" : "Reads authentication state",
+            "destinationId" : "20",
+            "id" : "76",
+            "sourceId" : "27",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Makes API calls",
+            "destinationId" : "29",
+            "id" : "78",
+            "sourceId" : "27",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Hook",
+          "technology" : "React Hook"
+        }, {
+          "description" : "Custom hook for MFA operations",
+          "documentation" : { },
+          "id" : "28",
+          "name" : "useMfa Hook",
+          "properties" : {
+            "structurizr.dsl.identifier" : "useMfaHook"
+          },
+          "relationships" : [ {
+            "description" : "Reads MFA state",
+            "destinationId" : "20",
+            "id" : "77",
+            "sourceId" : "28",
+            "tags" : "Relationship"
+          }, {
+            "description" : "Makes API calls",
+            "destinationId" : "29",
+            "id" : "79",
+            "sourceId" : "28",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Hook",
+          "technology" : "React Hook"
+        }, {
+          "description" : "HTTP client for CIAM Backend API calls",
+          "documentation" : { },
+          "id" : "29",
+          "name" : "AuthService",
+          "properties" : {
+            "structurizr.dsl.identifier" : "authService"
+          },
+          "relationships" : [ {
+            "description" : "HTTP requests for auth operations",
+            "destinationId" : "3",
+            "id" : "82",
+            "sourceId" : "29",
+            "tags" : "Relationship"
+          } ],
+          "tags" : "Element,Component,Service",
+          "technology" : "API Client"
+        } ],
+        "description" : "Reusable React components and hooks for authentication flows",
+        "documentation" : { },
+        "id" : "19",
+        "name" : "CIAM UI SDK",
+        "properties" : {
+          "structurizr.dsl.identifier" : "uiSdk"
+        },
+        "relationships" : [ {
+          "description" : "Makes API calls for authentication",
+          "destinationId" : "3",
+          "id" : "40",
+          "sourceId" : "19",
+          "tags" : "Relationship",
+          "technology" : "HTTPS/JSON (Port 8080)"
+        } ],
+        "tags" : "Element,Container,Frontend,Library",
+        "technology" : "React 18.2, TypeScript 5.2, Material-UI 5.14"
+      }, {
+        "description" : "Public storefront with product browsing and shopping cart, uses CIAM UI SDK for authentication",
+        "documentation" : { },
+        "id" : "30",
+        "name" : "Storefront Web App",
+        "properties" : {
+          "structurizr.dsl.identifier" : "storefront"
+        },
+        "relationships" : [ {
+          "description" : "Imports authentication components",
+          "destinationId" : "19",
+          "id" : "38",
+          "sourceId" : "30",
+          "tags" : "Relationship"
+        } ],
+        "tags" : "Element,Container,Frontend,WebApp",
+        "technology" : "React 18.2, Vite 4.5, Port 3000"
+      }, {
+        "description" : "Authenticated account management interface for customers and support agents, uses CIAM UI SDK",
+        "documentation" : { },
+        "id" : "31",
+        "name" : "Account Servicing Web App",
+        "properties" : {
+          "structurizr.dsl.identifier" : "accountApp"
+        },
+        "relationships" : [ {
+          "description" : "Imports authentication components",
+          "destinationId" : "19",
+          "id" : "39",
+          "sourceId" : "31",
+          "tags" : "Relationship"
+        } ],
+        "tags" : "Element,Container,Frontend,WebApp",
+        "technology" : "React 18.2, Vite 4.5, Port 3001"
+      }, {
+        "description" : "7 core tables: auth_contexts, auth_transactions, sessions, tokens, trusted_devices, drs_evaluations, audit_logs",
+        "documentation" : { },
+        "id" : "32",
+        "name" : "PostgreSQL Database",
+        "properties" : {
+          "structurizr.dsl.identifier" : "database"
+        },
+        "tags" : "Element,Container,Database",
+        "technology" : "PostgreSQL 14+"
+      } ],
+      "description" : "Customer identity and access management platform providing authentication, MFA, device trust, and session management",
+      "documentation" : { },
+      "id" : "2",
+      "name" : "CIAM Integration Suite",
+      "properties" : {
+        "structurizr.dsl.identifier" : "ciamSuite"
+      },
+      "relationships" : [ {
+        "description" : "Validates user credentials",
+        "destinationId" : "33",
+        "id" : "43",
+        "linkedRelationshipId" : "42",
+        "sourceId" : "2",
+        "technology" : "LDAPS"
+      }, {
+        "description" : "Requests device risk scores",
+        "destinationId" : "34",
+        "id" : "45",
+        "linkedRelationshipId" : "44",
+        "sourceId" : "2",
+        "technology" : "HTTPS/REST"
+      } ],
+      "tags" : "Element,Software System"
+    }, {
+      "description" : "Corporate user directory for credential validation",
+      "documentation" : { },
+      "id" : "33",
+      "name" : "LDAP Directory",
+      "properties" : {
+        "structurizr.dsl.identifier" : "ldap"
+      },
+      "tags" : "Element,Software System,External"
+    }, {
+      "description" : "Device Risk Scoring service for fraud prevention",
+      "documentation" : { },
+      "id" : "34",
+      "name" : "Transmit DRS",
+      "properties" : {
+        "structurizr.dsl.identifier" : "drs"
+      },
+      "tags" : "Element,Software System,External"
+    } ]
+  },
+  "name" : "CIAM Integration Suite",
+  "properties" : {
+    "structurizr.inspection.info" : "0",
+    "structurizr.inspection.ignore" : "0",
+    "structurizr.inspection.error" : "45",
+    "structurizr.inspection.warning" : "0",
+    "structurizr.dsl" : "d29ya3NwYWNlICJDSUFNIEludGVncmF0aW9uIFN1aXRlIiAiQ3VzdG9tZXIgSWRlbnRpdHkgYW5kIEFjY2VzcyBNYW5hZ2VtZW50IHBsYXRmb3JtIHdpdGggbXVsdGktZmFjdG9yIGF1dGhlbnRpY2F0aW9uLCBkZXZpY2UgdHJ1c3QsIGFuZCBlbGVjdHJvbmljIHNpZ25hdHVyZXMiIHsKCiAgICBtb2RlbCB7CiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgICMgUEVPUExFIChFeHRlcm5hbCBBY3RvcnMpCiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgIGN1c3RvbWVyID0gcGVyc29uICJDdXN0b21lciIgIkVuZCB1c2VyIGFjY2Vzc2luZyBzZWN1cmUgd2ViYXBwIgoKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgIyBTT0ZUV0FSRSBTWVNURU1TCiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgIGNpYW1TdWl0ZSA9IHNvZnR3YXJlU3lzdGVtICJDSUFNIEludGVncmF0aW9uIFN1aXRlIiAiQ3VzdG9tZXIgaWRlbnRpdHkgYW5kIGFjY2VzcyBtYW5hZ2VtZW50IHBsYXRmb3JtIHByb3ZpZGluZyBhdXRoZW50aWNhdGlvbiwgTUZBLCBkZXZpY2UgdHJ1c3QsIGFuZCBzZXNzaW9uIG1hbmFnZW1lbnQiIHsKCiAgICAgICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICAgICAgIyBDT05UQUlORVJTIChBcHBsaWNhdGlvbnMgJiBEYXRhYmFzZXMpCiAgICAgICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KCiAgICAgICAgICAgICMgQmFja2VuZCBBUEkKICAgICAgICAgICAgYmFja2VuZCA9IGNvbnRhaW5lciAiQ0lBTSBCYWNrZW5kIiAiUkVTVCBBUEkgcHJvdmlkaW5nIGF1dGhlbnRpY2F0aW9uIGFuZCBhdXRob3JpemF0aW9uIHNlcnZpY2VzIiAiTm9kZS5qcyAyMissIEV4cHJlc3MgNC4xOCwgVHlwZVNjcmlwdCA1LjIiIHsKICAgICAgICAgICAgICAgIHRhZ3MgIkJhY2tlbmQiICJBUEkiCgogICAgICAgICAgICAgICAgIyBDb250cm9sbGVycyBMYXllcgogICAgICAgICAgICAgICAgYXV0aENvbnRyb2xsZXIgPSBjb21wb25lbnQgIkF1dGhDb250cm9sbGVyIiAiSGFuZGxlcyBsb2dpbiwgbG9nb3V0LCB0b2tlbiByZWZyZXNoIG9wZXJhdGlvbnMiICJFeHByZXNzIENvbnRyb2xsZXIiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJDb250cm9sbGVyIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgbWZhQ29udHJvbGxlciA9IGNvbXBvbmVudCAiTWZhQ29udHJvbGxlciIgIk1hbmFnZXMgbXVsdGktZmFjdG9yIGF1dGhlbnRpY2F0aW9uIGZsb3dzIChPVFAsIFB1c2gpIiAiRXhwcmVzcyBDb250cm9sbGVyIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiQ29udHJvbGxlciIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIGRldmljZUNvbnRyb2xsZXIgPSBjb21wb25lbnQgIkRldmljZUNvbnRyb2xsZXIiICJNYW5hZ2VzIHRydXN0ZWQgZGV2aWNlIGJpbmRpbmcgYW5kIHZlcmlmaWNhdGlvbiIgIkV4cHJlc3MgQ29udHJvbGxlciIgewogICAgICAgICAgICAgICAgICAgIHRhZ3MgIkNvbnRyb2xsZXIiCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBzZXNzaW9uQ29udHJvbGxlciA9IGNvbXBvbmVudCAiU2Vzc2lvbkNvbnRyb2xsZXIiICJIYW5kbGVzIHNlc3Npb24gbGlmZWN5Y2xlIG1hbmFnZW1lbnQiICJFeHByZXNzIENvbnRyb2xsZXIiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJDb250cm9sbGVyIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgdXNlckNvbnRyb2xsZXIgPSBjb21wb25lbnQgIlVzZXJDb250cm9sbGVyIiAiUHJvdmlkZXMgdXNlciBwcm9maWxlIGluZm9ybWF0aW9uIiAiRXhwcmVzcyBDb250cm9sbGVyIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiQ29udHJvbGxlciIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIG9pZGNDb250cm9sbGVyID0gY29tcG9uZW50ICJPSURDQ29udHJvbGxlciIgIlByb3ZpZGVzIE9wZW5JRCBDb25uZWN0IGRpc2NvdmVyeSBlbmRwb2ludHMiICJFeHByZXNzIENvbnRyb2xsZXIiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJDb250cm9sbGVyIgogICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgICMgU2VydmljZXMgTGF5ZXIKICAgICAgICAgICAgICAgIHRva2VuU2VydmljZSA9IGNvbXBvbmVudCAiVG9rZW5TZXJ2aWNlIiAiR2VuZXJhdGVzLCB2YWxpZGF0ZXMsIGFuZCByb3RhdGVzIEpXVCB0b2tlbnMiICJTZXJ2aWNlIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiU2VydmljZSIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIG1mYVNlcnZpY2UgPSBjb21wb25lbnQgIk1mYVNlcnZpY2UiICJPcmNoZXN0cmF0ZXMgbXVsdGktZmFjdG9yIGF1dGhlbnRpY2F0aW9uIGxvZ2ljIiAiU2VydmljZSIgewogICAgICAgICAgICAgICAgICAgIHRhZ3MgIlNlcnZpY2UiCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBkZXZpY2VTZXJ2aWNlID0gY29tcG9uZW50ICJEZXZpY2VTZXJ2aWNlIiAiTWFuYWdlcyBkZXZpY2UgZmluZ2VycHJpbnRpbmcgYW5kIHRydXN0IGV2YWx1YXRpb24iICJTZXJ2aWNlIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiU2VydmljZSIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIHNlc3Npb25TZXJ2aWNlID0gY29tcG9uZW50ICJTZXNzaW9uU2VydmljZSIgIk1hbmFnZXMgdXNlciBzZXNzaW9uIGxpZmVjeWNsZSBhbmQgdmFsaWRhdGlvbiIgIlNlcnZpY2UiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJTZXJ2aWNlIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgZXNpZ25TZXJ2aWNlID0gY29tcG9uZW50ICJFU2lnblNlcnZpY2UiICJIYW5kbGVzIGVsZWN0cm9uaWMgc2lnbmF0dXJlIGFjY2VwdGFuY2UgYW5kIHZlcmlmaWNhdGlvbiIgIlNlcnZpY2UiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJTZXJ2aWNlIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgdXNlclNlcnZpY2UgPSBjb21wb25lbnQgIlVzZXJTZXJ2aWNlIiAiUHJvdmlkZXMgdXNlciBkYXRhIGFjY2VzcyBhbmQgbWFuYWdlbWVudCIgIlNlcnZpY2UiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJTZXJ2aWNlIgogICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgICMgRGF0YSBBY2Nlc3MgTGF5ZXIKICAgICAgICAgICAgICAgIHJlcG9zaXRvcmllcyA9IGNvbXBvbmVudCAiUmVwb3NpdG9yaWVzIiAiRGF0YSBhY2Nlc3MgbGF5ZXIgZm9yIGRhdGFiYXNlIG9wZXJhdGlvbnMiICJSZXBvc2l0b3J5IFBhdHRlcm4iIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJSZXBvc2l0b3J5IgogICAgICAgICAgICAgICAgICAgIGRlc2NyaXB0aW9uICJBdXRoQ29udGV4dCwgU2Vzc2lvbiwgVG9rZW4sIFRydXN0ZWREZXZpY2UsIERyc0V2YWx1YXRpb24sIEF1ZGl0TG9nLCBBdXRoVHJhbnNhY3Rpb24gcmVwb3NpdG9yaWVzIgogICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgICMgTWlkZGxld2FyZQogICAgICAgICAgICAgICAgYXV0aE1pZGRsZXdhcmUgPSBjb21wb25lbnQgIkF1dGggTWlkZGxld2FyZSIgIkpXVCB0b2tlbiB2YWxpZGF0aW9uIGFuZCByb3V0ZSBwcm90ZWN0aW9uIiAiRXhwcmVzcyBNaWRkbGV3YXJlIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiTWlkZGxld2FyZSIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIHJhdGVMaW1pdGVyID0gY29tcG9uZW50ICJSYXRlIExpbWl0ZXIiICJBUEkgcmF0ZSBsaW1pdGluZyBhbmQgRERvUyBwcm90ZWN0aW9uIiAiRXhwcmVzcyBNaWRkbGV3YXJlIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiTWlkZGxld2FyZSIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQoKICAgICAgICAgICAgIyBVSSBTREsgTGlicmFyeQogICAgICAgICAgICB1aVNkayA9IGNvbnRhaW5lciAiQ0lBTSBVSSBTREsiICJSZXVzYWJsZSBSZWFjdCBjb21wb25lbnRzIGFuZCBob29rcyBmb3IgYXV0aGVudGljYXRpb24gZmxvd3MiICJSZWFjdCAxOC4yLCBUeXBlU2NyaXB0IDUuMiwgTWF0ZXJpYWwtVUkgNS4xNCIgewogICAgICAgICAgICAgICAgdGFncyAiRnJvbnRlbmQiICJMaWJyYXJ5IgoKICAgICAgICAgICAgICAgICMgQ29udGV4dCAmIFByb3ZpZGVycwogICAgICAgICAgICAgICAgY2lhbVByb3ZpZGVyID0gY29tcG9uZW50ICJDaWFtUHJvdmlkZXIiICJSZWFjdCBjb250ZXh0IHByb3ZpZGVyIGZvciBhdXRoZW50aWNhdGlvbiBzdGF0ZSBtYW5hZ2VtZW50IiAiUmVhY3QgQ29udGV4dCIgewogICAgICAgICAgICAgICAgICAgIHRhZ3MgIkNvbnRleHQiCiAgICAgICAgICAgICAgICB9CgogICAgICAgICAgICAgICAgIyBVSSBDb21wb25lbnRzCiAgICAgICAgICAgICAgICBsb2dpbkNvbXBvbmVudCA9IGNvbXBvbmVudCAiQ2lhbUxvZ2luQ29tcG9uZW50IiAiTG9naW4gZm9ybSB3aXRoIHVzZXJuYW1lL3Bhc3N3b3JkIGF1dGhlbnRpY2F0aW9uIiAiUmVhY3QgQ29tcG9uZW50IiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiQ29tcG9uZW50IgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgbWZhRGlhbG9nID0gY29tcG9uZW50ICJNZmFNZXRob2RTZWxlY3Rpb25EaWFsb2ciICJNRkEgbWV0aG9kIHNlbGVjdGlvbiAoT1RQLCBQdXNoKSIgIlJlYWN0IENvbXBvbmVudCIgewogICAgICAgICAgICAgICAgICAgIHRhZ3MgIkNvbXBvbmVudCIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIGRldmljZUJpbmREaWFsb2cgPSBjb21wb25lbnQgIkRldmljZUJpbmREaWFsb2ciICJEZXZpY2UgdHJ1c3QgY29uc2VudCBhbmQgYmluZGluZyBVSSIgIlJlYWN0IENvbXBvbmVudCIgewogICAgICAgICAgICAgICAgICAgIHRhZ3MgIkNvbXBvbmVudCIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIGVzaWduRGlhbG9nID0gY29tcG9uZW50ICJFU2lnbkRpYWxvZyIgIkVsZWN0cm9uaWMgc2lnbmF0dXJlIGFjY2VwdGFuY2UgZGlhbG9nIiAiUmVhY3QgQ29tcG9uZW50IiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiQ29tcG9uZW50IgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgcHJvdGVjdGVkUm91dGUgPSBjb21wb25lbnQgIlByb3RlY3RlZFJvdXRlIiAiUm91dGUgZ3VhcmQgY29tcG9uZW50IGZvciBhdXRoZW50aWNhdGVkIHBhZ2VzIiAiUmVhY3QgQ29tcG9uZW50IiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiQ29tcG9uZW50IgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgcHJvdGVjdGVkQXBwID0gY29tcG9uZW50ICJDaWFtUHJvdGVjdGVkQXBwIiAiV3JhcHBlciBjb21wb25lbnQgZm9yIGVudGlyZSBhdXRoZW50aWNhdGVkIGFwcGxpY2F0aW9uIiAiUmVhY3QgQ29tcG9uZW50IiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiQ29tcG9uZW50IgogICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgICMgSG9va3MKICAgICAgICAgICAgICAgIHVzZUF1dGhIb29rID0gY29tcG9uZW50ICJ1c2VBdXRoIEhvb2siICJDdXN0b20gaG9vayBmb3IgYXV0aGVudGljYXRpb24gc3RhdGUgYW5kIHVzZXIgaW5mbyIgIlJlYWN0IEhvb2siIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJIb29rIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgdXNlTWZhSG9vayA9IGNvbXBvbmVudCAidXNlTWZhIEhvb2siICJDdXN0b20gaG9vayBmb3IgTUZBIG9wZXJhdGlvbnMiICJSZWFjdCBIb29rIiB7CiAgICAgICAgICAgICAgICAgICAgdGFncyAiSG9vayIKICAgICAgICAgICAgICAgIH0KCiAgICAgICAgICAgICAgICAjIFNlcnZpY2VzCiAgICAgICAgICAgICAgICBhdXRoU2VydmljZSA9IGNvbXBvbmVudCAiQXV0aFNlcnZpY2UiICJIVFRQIGNsaWVudCBmb3IgQ0lBTSBCYWNrZW5kIEFQSSBjYWxscyIgIkFQSSBDbGllbnQiIHsKICAgICAgICAgICAgICAgICAgICB0YWdzICJTZXJ2aWNlIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CgogICAgICAgICAgICAjIFN0b3JlZnJvbnQgV2ViIEFwcGxpY2F0aW9uCiAgICAgICAgICAgIHN0b3JlZnJvbnQgPSBjb250YWluZXIgIlN0b3JlZnJvbnQgV2ViIEFwcCIgIlB1YmxpYy1mYWNpbmcgZS1jb21tZXJjZSB3ZWJzaXRlIiAiUmVhY3QgMTguMiwgVml0ZSA0LjUsIFBvcnQgMzAwMCIgewogICAgICAgICAgICAgICAgdGFncyAiRnJvbnRlbmQiICJXZWJBcHAiCiAgICAgICAgICAgICAgICBkZXNjcmlwdGlvbiAiUHVibGljIHN0b3JlZnJvbnQgd2l0aCBwcm9kdWN0IGJyb3dzaW5nIGFuZCBzaG9wcGluZyBjYXJ0LCB1c2VzIENJQU0gVUkgU0RLIGZvciBhdXRoZW50aWNhdGlvbiIKICAgICAgICAgICAgfQoKICAgICAgICAgICAgIyBBY2NvdW50IFNlcnZpY2luZyBXZWIgQXBwbGljYXRpb24KICAgICAgICAgICAgYWNjb3VudEFwcCA9IGNvbnRhaW5lciAiQWNjb3VudCBTZXJ2aWNpbmcgV2ViIEFwcCIgIlNlY3VyZSBjdXN0b21lciBhY2NvdW50IG1hbmFnZW1lbnQgcG9ydGFsIiAiUmVhY3QgMTguMiwgVml0ZSA0LjUsIFBvcnQgMzAwMSIgewogICAgICAgICAgICAgICAgdGFncyAiRnJvbnRlbmQiICJXZWJBcHAiCiAgICAgICAgICAgICAgICBkZXNjcmlwdGlvbiAiQXV0aGVudGljYXRlZCBhY2NvdW50IG1hbmFnZW1lbnQgaW50ZXJmYWNlIGZvciBjdXN0b21lcnMgYW5kIHN1cHBvcnQgYWdlbnRzLCB1c2VzIENJQU0gVUkgU0RLIgogICAgICAgICAgICB9CgogICAgICAgICAgICAjIERhdGFiYXNlCiAgICAgICAgICAgIGRhdGFiYXNlID0gY29udGFpbmVyICJQb3N0Z3JlU1FMIERhdGFiYXNlIiAiU3RvcmVzIHVzZXIgc2Vzc2lvbnMsIHRva2VucywgZGV2aWNlcywgYW5kIGF1ZGl0IGxvZ3MiICJQb3N0Z3JlU1FMIDE0KyIgewogICAgICAgICAgICAgICAgdGFncyAiRGF0YWJhc2UiCiAgICAgICAgICAgICAgICBkZXNjcmlwdGlvbiAiNyBjb3JlIHRhYmxlczogYXV0aF9jb250ZXh0cywgYXV0aF90cmFuc2FjdGlvbnMsIHNlc3Npb25zLCB0b2tlbnMsIHRydXN0ZWRfZGV2aWNlcywgZHJzX2V2YWx1YXRpb25zLCBhdWRpdF9sb2dzIgogICAgICAgICAgICB9ICAgICAgIAogICAgICAgIH0KCiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgICMgRVhURVJOQUwgU1lTVEVNUwogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICBsZGFwID0gc29mdHdhcmVTeXN0ZW0gIkxEQVAgRGlyZWN0b3J5IiAiQ29ycG9yYXRlIHVzZXIgZGlyZWN0b3J5IGZvciBjcmVkZW50aWFsIHZhbGlkYXRpb24iIHsKICAgICAgICAgICAgdGFncyAiRXh0ZXJuYWwiCiAgICAgICAgfQoKICAgICAgICBkcnMgPSBzb2Z0d2FyZVN5c3RlbSAiVHJhbnNtaXQgRFJTIiAiRGV2aWNlIFJpc2sgU2NvcmluZyBzZXJ2aWNlIGZvciBmcmF1ZCBwcmV2ZW50aW9uIiB7CiAgICAgICAgICAgIHRhZ3MgIkV4dGVybmFsIgogICAgICAgIH0gICAgICAgIAoKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgIyBSRUxBVElPTlNISVBTIC0gUGVvcGxlIHRvIFN5c3RlbXMKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgY3VzdG9tZXIgLT4gc3RvcmVmcm9udCAiTm9uLXNlY3VyZSBMYW5kaW5nIFBhZ2UiCiAgICAgICAgY3VzdG9tZXIgLT4gYWNjb3VudEFwcCAiQWNjb3VudCBzZXJ2aWNpbmciCgogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICAjIFJFTEFUSU9OU0hJUFMgLSBDb250YWluZXIgTGV2ZWwKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgc3RvcmVmcm9udCAtPiB1aVNkayAiSW1wb3J0cyBhdXRoZW50aWNhdGlvbiBjb21wb25lbnRzIgogICAgICAgIGFjY291bnRBcHAgLT4gdWlTZGsgIkltcG9ydHMgYXV0aGVudGljYXRpb24gY29tcG9uZW50cyIKCiAgICAgICAgdWlTZGsgLT4gYmFja2VuZCAiTWFrZXMgQVBJIGNhbGxzIGZvciBhdXRoZW50aWNhdGlvbiIgIkhUVFBTL0pTT04gKFBvcnQgODA4MCkiCgogICAgICAgIGJhY2tlbmQgLT4gZGF0YWJhc2UgIlJlYWRzIGZyb20gYW5kIHdyaXRlcyB0byIgIlNRTCB2aWEgS3lzZWx5IgogICAgICAgIGJhY2tlbmQgLT4gbGRhcCAiVmFsaWRhdGVzIHVzZXIgY3JlZGVudGlhbHMiICJMREFQUyIKICAgICAgICBiYWNrZW5kIC0+IGRycyAiUmVxdWVzdHMgZGV2aWNlIHJpc2sgc2NvcmVzIiAiSFRUUFMvUkVTVCIKCiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgICMgUkVMQVRJT05TSElQUyAtIENvbXBvbmVudCBMZXZlbCAoQmFja2VuZCkKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CgogICAgICAgICMgQ29udHJvbGxlcnMgdG8gU2VydmljZXMKICAgICAgICBhdXRoQ29udHJvbGxlciAtPiB0b2tlblNlcnZpY2UgIkdlbmVyYXRlcyBhbmQgdmFsaWRhdGVzIHRva2VucyIKICAgICAgICBhdXRoQ29udHJvbGxlciAtPiBzZXNzaW9uU2VydmljZSAiQ3JlYXRlcyBhbmQgbWFuYWdlcyBzZXNzaW9ucyIKICAgICAgICBhdXRoQ29udHJvbGxlciAtPiB1c2VyU2VydmljZSAiUmV0cmlldmVzIHVzZXIgaW5mb3JtYXRpb24iCiAgICAgICAgYXV0aENvbnRyb2xsZXIgLT4gZGV2aWNlU2VydmljZSAiRXZhbHVhdGVzIGRldmljZSB0cnVzdCIKCiAgICAgICAgbWZhQ29udHJvbGxlciAtPiBtZmFTZXJ2aWNlICJPcmNoZXN0cmF0ZXMgTUZBIGZsb3dzIgogICAgICAgIG1mYUNvbnRyb2xsZXIgLT4gdG9rZW5TZXJ2aWNlICJWYWxpZGF0ZXMgYXV0aGVudGljYXRpb24gc3RhdGUiCiAgICAgICAgbWZhQ29udHJvbGxlciAtPiBzZXNzaW9uU2VydmljZSAiVXBkYXRlcyBzZXNzaW9uIE1GQSBzdGF0dXMiCgogICAgICAgIGRldmljZUNvbnRyb2xsZXIgLT4gZGV2aWNlU2VydmljZSAiQmluZHMgdHJ1c3RlZCBkZXZpY2VzIgogICAgICAgIGRldmljZUNvbnRyb2xsZXIgLT4gc2Vzc2lvblNlcnZpY2UgIkFzc29jaWF0ZXMgZGV2aWNlcyB3aXRoIHNlc3Npb25zIgoKICAgICAgICBzZXNzaW9uQ29udHJvbGxlciAtPiBzZXNzaW9uU2VydmljZSAiTWFuYWdlcyBzZXNzaW9uIGxpZmVjeWNsZSIKICAgICAgICBzZXNzaW9uQ29udHJvbGxlciAtPiB0b2tlblNlcnZpY2UgIlJldm9rZXMgdG9rZW5zIG9uIGxvZ291dCIKCiAgICAgICAgdXNlckNvbnRyb2xsZXIgLT4gdXNlclNlcnZpY2UgIlJldHJpZXZlcyB1c2VyIHByb2ZpbGUgZGF0YSIKCiAgICAgICAgIyBTZXJ2aWNlcyB0byBSZXBvc2l0b3JpZXMKICAgICAgICB0b2tlblNlcnZpY2UgLT4gcmVwb3NpdG9yaWVzICJDUlVEIG9wZXJhdGlvbnMgb24gdG9rZW5zIgogICAgICAgIHNlc3Npb25TZXJ2aWNlIC0+IHJlcG9zaXRvcmllcyAiQ1JVRCBvcGVyYXRpb25zIG9uIHNlc3Npb25zIgogICAgICAgIGRldmljZVNlcnZpY2UgLT4gcmVwb3NpdG9yaWVzICJDUlVEIG9wZXJhdGlvbnMgb24gdHJ1c3RlZCBkZXZpY2VzIGFuZCBEUlMgZXZhbHVhdGlvbnMiCiAgICAgICAgbWZhU2VydmljZSAtPiByZXBvc2l0b3JpZXMgIkxvZ3MgTUZBIHRyYW5zYWN0aW9ucyIKICAgICAgICB1c2VyU2VydmljZSAtPiByZXBvc2l0b3JpZXMgIlJldHJpZXZlcyB1c2VyIGRhdGEiCiAgICAgICAgZXNpZ25TZXJ2aWNlIC0+IHJlcG9zaXRvcmllcyAiUmVjb3JkcyBlLXNpZ25hdHVyZSBhY2NlcHRhbmNlIgoKICAgICAgICAjIFJlcG9zaXRvcmllcyB0byBEYXRhYmFzZQogICAgICAgIHJlcG9zaXRvcmllcyAtPiBkYXRhYmFzZSAiRXhlY3V0ZXMgU1FMIHF1ZXJpZXMiCgogICAgICAgICMgTWlkZGxld2FyZQogICAgICAgIGF1dGhNaWRkbGV3YXJlIC0+IHRva2VuU2VydmljZSAiVmFsaWRhdGVzIEpXVCB0b2tlbnMiCiAgICAgICAgcmF0ZUxpbWl0ZXIgLT4gYXV0aENvbnRyb2xsZXIgIlJhdGUgbGltaXRzIGF1dGhlbnRpY2F0aW9uIGF0dGVtcHRzIgogICAgICAgIHJhdGVMaW1pdGVyIC0+IG1mYUNvbnRyb2xsZXIgIlJhdGUgbGltaXRzIE1GQSBhdHRlbXB0cyIKCiAgICAgICAgIyBFeHRlcm5hbCBJbnRlZ3JhdGlvbgogICAgICAgIGRldmljZVNlcnZpY2UgLT4gZHJzICJTdWJtaXRzIGRldmljZSBmaW5nZXJwcmludHMgZm9yIHJpc2sgc2NvcmluZyIKICAgICAgICB1c2VyU2VydmljZSAtPiBsZGFwICJWYWxpZGF0ZXMgY3JlZGVudGlhbHMiCgogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICAjIFJFTEFUSU9OU0hJUFMgLSBDb21wb25lbnQgTGV2ZWwgKFVJIFNESykKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CgogICAgICAgICMgQ29tcG9uZW50cyB0byBDb250ZXh0CiAgICAgICAgbG9naW5Db21wb25lbnQgLT4gY2lhbVByb3ZpZGVyICJBY2Nlc3NlcyBhdXRoIGNvbnRleHQiCiAgICAgICAgbWZhRGlhbG9nIC0+IGNpYW1Qcm92aWRlciAiQWNjZXNzZXMgYXV0aCBjb250ZXh0IgogICAgICAgIGRldmljZUJpbmREaWFsb2cgLT4gY2lhbVByb3ZpZGVyICJBY2Nlc3NlcyBhdXRoIGNvbnRleHQiCiAgICAgICAgZXNpZ25EaWFsb2cgLT4gY2lhbVByb3ZpZGVyICJBY2Nlc3NlcyBhdXRoIGNvbnRleHQiCiAgICAgICAgcHJvdGVjdGVkUm91dGUgLT4gY2lhbVByb3ZpZGVyICJDaGVja3MgYXV0aGVudGljYXRpb24gc3RhdGUiCiAgICAgICAgcHJvdGVjdGVkQXBwIC0+IGNpYW1Qcm92aWRlciAiUHJvdmlkZXMgYXV0aCBjb250ZXh0IHRvIGFwcCIKCiAgICAgICAgIyBIb29rcyB0byBDb250ZXh0CiAgICAgICAgdXNlQXV0aEhvb2sgLT4gY2lhbVByb3ZpZGVyICJSZWFkcyBhdXRoZW50aWNhdGlvbiBzdGF0ZSIKICAgICAgICB1c2VNZmFIb29rIC0+IGNpYW1Qcm92aWRlciAiUmVhZHMgTUZBIHN0YXRlIgoKICAgICAgICAjIEhvb2tzIHRvIFNlcnZpY2VzCiAgICAgICAgdXNlQXV0aEhvb2sgLT4gYXV0aFNlcnZpY2UgIk1ha2VzIEFQSSBjYWxscyIKICAgICAgICB1c2VNZmFIb29rIC0+IGF1dGhTZXJ2aWNlICJNYWtlcyBBUEkgY2FsbHMiCgogICAgICAgICMgQ29tcG9uZW50cyB0byBIb29rcwogICAgICAgIGxvZ2luQ29tcG9uZW50IC0+IHVzZUF1dGhIb29rICJVc2VzIGF1dGhlbnRpY2F0aW9uIGxvZ2ljIgogICAgICAgIG1mYURpYWxvZyAtPiB1c2VNZmFIb29rICJVc2VzIE1GQSBsb2dpYyIKCiAgICAgICAgIyBTZXJ2aWNlIHRvIEJhY2tlbmQKICAgICAgICBhdXRoU2VydmljZSAtPiBiYWNrZW5kICJIVFRQIHJlcXVlc3RzIGZvciBhdXRoIG9wZXJhdGlvbnMiCgogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICAjIERFUExPWU1FTlQgKE9wdGlvbmFsIC0gZm9yIGZ1dHVyZSkKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgIyBVbmNvbW1lbnQgd2hlbiBkZXBsb3lpbmcgdG8gY2xvdWQKICAgICAgICAjIGRlcGxveW1lbnRFbnZpcm9ubWVudCAiUHJvZHVjdGlvbiIgewogICAgICAgICMgICAgIGRlcGxveW1lbnROb2RlICJBV1MiIHsKICAgICAgICAjICAgICAgICAgZGVwbG95bWVudE5vZGUgIkVDUyBDbHVzdGVyIiB7CiAgICAgICAgIyAgICAgICAgICAgICBjb250YWluZXJJbnN0YW5jZSBiYWNrZW5kCiAgICAgICAgIyAgICAgICAgIH0KICAgICAgICAjICAgICAgICAgZGVwbG95bWVudE5vZGUgIkNsb3VkRnJvbnQiIHsKICAgICAgICAjICAgICAgICAgICAgIGNvbnRhaW5lckluc3RhbmNlIHN0b3JlZnJvbnQKICAgICAgICAjICAgICAgICAgICAgIGNvbnRhaW5lckluc3RhbmNlIGFjY291bnRBcHAKICAgICAgICAjICAgICAgICAgfQogICAgICAgICMgICAgICAgICBkZXBsb3ltZW50Tm9kZSAiUkRTIiB7CiAgICAgICAgIyAgICAgICAgICAgICBjb250YWluZXJJbnN0YW5jZSBkYXRhYmFzZQogICAgICAgICMgICAgICAgICB9CiAgICAgICAgIyAgICAgfQogICAgICAgICMgfQogICAgfQoKICAgIHZpZXdzIHsKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgIyBTWVNURU0gQ09OVEVYVCBESUFHUkFNIChMZXZlbCAxKQogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICBzeXN0ZW1Db250ZXh0IGNpYW1TdWl0ZSAiU3lzdGVtQ29udGV4dCIgewogICAgICAgICAgICBpbmNsdWRlICoKICAgICAgICAgICAgYXV0b0xheW91dCBscgogICAgICAgICAgICB0aXRsZSAiW1N5c3RlbSBDb250ZXh0XSBDSUFNIEludGVncmF0aW9uIFN1aXRlMSIKICAgICAgICAgICAgZGVzY3JpcHRpb24gIkhpZ2gtbGV2ZWwgdmlldyBzaG93aW5nIHVzZXJzLCB0aGUgQ0lBTSBwbGF0Zm9ybSwgYW5kIGV4dGVybmFsIHN5c3RlbXMiCiAgICAgICAgfQogICAgICAgIAogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICAjIENPTlRBSU5FUiBESUFHUkFNIChMZXZlbCAyKQogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICBjb250YWluZXIgY2lhbVN1aXRlICJDb250YWluZXJzIiB7CiAgICAgICAgICAgIGluY2x1ZGUgKgogICAgICAgICAgICBhdXRvTGF5b3V0IGxyCiAgICAgICAgICAgIHRpdGxlICJbQ29udGFpbmVyXSBDSUFNIEludGVncmF0aW9uIFN1aXRlIC0gQXBwbGljYXRpb25zIGFuZCBEYXRhYmFzZXMiCiAgICAgICAgICAgIGRlc2NyaXB0aW9uICJTaG93cyB0aGUgYXBwbGljYXRpb25zLCBkYXRhYmFzZXMsIGFuZCB0aGVpciBpbnRlcmFjdGlvbnMgd2l0aGluIHRoZSBDSUFNIHBsYXRmb3JtIgogICAgICAgIH0KCiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgICMgQ09NUE9ORU5UIERJQUdSQU0gLSBCYWNrZW5kIChMZXZlbCAzKQogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICBjb21wb25lbnQgYmFja2VuZCAiQmFja2VuZENvbXBvbmVudHMiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9MYXlvdXQgdGIKICAgICAgICAgICAgdGl0bGUgIltDb21wb25lbnRdIENJQU0gQmFja2VuZCAtIEludGVybmFsIFN0cnVjdHVyZSIKICAgICAgICAgICAgZGVzY3JpcHRpb24gIkNvbnRyb2xsZXJzLCBTZXJ2aWNlcywgYW5kIFJlcG9zaXRvcmllcyB3aXRoaW4gdGhlIGF1dGhlbnRpY2F0aW9uIEFQSSIKICAgICAgICB9CgogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICAjIENPTVBPTkVOVCBESUFHUkFNIC0gVUkgU0RLIChMZXZlbCAzKQogICAgICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICAgICBjb21wb25lbnQgdWlTZGsgIlVpU2RrQ29tcG9uZW50cyIgewogICAgICAgICAgICBpbmNsdWRlICoKICAgICAgICAgICAgYXV0b0xheW91dCB0YgogICAgICAgICAgICB0aXRsZSAiW0NvbXBvbmVudF0gQ0lBTSBVSSBTREsgLSBSZWFjdCBDb21wb25lbnRzIGFuZCBIb29rcyIKICAgICAgICAgICAgZGVzY3JpcHRpb24gIlJldXNhYmxlIGF1dGhlbnRpY2F0aW9uIGNvbXBvbmVudHMsIGhvb2tzLCBhbmQgc2VydmljZXMgZm9yIHdlYiBhcHBsaWNhdGlvbnMiCiAgICAgICAgfQoKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgIyBTVFlMRVMKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgc3R5bGVzIHsKICAgICAgICAgICAgIyBFbGVtZW50IFN0eWxlcwogICAgICAgICAgICBlbGVtZW50ICJQZXJzb24iIHsKICAgICAgICAgICAgICAgIHNoYXBlIFBlcnNvbgogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMDg0MjdCCiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGVsZW1lbnQgIlNvZnR3YXJlIFN5c3RlbSIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjMTE2OEJECiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGVsZW1lbnQgIkV4dGVybmFsIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM5OTk5OTkKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiQ29udGFpbmVyIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM0MzhERDUKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiQmFja2VuZCIgewogICAgICAgICAgICAgICAgc2hhcGUgUm91bmRlZEJveAogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjNDM4REQ1CiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGVsZW1lbnQgIkZyb250ZW5kIiB7CiAgICAgICAgICAgICAgICBzaGFwZSBXZWJCcm93c2VyCiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM4NUJCRjAKICAgICAgICAgICAgICAgIGNvbG9yICMwMDAwMDAKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiTGlicmFyeSIgewogICAgICAgICAgICAgICAgc2hhcGUgQ29tcG9uZW50CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM4NUJCRjAKICAgICAgICAgICAgICAgIGNvbG9yICMwMDAwMDAKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiRGF0YWJhc2UiIHsKICAgICAgICAgICAgICAgIHNoYXBlIEN5bGluZGVyCiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM0MzhERDUKICAgICAgICAgICAgICAgIGNvbG9yICNmZmZmZmYKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiQ29tcG9uZW50IiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICM4NUJCRjAKICAgICAgICAgICAgICAgIGNvbG9yICMwMDAwMDAKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiQ29udHJvbGxlciIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjNUE5RkQ0CiAgICAgICAgICAgICAgICBjb2xvciAjZmZmZmZmCiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGVsZW1lbnQgIlNlcnZpY2UiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgIzdDQUZERAogICAgICAgICAgICAgICAgY29sb3IgIzAwMDAwMAogICAgICAgICAgICB9CgogICAgICAgICAgICBlbGVtZW50ICJSZXBvc2l0b3J5IiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICNBMUM1RTcKICAgICAgICAgICAgICAgIGNvbG9yICMwMDAwMDAKICAgICAgICAgICAgfQoKICAgICAgICAgICAgZWxlbWVudCAiTWlkZGxld2FyZSIgewogICAgICAgICAgICAgICAgYmFja2dyb3VuZCAjQ0NEQkVGCiAgICAgICAgICAgICAgICBjb2xvciAjMDAwMDAwCiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIGVsZW1lbnQgIkNvbnRleHQiIHsKICAgICAgICAgICAgICAgIGJhY2tncm91bmQgI0Q0QTVBNQogICAgICAgICAgICAgICAgY29sb3IgIzAwMDAwMAogICAgICAgICAgICB9CgogICAgICAgICAgICBlbGVtZW50ICJIb29rIiB7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kICNBOEQ4RUEKICAgICAgICAgICAgICAgIGNvbG9yICMwMDAwMDAKICAgICAgICAgICAgfQoKICAgICAgICAgICAgIyBSZWxhdGlvbnNoaXAgU3R5bGVzCiAgICAgICAgICAgIHJlbGF0aW9uc2hpcCAiUmVsYXRpb25zaGlwIiB7CiAgICAgICAgICAgICAgICB0aGlja25lc3MgMgogICAgICAgICAgICAgICAgY29sb3IgIzcwNzA3MAogICAgICAgICAgICAgICAgc3R5bGUgc29saWQKICAgICAgICAgICAgfQoKICAgICAgICAgICAgcmVsYXRpb25zaGlwICJSZWFkcyBmcm9tIGFuZCB3cml0ZXMgdG8iIHsKICAgICAgICAgICAgICAgIHRoaWNrbmVzcyA0CiAgICAgICAgICAgIH0KCiAgICAgICAgICAgIHJlbGF0aW9uc2hpcCAiTWFrZXMgQVBJIGNhbGxzIiB7CiAgICAgICAgICAgICAgICBzdHlsZSBkYXNoZWQKICAgICAgICAgICAgfQogICAgICAgIH0KCiAgICAgICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgICAgICMgVEhFTUUKICAgICAgICAjID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiAgICAgICAgdGhlbWUgZGVmYXVsdAogICAgfQoKICAgICMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KICAgICMgQ09ORklHVVJBVElPTgogICAgIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogICAgY29uZmlndXJhdGlvbiB7CiAgICAgICAgc2NvcGUgc29mdHdhcmVzeXN0ZW0KICAgIH0KfQ=="
+  },
+  "views" : {
+    "componentViews" : [ {
+      "automaticLayout" : {
+        "applied" : true,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "TopBottom",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "containerId" : "3",
+      "description" : "Controllers, Services, and Repositories within the authentication API",
+      "dimensions" : {
+        "height" : 3239,
+        "width" : 6152
+      },
+      "elements" : [ {
+        "id" : "4",
+        "x" : 3239,
+        "y" : 783
+      }, {
+        "id" : "5",
+        "x" : 989,
+        "y" : 783
+      }, {
+        "id" : "6",
+        "x" : 2489,
+        "y" : 783
+      }, {
+        "id" : "7",
+        "x" : 1739,
+        "y" : 783
+      }, {
+        "id" : "8",
+        "x" : 3989,
+        "y" : 783
+      }, {
+        "id" : "9",
+        "x" : 1364,
+        "y" : 183
+      }, {
+        "id" : "10",
+        "x" : 989,
+        "y" : 1383
+      }, {
+        "id" : "11",
+        "x" : 239,
+        "y" : 1383
+      }, {
+        "id" : "12",
+        "x" : 3239,
+        "y" : 1383
+      }, {
+        "id" : "13",
+        "x" : 1739,
+        "y" : 1383
+      }, {
+        "id" : "14",
+        "x" : 2489,
+        "y" : 1383
+      }, {
+        "id" : "15",
+        "x" : 3989,
+        "y" : 1383
+      }, {
+        "id" : "16",
+        "x" : 2114,
+        "y" : 1983
+      }, {
+        "id" : "17",
+        "x" : 239,
+        "y" : 783
+      }, {
+        "id" : "18",
+        "x" : 2676,
+        "y" : 183
+      }, {
+        "id" : "32",
+        "x" : 2114,
+        "y" : 2583
+      }, {
+        "id" : "33",
+        "x" : 5501,
+        "y" : 1983
+      }, {
+        "id" : "34",
+        "x" : 4751,
+        "y" : 1983
+      } ],
+      "externalContainerBoundariesVisible" : false,
+      "key" : "BackendComponents",
+      "name" : "Component View: CIAM Integration Suite - CIAM Backend",
+      "order" : 3,
+      "relationships" : [ {
+        "id" : "46",
+        "vertices" : [ {
+          "x" : 3089,
+          "y" : 1083
+        }, {
+          "x" : 1589,
+          "y" : 1383
+        } ]
+      }, {
+        "id" : "47"
+      }, {
+        "id" : "48"
+      }, {
+        "id" : "49"
+      }, {
+        "id" : "50"
+      }, {
+        "id" : "51"
+      }, {
+        "id" : "52"
+      }, {
+        "id" : "53"
+      }, {
+        "id" : "54"
+      }, {
+        "id" : "55"
+      }, {
+        "id" : "56"
+      }, {
+        "id" : "57"
+      }, {
+        "id" : "58"
+      }, {
+        "id" : "59"
+      }, {
+        "id" : "60"
+      }, {
+        "id" : "61",
+        "vertices" : [ {
+          "x" : 839,
+          "y" : 1683
+        } ]
+      }, {
+        "id" : "62",
+        "vertices" : [ {
+          "x" : 3839,
+          "y" : 1683
+        } ]
+      }, {
+        "id" : "63"
+      }, {
+        "id" : "64"
+      }, {
+        "id" : "65"
+      }, {
+        "id" : "66"
+      }, {
+        "id" : "67",
+        "vertices" : [ {
+          "x" : 1589,
+          "y" : 783
+        } ]
+      }, {
+        "id" : "68",
+        "vertices" : [ {
+          "x" : 3839,
+          "y" : 1683
+        }, {
+          "x" : 4618,
+          "y" : 1983
+        } ]
+      }, {
+        "id" : "69"
+      } ],
+      "title" : "[Component] CIAM Backend - Internal Structure"
+    }, {
+      "automaticLayout" : {
+        "applied" : true,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "TopBottom",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "containerId" : "19",
+      "description" : "Reusable authentication components, hooks, and services for web applications",
+      "dimensions" : {
+        "height" : 2639,
+        "width" : 5297
+      },
+      "elements" : [ {
+        "id" : "3",
+        "x" : 4231,
+        "y" : 1982
+      }, {
+        "id" : "20",
+        "x" : 1981,
+        "y" : 1382
+      }, {
+        "id" : "21",
+        "x" : 3831,
+        "y" : 182
+      }, {
+        "id" : "22",
+        "x" : 1539,
+        "y" : 182
+      }, {
+        "id" : "23",
+        "x" : 239,
+        "y" : 782
+      }, {
+        "id" : "24",
+        "x" : 3106,
+        "y" : 782
+      }, {
+        "id" : "25",
+        "x" : 2356,
+        "y" : 782
+      }, {
+        "id" : "26",
+        "x" : 1606,
+        "y" : 782
+      }, {
+        "id" : "27",
+        "x" : 4606,
+        "y" : 782
+      }, {
+        "id" : "28",
+        "x" : 3856,
+        "y" : 782
+      }, {
+        "id" : "29",
+        "x" : 4231,
+        "y" : 1382
+      } ],
+      "externalContainerBoundariesVisible" : false,
+      "key" : "UiSdkComponents",
+      "name" : "Component View: CIAM Integration Suite - CIAM UI SDK",
+      "order" : 4,
+      "relationships" : [ {
+        "id" : "70",
+        "vertices" : [ {
+          "x" : 1456,
+          "y" : 782
+        }, {
+          "x" : 1456,
+          "y" : 1082
+        } ]
+      }, {
+        "id" : "71",
+        "vertices" : [ {
+          "x" : 1222,
+          "y" : 782
+        }, {
+          "x" : 1222,
+          "y" : 1082
+        } ]
+      }, {
+        "id" : "72"
+      }, {
+        "id" : "73"
+      }, {
+        "id" : "74"
+      }, {
+        "id" : "75"
+      }, {
+        "id" : "76",
+        "vertices" : [ {
+          "x" : 4456,
+          "y" : 1082
+        } ]
+      }, {
+        "id" : "77",
+        "vertices" : [ {
+          "x" : 3706,
+          "y" : 1082
+        } ]
+      }, {
+        "id" : "78"
+      }, {
+        "id" : "79"
+      }, {
+        "id" : "80"
+      }, {
+        "id" : "81",
+        "vertices" : [ {
+          "x" : 3706,
+          "y" : 782
+        } ]
+      }, {
+        "id" : "82"
+      } ],
+      "title" : "[Component] CIAM UI SDK - React Components and Hooks"
+    } ],
+    "configuration" : {
+      "branding" : { },
+      "lastSavedView" : "UiSdkComponents",
+      "metadataSymbols" : "SquareBrackets",
+      "styles" : {
+        "elements" : [ {
+          "background" : "#438dd5",
+          "color" : "#ffffff",
+          "shape" : "RoundedBox",
+          "tag" : "Backend"
+        }, {
+          "background" : "#85bbf0",
+          "color" : "#000000",
+          "tag" : "Component"
+        }, {
+          "background" : "#438dd5",
+          "color" : "#ffffff",
+          "tag" : "Container"
+        }, {
+          "background" : "#d4a5a5",
+          "color" : "#000000",
+          "tag" : "Context"
+        }, {
+          "background" : "#5a9fd4",
+          "color" : "#ffffff",
+          "tag" : "Controller"
+        }, {
+          "background" : "#438dd5",
+          "color" : "#ffffff",
+          "shape" : "Cylinder",
+          "tag" : "Database"
+        }, {
+          "background" : "#999999",
+          "color" : "#ffffff",
+          "tag" : "External"
+        }, {
+          "background" : "#85bbf0",
+          "color" : "#000000",
+          "shape" : "WebBrowser",
+          "tag" : "Frontend"
+        }, {
+          "background" : "#a8d8ea",
+          "color" : "#000000",
+          "tag" : "Hook"
+        }, {
+          "background" : "#85bbf0",
+          "color" : "#000000",
+          "shape" : "Component",
+          "tag" : "Library"
+        }, {
+          "background" : "#ccdbef",
+          "color" : "#000000",
+          "tag" : "Middleware"
+        }, {
+          "background" : "#08427b",
+          "color" : "#ffffff",
+          "shape" : "Person",
+          "tag" : "Person"
+        }, {
+          "background" : "#a1c5e7",
+          "color" : "#000000",
+          "tag" : "Repository"
+        }, {
+          "background" : "#7cafdd",
+          "color" : "#000000",
+          "tag" : "Service"
+        }, {
+          "background" : "#1168bd",
+          "color" : "#ffffff",
+          "tag" : "Software System"
+        } ],
+        "relationships" : [ {
+          "style" : "Dashed",
+          "tag" : "Makes API calls"
+        }, {
+          "tag" : "Reads from and writes to",
+          "thickness" : 4
+        }, {
+          "color" : "#707070",
+          "style" : "Solid",
+          "tag" : "Relationship",
+          "thickness" : 2
+        } ]
+      },
+      "terminology" : { },
+      "themes" : [ "https://static.structurizr.com/themes/default/theme.json" ]
+    },
+    "containerViews" : [ {
+      "automaticLayout" : {
+        "applied" : true,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "description" : "Shows the applications, databases, and their interactions within the CIAM platform",
+      "dimensions" : {
+        "height" : 2428,
+        "width" : 3820
+      },
+      "elements" : [ {
+        "id" : "1",
+        "x" : 200,
+        "y" : 412
+      }, {
+        "id" : "3",
+        "x" : 2400,
+        "y" : 762
+      }, {
+        "id" : "19",
+        "x" : 1650,
+        "y" : 762
+      }, {
+        "id" : "30",
+        "x" : 900,
+        "y" : 162
+      }, {
+        "id" : "31",
+        "x" : 900,
+        "y" : 762
+      }, {
+        "id" : "32",
+        "x" : 3150,
+        "y" : 670
+      }, {
+        "id" : "33",
+        "x" : 3150,
+        "y" : 1270
+      }, {
+        "id" : "34",
+        "x" : 3150,
+        "y" : 1870
+      } ],
+      "externalSoftwareSystemBoundariesVisible" : false,
+      "key" : "Containers",
+      "name" : "Container View: CIAM Integration Suite",
+      "order" : 2,
+      "relationships" : [ {
+        "id" : "35"
+      }, {
+        "id" : "37"
+      }, {
+        "id" : "38"
+      }, {
+        "id" : "39"
+      }, {
+        "id" : "40"
+      }, {
+        "id" : "41"
+      }, {
+        "id" : "42"
+      }, {
+        "id" : "44",
+        "vertices" : [ {
+          "x" : 3150,
+          "y" : 1720
+        } ]
+      } ],
+      "softwareSystemId" : "2",
+      "title" : "[Container] CIAM Integration Suite - Applications and Databases"
+    } ],
+    "systemContextViews" : [ {
+      "automaticLayout" : {
+        "applied" : true,
+        "edgeSeparation" : 0,
+        "implementation" : "Graphviz",
+        "nodeSeparation" : 300,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 300,
+        "vertices" : false
+      },
+      "description" : "High-level view showing users, the CIAM platform, and external systems",
+      "dimensions" : {
+        "height" : 1300,
+        "width" : 2300
+      },
+      "elements" : [ {
+        "id" : "1",
+        "x" : 200,
+        "y" : 392
+      }, {
+        "id" : "2",
+        "x" : 900,
+        "y" : 442
+      }, {
+        "id" : "33",
+        "x" : 1650,
+        "y" : 142
+      }, {
+        "id" : "34",
+        "x" : 1650,
+        "y" : 742
+      } ],
+      "enterpriseBoundaryVisible" : true,
+      "key" : "SystemContext",
+      "name" : "System Context View: CIAM Integration Suite",
+      "order" : 1,
+      "relationships" : [ {
+        "id" : "36"
+      }, {
+        "id" : "43"
+      }, {
+        "id" : "45"
+      } ],
+      "softwareSystemId" : "2",
+      "title" : "[System Context] CIAM Integration Suite1"
+    } ]
+  }
+}

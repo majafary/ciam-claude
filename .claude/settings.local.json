@@ -60,7 +60,19 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(tree:*)",
+      "Bash(docker network:*)",
+      "Bash(open http://localhost:8081)",
+      "Bash(docker exec:*)",
+      "Bash(rm:*)",
+      "Bash(open:*)",
+      "Bash(npx playwright:*)",
+      "Bash(echo:*)",
+      "Bash(/tmp/test-auto-refresh.sh)",
+      "WebFetch(domain:docs.structurizr.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(touch:*)"
     ],
     "deny": [],
     "ask": []

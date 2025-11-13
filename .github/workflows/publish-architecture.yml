@@ -1,0 +1,102 @@
+name: Publish Architecture Diagrams
+
+# Trigger on changes to architecture files
+on:
+  push:
+    branches:
+      - main
+      - master
+      - feature/purge-optimization-10-21  # Current branch for testing
+    paths:
+      - 'docs/architecture/**'
+  workflow_dispatch:  # Allow manual trigger
+
+# Permissions needed for publishing
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Architecture Diagrams
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Structurizr CLI
+        run: |
+          npm install -g @structurizr/cli
+          structurizr-cli version
+
+      - name: Validate workspace.dsl
+        run: |
+          cd docs/architecture
+          echo "Validating workspace.dsl syntax..."
+          structurizr-cli validate workspace.dsl
+          echo "✅ Validation successful!"
+
+      - name: Generate diagram preview (SVG)
+        run: |
+          cd docs/architecture
+          echo "Generating SVG diagrams for preview..."
+          structurizr-cli export workspace.dsl -format plantuml -output ./preview
+          ls -la ./preview || echo "Preview generation complete"
+
+      - name: Architecture validation summary
+        run: |
+          echo "### ✅ Architecture Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**File**: \`docs/architecture/workspace.dsl\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: Valid C4 model structure" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next Steps**:" >> $GITHUB_STEP_SUMMARY
+          echo "1. View diagrams locally: \`docker-compose -f docker-compose.structurizr.yml up\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Open browser: http://localhost:8081" >> $GITHUB_STEP_SUMMARY
+          echo "3. Navigate through System Context → Containers → Components" >> $GITHUB_STEP_SUMMARY
+
+  # Future: Publish to central Structurizr server
+  # Uncomment when you have a central Structurizr server deployed
+  # publish:
+  #   name: Publish to Structurizr Server
+  #   runs-on: ubuntu-latest
+  #   needs: validate
+  #   if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+  #
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '20'
+  #
+  #     - name: Install Structurizr CLI
+  #       run: npm install -g @structurizr/cli
+  #
+  #     - name: Push to Structurizr Server
+  #       env:
+  #         STRUCTURIZR_URL: ${{ secrets.STRUCTURIZR_URL }}
+  #         STRUCTURIZR_WORKSPACE_ID: ${{ secrets.STRUCTURIZR_WORKSPACE_ID }}
+  #         STRUCTURIZR_API_KEY: ${{ secrets.STRUCTURIZR_API_KEY }}
+  #       run: |
+  #         cd docs/architecture
+  #         structurizr-cli push \
+  #           -url $STRUCTURIZR_URL \
+  #           -id $STRUCTURIZR_WORKSPACE_ID \
+  #           -key $STRUCTURIZR_API_KEY \
+  #           -workspace workspace.dsl
+  #
+  #     - name: Notify success
+  #       run: |
+  #         echo "✅ Architecture published to: ${{ secrets.STRUCTURIZR_URL }}/workspace/${{ secrets.STRUCTURIZR_WORKSPACE_ID }}"
+  #         echo "### 🚀 Architecture Published" >> $GITHUB_STEP_SUMMARY
+  #         echo "" >> $GITHUB_STEP_SUMMARY
+  #         echo "**View diagrams**: [${{ secrets.STRUCTURIZR_URL }}/workspace/${{ secrets.STRUCTURIZR_WORKSPACE_ID }}](${{ secrets.STRUCTURIZR_URL }}/workspace/${{ secrets.STRUCTURIZR_WORKSPACE_ID }})" >> $GITHUB_STEP_SUMMARY
