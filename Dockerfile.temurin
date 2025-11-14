@@ -1,0 +1,45 @@
+# Dockerfile for Structurizr Lite on ECS Fargate
+# Using Eclipse Temurin 21 JRE (formerly AdoptOpenJDK)
+
+FROM eclipse-temurin:21-jre
+
+# Set working directory
+WORKDIR /usr/local
+
+# Install curl for health checks
+RUN apt-get update && \
+    apt-get install -y curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download Structurizr Lite WAR file from official GitHub releases
+# Using the latest stable release
+RUN curl -L https://github.com/structurizr/lite/releases/latest/download/structurizr-lite.war \
+    -o /usr/local/structurizr-lite.war
+
+# Set workspace filename (without .dsl extension - Structurizr appends it)
+ENV STRUCTURIZR_WORKSPACE_FILENAME=ciam
+
+# Copy architecture documentation files into the container
+# This includes: ciam.dsl, structurizr.properties, and any supporting files
+COPY docs/architecture/ /usr/local/structurizr/
+
+# Expose port 8080 for the web interface
+# In ECS, map this to your ALB target group port
+EXPOSE 8080
+
+# Health check for ECS Fargate
+# Checks if Structurizr web server is responding
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:8080/ || exit 1
+
+# Run Structurizr Lite with optimized JVM settings for Fargate
+# -Xmx256m: Maximum heap size (fits within 512MB Fargate task memory)
+# -Xms128m: Initial heap size
+# -XX:+UseContainerSupport: Respect container memory limits
+ENTRYPOINT ["java", \
+    "-Xmx256m", \
+    "-Xms128m", \
+    "-XX:+UseContainerSupport", \
+    "-jar", \
+    "/usr/local/structurizr-lite.war"]
