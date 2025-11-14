@@ -1,0 +1,54 @@
+# Docker build context exclusions for Structurizr image
+# Only include docs/architecture/ files, exclude everything else
+
+# Exclude all by default
+*
+
+# Include only architecture documentation
+!docs/
+!docs/architecture/
+!docs/architecture/*.dsl
+!docs/architecture/*.json
+!docs/architecture/*.md
+!docs/architecture/*.properties
+
+# Exclude version control
+.git/
+.gitignore
+
+# Exclude node modules and dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Exclude development files
+*.log
+*.tmp
+*.swp
+.env
+.env.*
+
+# Exclude Docker files (don't need in image)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Exclude IDE and editor files
+.vscode/
+.idea/
+*.iml
+.DS_Store
+
+# Exclude test files and temporary directories
+test/
+tests/
+__tests__/
+tmp/
+temp/
+claudedocs/
+
+# Exclude build artifacts
+dist/
+build/
+out/
